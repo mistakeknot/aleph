@@ -5,6 +5,14 @@ description: "Expose a local HTTP server through BB Connect and give the user it
 
 # Share local server links via bb connect
 
+Server-host legacy shares support owner page notes. Use
+`bb connect annotations --port <port> --url <exact-page-url>` to list notes as JSON.
+Pass `--change '<json>'` to apply an `annotation` message containing the full page
+annotation, an `annotation-update` with `id` and `comment`, or an
+`annotation-delete` with `id`. The CLI and preview overlay use the same store.
+No command sends notes to a thread. Machine-hosted and connect-next previews do
+not yet inject the annotation overlay.
+
 When you start an HTTP server the user should open, give them a connect share
 URL — not a localhost URL. Shares work from threads running on any enrolled
 host, and the command resolves the thread's host automatically.

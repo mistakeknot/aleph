@@ -22,6 +22,11 @@ import type { RemoteAccessSwitch } from "./rpc.js";
 import { parseSharePort } from "./shares.js";
 import type { ConnectTunnel } from "./tunnel.js";
 import type { ConnectStatus, ShareListing } from "./types.js";
+import {
+  annotationChangeSchema,
+  annotationScopeSchema,
+  type AnnotationStore,
+} from "./annotation-store.js";
 
 const DESCRIPTION = [
   "Remote access via getbb.app — this bb becomes reachable at https://<handle>.getbb.app.",
@@ -169,6 +174,7 @@ async function attempt(
 }
 
 export function registerConnectCli(args: {
+  annotations?: AnnotationStore;
   bb: Pick<BbPluginApi, "cli">;
   tunnel: ConnectTunnel;
   account: AccountClient;
@@ -248,6 +254,44 @@ export function registerConnectCli(args: {
           }),
       }),
       commands: {
+        annotations: cliCommand({
+          summary: "List page notes, or apply a JSON annotation change",
+          options: {
+            port: {
+              type: "string",
+              description: "Shared server port",
+              required: true,
+            },
+            url: {
+              type: "string",
+              description: "Exact preview page URL",
+              required: true,
+            },
+            change: {
+              type: "string",
+              description:
+                "JSON annotation, annotation-update or annotation-delete message",
+            },
+          },
+          run: (input) =>
+            attempt(async () => {
+              if (!args.annotations) throw new Error("Annotations unavailable");
+              const scope = annotationScopeSchema.parse({
+                port: Number(input.options.port),
+                url: input.options.url,
+              });
+              const records =
+                input.options.change === undefined
+                  ? await args.annotations.list(scope)
+                  : await args.annotations.change(
+                      scope,
+                      annotationChangeSchema.parse(
+                        JSON.parse(input.options.change),
+                      ),
+                    );
+              return { exitCode: 0, stdout: asJson(records) };
+            }),
+        }),
         status: cliCommand({
           summary: "Show remote-access status",
           options: { json: JSON_OPTION },

@@ -5,6 +5,7 @@ import {
   buildActivateExpression,
   buildControllerExpression,
   buildReactProbeExpression,
+  buildConnectAnnotationsScript,
 } from "./page-script.js";
 
 interface Bridge {
@@ -50,6 +51,92 @@ afterEach(() => {
 });
 
 describe("agent annotations page script", () => {
+  it("offers a connect comment toggle without enabling thread delivery", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => [] });
+    vi.stubGlobal("fetch", fetcher);
+    Object.defineProperty(ShadowRoot.prototype, "adoptedStyleSheets", {
+      configurable: true,
+      writable: true,
+      value: [],
+    });
+    vi.stubGlobal(
+      "CSSStyleSheet",
+      class {
+        replaceSync() {}
+      },
+    );
+    try {
+      new Function(buildConnectAnnotationsScript("/__bb_annotations"))();
+      await Promise.resolve();
+      await Promise.resolve();
+      const toggle = requireElement(
+        shadowRoot().querySelector<HTMLButtonElement>(".connect-toggle"),
+      );
+      expect(toggle.textContent).toContain("0");
+      toggle.click();
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const checkbox = requireElement(
+        shadowRoot().querySelector<HTMLInputElement>('input[type="checkbox"]'),
+      );
+      expect(checkbox.disabled).toBe(true);
+      expect(checkbox.parentElement?.textContent).toContain(
+        "sending arrives in next update",
+      );
+      expect(
+        fetcher.mock.calls.every((call) => call[1]?.method !== "POST"),
+      ).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      Reflect.deleteProperty(ShadowRoot.prototype, "adoptedStyleSheets");
+    }
+  });
+  it("lists missing anchors as outdated without scrolling", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => [] }),
+    );
+    Object.defineProperty(ShadowRoot.prototype, "adoptedStyleSheets", {
+      configurable: true,
+      writable: true,
+      value: [],
+    });
+    vi.stubGlobal(
+      "CSSStyleSheet",
+      class {
+        replaceSync() {}
+      },
+    );
+    try {
+      new Function(buildConnectAnnotationsScript("/__bb_annotations"))();
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      const controller = Reflect.get(globalThis, "__bbAgentAnnotations");
+      controller.restore([
+        {
+          id: "missing",
+          number: 4,
+          author: "Owner",
+          comment: "Move this",
+          url: location.href,
+          title: "Page",
+          viewport: { width: 800, height: 600 },
+          element: { selector: "#gone", text: "Gone" },
+        },
+      ]);
+      expect(shadowRoot().querySelector(".pin")).toBeNull();
+      const record = requireElement(
+        shadowRoot().querySelector<HTMLButtonElement>(".connect-row"),
+      );
+      expect(record.textContent).toContain("(outdated)");
+      record.click();
+      expect(controller.state().active).toBe(false);
+      expect(shadowRoot().querySelector(".editor")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      Reflect.deleteProperty(ShadowRoot.prototype, "adoptedStyleSheets");
+    }
+  });
   it("selects the clicked element, captures a comment, and posts its context", () => {
     const messages: unknown[] = [];
     const bridge: Bridge = { postMessage: (data) => messages.push(data) };

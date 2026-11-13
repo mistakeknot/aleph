@@ -4129,6 +4129,9 @@ importers:
 
   plugins/connect:
     dependencies:
+      bb-plugin-agent-annotations:
+        specifier: workspace:*
+        version: link:../agent-annotations
       '@bb/connect-client':
         specifier: workspace:*
         version: link:../../packages/connect-client

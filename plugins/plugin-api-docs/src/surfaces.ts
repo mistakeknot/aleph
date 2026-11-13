@@ -1078,6 +1078,18 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
     ],
     surfaces: [
       {
+        id: "connect-page-notes",
+        title: "Connect page notes",
+        summary: "Read and edit owner notes on a shared preview page.",
+        experimental: true,
+        bullets: [
+          "Call connect.experimental_annotations.list with { port, url }, or connect.experimental_annotations.change with { port, url, change } through the connect plugin RPC.",
+          "Changes use annotation, annotation-update or annotation-delete messages. The overlay and CLI share this storage path; no operation delivers a thread message.",
+          "Current overlay coverage is legacy shares on the server host. Machine and connect-next previews remain unchanged.",
+        ],
+        apiSymbols: ["bb.sdk.plugins.callRpc"],
+      },
+      {
         id: "cli",
         tagline: "Your own `bb <name>` command",
         title: "bb CLI commands",

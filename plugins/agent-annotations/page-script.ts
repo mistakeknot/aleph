@@ -1,3 +1,5 @@
+import type { PageAnnotation } from "./annotations.js";
+
 interface PageBridge {
   postMessage(data: unknown): void;
 }
@@ -13,6 +15,7 @@ interface AnnotationController {
   state(): AnnotationPageState;
   setTheme(theme: Record<string, string>): void;
   clear(): AnnotationPageState;
+  restore(records: Array<PageAnnotation & { author: string }>): void;
 }
 
 interface PinnedAnnotation {
@@ -46,6 +49,7 @@ export const THEME_TOKENS = [
 function installAgentAnnotations(
   bb: PageBridge | null,
   theme: Record<string, string>,
+  connect = false,
 ): AnnotationPageState {
   const existing: AnnotationController | undefined = Reflect.get(
     globalThis,
@@ -89,6 +93,10 @@ function installAgentAnnotations(
     "border-radius",
   ];
   const css = `
+    .connect-bar { position: fixed; right: 12px; top: 12px; pointer-events: auto; background: var(--bb-canvas); color: var(--bb-ink); border: 1px solid var(--bb-border); border-radius: 8px; padding: 8px; font: 14px system-ui; max-width: min(360px, 90vw); }
+    .connect-list { max-height: 50vh; overflow: auto; }
+    .connect-list button { display: block; white-space: normal; height: auto; text-align: left; padding: 8px; }
+    .connect-send { display: block; padding: 8px 10px; }
     .hover, .outline, .label, .pin, .editor { position: fixed; box-sizing: border-box; }
     .hover { display: none; pointer-events: none; border: 1.5px solid var(--bb-primary); border-radius: 4px; background: color-mix(in oklab, var(--bb-primary) 10%, transparent); }
     .outline { pointer-events: none; border: 1.5px dashed color-mix(in oklab, var(--bb-primary) 70%, transparent); border-radius: 4px; }
@@ -140,6 +148,92 @@ function installAgentAnnotations(
   let nextNumber = 1;
   let frame = 0;
   const annotations: PinnedAnnotation[] = [];
+  const bar = part("div", "connect-bar");
+  const toggle = part("button", "connect-toggle");
+  const showAll = part("button", "connect-all");
+  const list = part("div", "connect-list");
+  const status = part("div", "connect-status");
+  let records: Array<PageAnnotation & { author: string }> = [];
+  if (connect) {
+    document.documentElement.append(host);
+    showAll.textContent = "Show all comments";
+    list.hidden = true;
+    showAll.addEventListener("click", () => {
+      list.hidden = !list.hidden;
+      renderList();
+    });
+    toggle.addEventListener("click", () => {
+      active ? deactivate() : activate();
+      renderList();
+    });
+    bar.append(toggle, showAll, list, status);
+    root.append(bar);
+    renderList();
+  }
+
+  function anchored(record: PageAnnotation): Element | null {
+    try {
+      const found = document.querySelectorAll(record.element.selector);
+      const element = found.length === 1 ? found[0] : null;
+      const text =
+        element instanceof HTMLElement && typeof element.innerText === "string"
+          ? element.innerText
+          : (element?.textContent ?? "");
+      return element && collapse(text).slice(0, 160) === record.element.text
+        ? element
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderList(): void {
+    toggle.textContent = `${active ? "Exit comments" : "Comment"} · ${records.length} open comments`;
+    toggle.setAttribute("aria-pressed", String(active));
+    list.replaceChildren();
+    for (const record of records) {
+      const row = part("button", "connect-row");
+      const element = anchored(record);
+      row.textContent = `${record.number}. ${record.author}: ${record.comment}${element ? "" : " (outdated)"}`;
+      row.addEventListener("click", () => {
+        const current = anchored(record);
+        if (!current) {
+          row.textContent = `${record.number}. ${record.author}: ${record.comment} (outdated)`;
+          return;
+        }
+        activate();
+        current.scrollIntoView({ block: "center" });
+        const annotation = annotations.find((item) => item.id === record.id);
+        if (annotation) openEditor(current, annotation);
+      });
+      list.append(row);
+    }
+  }
+
+  function restore(next: Array<PageAnnotation & { author: string }>): void {
+    clear();
+    records = next;
+    for (const record of records) {
+      nextNumber = Math.max(nextNumber, record.number + 1);
+      const element = anchored(record);
+      if (!element) continue;
+      const pin = part("button", "pin");
+      pin.textContent = String(record.number);
+      pin.title = `${record.author}: ${record.comment}`;
+      pin.setAttribute(
+        "aria-label",
+        `${record.number}. ${record.author}: ${record.comment}`,
+      );
+      const outline = part("div", "outline");
+      const annotation = { ...record, element, pin, outline };
+      annotations.push(annotation);
+      pin.addEventListener("click", () => openEditor(element, annotation));
+      root.append(outline, pin);
+    }
+    reposition();
+    syncLoop();
+    renderList();
+  }
 
   function part(tagName: string, className: string): HTMLElement {
     const node = document.createElement(tagName);
@@ -300,7 +394,8 @@ function installAgentAnnotations(
       const rect = annotation.element.getBoundingClientRect();
       const visible =
         annotation.element.isConnected && rect.width + rect.height > 0;
-      annotation.pin.style.display = visible ? "block" : "none";
+      annotation.pin.style.display =
+        visible && (!connect || active) ? "block" : "none";
       annotation.pin.style.left = `${rect.left}px`;
       annotation.pin.style.top = `${rect.top}px`;
       annotation.outline.style.display = visible && active ? "block" : "none";
@@ -451,7 +546,8 @@ function installAgentAnnotations(
     cancel.textContent = "Cancel";
     cancel.title = "Escape";
     const save = part("button", "save");
-    save.textContent = annotation === null ? "Add to prompt" : "Save";
+    save.textContent =
+      annotation === null ? (connect ? "Save note" : "Add to prompt") : "Save";
     save.title = /Mac/.test(navigator.platform) ? "⌘+Enter" : "Ctrl+Enter";
     save.toggleAttribute("disabled", textarea.value.trim().length === 0);
     if (annotation !== null) {
@@ -462,6 +558,14 @@ function installAgentAnnotations(
     }
     actions.append(cancel, save);
     panel.append(header, textarea, actions);
+    if (connect) {
+      const label = part("label", "connect-send");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.disabled = true;
+      label.append(checkbox, "Send to thread — sending arrives in next update");
+      panel.append(label);
+    }
     root.append(panel);
     editor = panel;
     const panelRect = panel.getBoundingClientRect();
@@ -598,6 +702,7 @@ function installAgentAnnotations(
     state,
     setTheme,
     clear,
+    restore,
   };
   Reflect.set(globalThis, "__bbAgentAnnotations", controller);
   setTheme(theme);
@@ -676,6 +781,78 @@ function probeReactComponents(annotationId: string) {
 
 export function buildActivateExpression(theme: Record<string, string>): string {
   return `((install) => { install(bb, ${JSON.stringify(theme)}); return globalThis.${ANNOTATION_CONTROLLER_KEY}.activate(); })(${installAgentAnnotations.toString()})`;
+}
+
+function connectBridge(
+  install: typeof installAgentAnnotations,
+  endpoint: string,
+): void {
+  if (!("adoptedStyleSheets" in ShadowRoot.prototype)) return;
+  let queue = Promise.resolve();
+  const page = location.href;
+  const url = `${endpoint}?url=${encodeURIComponent(page)}`;
+  const status = (message: string) => {
+    const node = document
+      .querySelector("bb-agent-annotations")
+      ?.shadowRoot?.querySelector(".connect-status");
+    if (node) node.textContent = message;
+  };
+  const reload = async (init?: RequestInit) => {
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      ...init,
+    });
+    if (!response.ok) throw new Error("Notes could not be saved or loaded");
+    const records = await response.json();
+    const controller: AnnotationController = Reflect.get(
+      globalThis,
+      "__bbAgentAnnotations",
+    );
+    controller.restore(records);
+    status("");
+  };
+  install(
+    {
+      postMessage(data) {
+        if (
+          typeof data !== "object" ||
+          data === null ||
+          Reflect.get(data, "type") === "state"
+        )
+          return;
+        queue = queue
+          .then(() =>
+            reload({
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(data),
+            }),
+          )
+          .catch(() => status("Notes could not be saved. Reload to retry."));
+      },
+    },
+    {
+      "--bb-canvas": "Canvas",
+      "--bb-ink": "CanvasText",
+      "--bb-popover": "Canvas",
+      "--bb-popover-foreground": "CanvasText",
+      "--bb-primary": "Highlight",
+      "--bb-primary-foreground": "HighlightText",
+      "--bb-border": "GrayText",
+      "--bb-ring": "Highlight",
+      "--bb-muted-foreground": "GrayText",
+      "--bb-state-hover": "ButtonFace",
+    },
+    true,
+  );
+  queue = reload().catch(() =>
+    status("Notes could not be loaded. Reload to retry."),
+  );
+}
+
+export function buildConnectAnnotationsScript(endpoint: string): string {
+  return `(${connectBridge.toString()})(${installAgentAnnotations.toString()}, ${JSON.stringify(endpoint)})`;
 }
 
 export function buildControllerExpression(
