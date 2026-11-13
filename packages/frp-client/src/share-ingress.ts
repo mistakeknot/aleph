@@ -137,7 +137,7 @@ export function trustedShareKeys(url: string, fetchFn: typeof fetch = fetch) {
     if (Date.now() - failedAt < 5000) {
       return Promise.reject(new ShareKeysUnavailable(keys));
     }
-    if (refresh && Date.now() - lastRefresh < 60000)
+    if (refresh && Date.now() - lastRefresh < 5000)
       return Promise.resolve(keys);
     if (!refresh && Date.now() - loaded < 60000) return Promise.resolve(keys);
     if (refresh) lastRefresh = Date.now();

@@ -210,3 +210,71 @@ it("refuses duplicate assertions and registration lost while keys load", async (
     ]),
   ).toBeNull();
 });
+
+it("accepts two rotations within a minute and bounds malicious refresh bursts", async () => {
+  const pairs = await Promise.all(
+    ["old", "first", "second", "missing"].map(generateGateKeyPair),
+  );
+  let published = pairs[0]!;
+  const fetcher = vi.fn<typeof fetch>(async () =>
+    Response.json({ keys: [published.publicKey] }),
+  );
+  const keys = trustedShareKeys("https://keys.example.test/keys.json", fetcher);
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now);
+  const verify = async (
+    pair: (typeof pairs)[number],
+    kid = pair.signingKey.kid,
+  ) => {
+    const token = await signGateAssertion(
+      { ...pair.signingKey, kid },
+      {
+        audience: "machine:test",
+        subject: "owner",
+        kind: "session",
+        method: "GET",
+        pathAndQuery: "/",
+        target: "3000",
+        oauth: null,
+        nowSeconds: 1800000000,
+      },
+    );
+    return verifyShareRequest(
+      {
+        audience: "machine:test",
+        port: 3000,
+        keys,
+        registered: () => true,
+        nowSeconds: () => 1800000000,
+      },
+      "GET",
+      "/",
+      [["x-bb-gate-assertion", token]],
+    );
+  };
+  try {
+    await keys();
+    published = pairs[1]!;
+    expect(await verify(published)).toMatchObject({ kind: "session" });
+    published = pairs[2]!;
+    expect(await verify(published)).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    vi.mocked(Date.now).mockReturnValue(now + 5000);
+    expect(await verify(published)).toMatchObject({ kind: "session" });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    for (let interval = 1; interval <= 3; interval++) {
+      vi.mocked(Date.now).mockReturnValue(now + 5000 + interval * 5000);
+      expect(
+        await Promise.all(
+          Array.from({ length: 100 }, (_, index) =>
+            verify(pairs[3]!, `missing-${interval}-${index}`),
+          ),
+        ),
+      ).toEqual(Array(100).fill(null));
+      expect(fetcher).toHaveBeenCalledTimes(3 + interval);
+      expect(await verify(published)).toMatchObject({ kind: "session" });
+    }
+  } finally {
+    vi.restoreAllMocks();
+  }
+});

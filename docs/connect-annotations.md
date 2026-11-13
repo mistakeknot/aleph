@@ -39,12 +39,22 @@ Share removal and shutdown close the ingress and its active connections. Machine
 notes use the same authenticated server persistence route. The gate's authenticated
 machine-label response supplies the machine ID used for audience verification;
 older gates without that field retain plain previews without annotation authority.
+The machine ID is requested again on the next tunnel preparation (for example,
+after a reconnect); receiving it then restores audience verification. Upgrading
+the gate alone does not change an already prepared session's missing audience.
 Deploy the additive machine ID response in apps/connect before updating daemons.
 Unavailable key infrastructure also retains plain previews without notes or
 script injection; invalid assertions are denied. Keys use the configured
 `BB_CONNECT_GATE_KEYS_URL`, or the trusted account apex (trusted enrollment on
-daemons), without redirects. Unknown signing keys trigger one deduplicated,
-rate-bounded refresh. The note endpoint never gains authority in fallback.
+daemons with only the leading `next.` component removed), without redirects.
+Unknown signing keys trigger an in-flight-deduplicated refresh with a shared
+five-second cooldown per key loader, at most 12 refresh starts per minute in
+addition to ordinary cache loads (cached for 60 seconds). No attacker-selected
+key IDs are retained. A rotation during the cooldown can be denied for up to
+five seconds; the next request after it expires retries. Failed key loads back
+off for five seconds, during which otherwise eligible requests receive plain
+previews and note requests are denied. The note endpoint never gains authority
+in fallback, and invalid signatures against available keys remain denied.
 
 The authoritative server store permits at most 64 page URLs and 2 MiB per host
 and port, with global ceilings of 1,024 page keys and 32 MiB. The serialized
@@ -55,12 +65,15 @@ before page writes; failed writes can conservatively retain reservations.
 Deleting notes releases bytes after a successful write, but empty page keys
 remain counted. No TTL or unshare deletion applies. Existing application data
 needs no migration. SPA route changes clear and reload notes for the exact new
-URL and discard stale queued writes; dispatched writes retain their original URL.
+URL and discard stale queued writes with a visible unsent-note warning;
+dispatched writes retain their original URL.
 
 Only complete successful UTF-8 HTML with a declared content length up to 1 MiB
 is eligible. Compressed, chunked, unknown-length, partial, attachment, oversized
 and documents containing any `meta http-equiv` markup pass through unchanged,
-including streamed framework responses. Existing CSP headers are
+including streamed framework responses. Documents with an implied body (no explicit body start tag), no
+explicit body end tag, or a leading byte-order mark also pass through unchanged.
+Existing CSP headers are
 preserved. Every applicable script policy must permit the same existing nonce;
 otherwise injection is skipped. A policy with no script restriction needs no
 additional permission. Sandbox and Trusted Types policies are excluded. Shadow

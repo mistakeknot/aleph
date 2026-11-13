@@ -345,7 +345,7 @@ export class MachineNextTunnel {
           }
         : trustedShareKeys(
             shareKeysUrl(
-              `${connectPublicProtocol(trustedBaseDomain)}//${trustedBaseDomain}`,
+              `${connectPublicProtocol(trustedBaseDomain)}//${trustedBaseDomain.replace(/^next\./i, "")}`,
             ),
             this.options.fetchFn,
           );

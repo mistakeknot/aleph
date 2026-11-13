@@ -19,6 +19,7 @@ async function setup(
     options: ShareIngressOptions,
   ) => Promise<{ baseUrl: string; close(): Promise<void> }>,
   availability = { keys: true, machineId: true },
+  trustedBaseDomain = "example.test",
 ) {
   const pair = await generateGateKeyPair("test");
   const values = new Map<string, unknown>();
@@ -82,7 +83,7 @@ async function setup(
     ...common,
     annotations: store,
     machineCredential: "test",
-    trustedBaseDomain: () => "example.test",
+    trustedBaseDomain: () => trustedBaseDomain,
     ensureIdentity: async () => ({
       label: "preview",
       baseDomain: "example.test",
@@ -104,10 +105,12 @@ async function setup(
     machine.replaceAuthoritative({
       generation: 1,
       config: {
-        domain: "next.example.test",
+        domain: trustedBaseDomain.startsWith("next.")
+          ? trustedBaseDomain
+          : `next.${trustedBaseDomain}`,
         server: {
           protocol: "wss",
-          host: "tunnel.next.example.test",
+          host: `tunnel.${trustedBaseDomain.startsWith("next.") ? trustedBaseDomain.split(":")[0] : `next.${trustedBaseDomain.split(":")[0]}`}`,
           port: 443,
         },
       },
@@ -139,6 +142,40 @@ async function setup(
   };
 }
 
+it.each([
+  ["next.example.test", "https://example.test"],
+  ["next.example.test:8443", "https://example.test:8443"],
+  ["next.example.localhost:8443", "http://example.localhost:8443"],
+  ["next.next.example.test", "https://next.example.test"],
+])(
+  "machine next enrollment %s selects account apex keys",
+  async (domain, apex) => {
+    vi.stubEnv("BB_CONNECT_GATE_KEYS_URL", "");
+    const captured: ShareIngressOptions[] = [];
+    const fixture = await setup(
+      "machine",
+      3000,
+      async (options) => {
+        captured.push(options);
+        return { baseUrl: "http://127.0.0.1:41000", close: async () => {} };
+      },
+      undefined,
+      domain,
+    );
+    try {
+      await captured[0]!.keys();
+      expect(fixture.keyUrls).toEqual([
+        `${apex}/.well-known/bb-connect-gate-keys.json`,
+      ]);
+      expect(captured[0]!.audience).toBe("machine:test");
+      expect(captured[0]!.publicOrigin).toContain(domain);
+    } finally {
+      await fixture.stop();
+      vi.unstubAllEnvs();
+    }
+  },
+);
+
 for (const kind of ["server", "machine"] as const) {
   it(`${kind} production caller honors the configured key resource`, async () => {
     vi.stubEnv(
@@ -146,10 +183,16 @@ for (const kind of ["server", "machine"] as const) {
       "https://keys.example.test/custom.json",
     );
     const captured: ShareIngressOptions[] = [];
-    const fixture = await setup(kind, 3000, async (options) => {
-      captured.push(options);
-      return { baseUrl: "http://127.0.0.1:41000", close: async () => {} };
-    });
+    const fixture = await setup(
+      kind,
+      3000,
+      async (options) => {
+        captured.push(options);
+        return { baseUrl: "http://127.0.0.1:41000", close: async () => {} };
+      },
+      undefined,
+      "next.example.test",
+    );
     try {
       await captured[0]!.keys();
       expect(fixture.keyUrls).toEqual([

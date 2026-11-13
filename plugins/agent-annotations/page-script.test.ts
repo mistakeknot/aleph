@@ -155,6 +155,9 @@ describe("agent annotations page script", () => {
           `/__bb_annotations?url=${encodeURIComponent(location.href)}`,
         );
         expect(shadowRoot().querySelector("textarea")).toBeNull();
+        expect(
+          shadowRoot().querySelector(".connect-status")?.textContent,
+        ).toContain("Unsent note discarded because the page changed");
       }
       expect(
         fetcher.mock.calls.every((call) => call[1]?.method !== "POST"),

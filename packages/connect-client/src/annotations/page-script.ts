@@ -797,6 +797,8 @@ function connectBridge(
   let queue = Promise.resolve();
   let page = location.href;
   let generation = 0;
+  let queuedWrites = 0;
+  let navigationWarning = "";
   const status = (message: string) => {
     const node = document
       .querySelector("bb-agent-annotations")
@@ -824,7 +826,8 @@ function connectBridge(
       "__bbAgentAnnotations",
     );
     controller.restore(records);
-    status("");
+    if (init?.method === "POST") navigationWarning = "";
+    status(navigationWarning);
   };
   install(
     {
@@ -836,18 +839,28 @@ function connectBridge(
         )
           return;
         const expected = generation;
+        queuedWrites++;
         queue = queue
-          .then(() =>
-            reload(
+          .then(() => {
+            if (expected !== generation) return;
+            if (page !== location.href) {
+              navigate();
+              return;
+            }
+            queuedWrites--;
+            return reload(
               {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify(data),
               },
               expected,
-            ),
-          )
-          .catch(() => status("Notes could not be saved. Reload to retry."));
+            );
+          })
+          .catch(() => {
+            if (expected === generation)
+              status("Notes could not be saved. Reload to retry.");
+          });
       },
     },
     {
@@ -868,11 +881,16 @@ function connectBridge(
     if (page === location.href) return;
     page = location.href;
     generation++;
+    if (queuedWrites > 0)
+      navigationWarning =
+        "Unsent note discarded because the page changed. Return to the previous page to add it again.";
+    queuedWrites = 0;
     const controller: AnnotationController = Reflect.get(
       globalThis,
       "__bbAgentAnnotations",
     );
     controller.restore([]);
+    status(navigationWarning);
     queue = reload().catch(() =>
       status("Notes could not be loaded. Reload to retry."),
     );
