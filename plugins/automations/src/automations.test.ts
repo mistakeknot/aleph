@@ -238,7 +238,7 @@ function createAutomationServiceBb() {
         send: async () => {
           throw new Error("not expected");
         },
-        spawn: async () => {
+        spawn: async (): Promise<ReturnType<typeof makeThreadResponse>> => {
           throw new Error("not expected");
         },
       },
@@ -253,6 +253,100 @@ function createAutomationServiceBb() {
     },
   };
 }
+
+describe("scheduled pre-run checks", () => {
+  it("rejects unsupported saves and bypasses checks for manual runs", async () => {
+    const db = createTestDb();
+    const api = createAutomationServiceBb();
+    const spawn = vi.fn(async () =>
+      makeThreadResponse({ id: "thread_manual" }),
+    );
+    api.sdk.threads.spawn = spawn;
+    const service = createAutomationService({
+      bb: api,
+      db,
+      pluginDataDir: process.cwd(),
+      scriptRuns: createScriptRunScope(),
+    });
+    const automation = createScheduledAutomation(db, 1000);
+    await expect(
+      service.update({
+        projectId: automation.projectId,
+        automationId: automation.id,
+        agent: { checkCommand: "exit 7" },
+      }),
+    ).rejects.toThrow("pre-run check not yet supported");
+    const execution = {
+      ...parseAutomationExecution(automation.execution),
+      checkCommand: "exit 7",
+    };
+    db.prepare("UPDATE automations SET execution = ? WHERE id = ?").run(
+      JSON.stringify(execution),
+      automation.id,
+    );
+    await service.run({
+      projectId: automation.projectId,
+      automationId: automation.id,
+    });
+    expect(spawn).toHaveBeenCalledTimes(1);
+    db.close();
+  });
+  it.each([undefined, "exit 0", "printf '%03000dEND' 0 >&2; exit 7"])(
+    "checks scheduled runs: %s",
+    async (checkCommand) => {
+      const db = createTestDb();
+      const automation = createScheduledAutomation(db, 1000);
+      const execution = {
+        ...parseAutomationExecution(automation.execution),
+        permissionMode: "full",
+        environment: {
+          type: "host",
+          hostId: "host_server",
+          workspace: { type: "unmanaged", path: process.cwd() },
+        },
+        ...(checkCommand === undefined ? {} : { checkCommand }),
+      };
+      db.prepare("UPDATE automations SET execution = ? WHERE id = ?").run(
+        JSON.stringify(execution),
+        automation.id,
+      );
+      const api = createAutomationServiceBb();
+      const spawn = vi.fn(async () =>
+        makeThreadResponse({ id: "thread_check" }),
+      );
+      api.sdk.threads.spawn = spawn;
+      const bb = {
+        ...api,
+        sdk: {
+          ...api.sdk,
+          hosts: { list: async () => [{ status: "connected" }] },
+        },
+      };
+      await sweepDueAutomations(bb, db, {
+        pluginDataDir: process.cwd(),
+        serverHostId: "host_server",
+        scriptRuns: createScriptRunScope(),
+        now: 1000,
+      });
+      const [run] = listAutomationRuns(db, {
+        automationId: automation.id,
+        limit: 10,
+      });
+      if (checkCommand?.includes("exit 7")) {
+        expect(spawn).not.toHaveBeenCalled();
+        expect(run).toMatchObject({
+          status: "skipped",
+          skipReason: "check exit 7",
+          exitCode: 7,
+          threadId: null,
+        });
+        expect(Buffer.byteLength(run!.output!)).toBeLessThanOrEqual(2048);
+        expect(run!.output!.endsWith("END")).toBe(true);
+      } else expect(spawn).toHaveBeenCalledTimes(1);
+      db.close();
+    },
+  );
+});
 
 describe("data migrations", () => {
   it("decodes stored script executions without a working-directory policy as automation-storage", () => {

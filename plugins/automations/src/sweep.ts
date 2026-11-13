@@ -1,4 +1,9 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import {
+  runPreRunCheck,
+  supportsPreRunCheck,
+  UNSUPPORTED_CHECK,
+} from "./pre-run-check.js";
 import { z } from "zod";
 import {
   claimAutomationScheduledRun,
@@ -60,6 +65,7 @@ async function processDueAutomation(
     automation: AutomationRow;
     now: number;
     agentHostsAvailable: boolean;
+    serverHostId: string | null;
     resolveWorkingDirectory: ScriptWorkingDirectoryResolver;
     scriptRuns: ScriptRunScope;
   },
@@ -105,6 +111,48 @@ async function processDueAutomation(
     run: claim.run,
   });
   if (execution.mode === "agent") {
+    if (execution.checkCommand !== undefined) {
+      let reason: string | null = UNSUPPORTED_CHECK;
+      let exitCode: number | null = null;
+      let stderr = "";
+      if (
+        supportsPreRunCheck(execution, args.serverHostId) &&
+        execution.environment.type === "host" &&
+        execution.environment.workspace.type === "unmanaged" &&
+        execution.environment.workspace.path !== null
+      ) {
+        try {
+          const result = await runPreRunCheck({
+            command: execution.checkCommand,
+            cwd: execution.environment.workspace.path,
+          });
+          reason =
+            result.reason ??
+            (result.exitCode === 0
+              ? null
+              : `check exit ${result.exitCode ?? "unknown"}`);
+          exitCode = result.exitCode;
+          stderr = result.stderr;
+        } catch {
+          reason = "check failed to spawn";
+        }
+      }
+      if (reason !== null) {
+        closeAutomationRun(db, {
+          runId: claim.run.id,
+          status: "skipped",
+          skipReason: reason,
+          exitCode,
+          output: stderr || null,
+          now: Date.now(),
+        });
+        publishAutomationChange(bb, args.automation.projectId, [
+          "automations-changed",
+          "automation-runs-changed",
+        ]);
+        return;
+      }
+    }
     await executeAgentRun(bb, db, {
       automation: args.automation,
       run: claim.run,
@@ -171,6 +219,7 @@ export async function sweepDueAutomations(
         automation,
         now,
         agentHostsAvailable,
+        serverHostId: args.serverHostId,
         resolveWorkingDirectory,
         scriptRuns: args.scriptRuns,
       });
