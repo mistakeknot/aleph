@@ -108,6 +108,37 @@ updated between requests—or label links/names, active task threads, or project
 prefixes change—the old cursor is rejected. Restart from the first page rather
 than traversing an inconsistent snapshot.
 
+## Return times
+
+Set one return time on an open task to wake the requesting thread later:
+
+```sh
+bb tasks update PROD-1 --return-at "in 2h"
+bb tasks update PROD-1 --return-at "at 14:00 UTC"
+bb tasks update PROD-1 --no-return
+```
+
+`--return-at` accepts `in <number>m/h/d`, `at HH:MM UTC` (the next occurrence),
+or an ISO UTC timestamp ending in `Z`. It must be 1 minute to 30 days ahead.
+The invoking thread is recorded; outside a thread, supply `--return-thread
+thr_example`. Setting again replaces the time and thread. `--no-return`
+cancels it. RPC `updateTask` accepts `returnAt` and `returnThreadId` when
+setting; `returnAt: null` cancels. Task reads include those fields.
+
+The detail view shows the local time with a cancel control. Setting,
+replacement, cancellation and delivery appear in activity. Closing a task
+cancels its return. The existing scheduler checks every minute, and startup
+checks overdue tasks. An archived or missing target records a missed return
+without waking another thread.
+
+Transient lookup and send failures keep the return pending until the next
+scheduled tick. If delivery still fails at least 24 hours after the return
+time, it clears with `return time missed: delivery failed`. A successful
+delivery clears only the matching return, preserving a replacement or
+cancellation made while sending. Delivery is at least once: a server stop
+after the wake is accepted but before the task is cleared can produce a
+duplicate wake after restart. Exact-once delivery is tracked in mk-ddtv5.6.11.
+
 ## Agents, delegation, and presets
 
 Linking a Tasks project to a bb project enables delegation. Open a task, choose
