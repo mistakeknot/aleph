@@ -255,6 +255,68 @@ function createAutomationServiceBb() {
 }
 
 describe("scheduled pre-run checks", () => {
+  it.each(["unsupported", "spawn-failure"])(
+    "skips stored %s checks without a wake",
+    async (setup) => {
+      const db = createTestDb();
+      const automation = createScheduledAutomation(db, 1000);
+      const execution = {
+        ...parseAutomationExecution(automation.execution),
+        checkCommand: "exit 0",
+        ...(setup === "spawn-failure"
+          ? {
+              permissionMode: "full",
+              environment: {
+                type: "host",
+                hostId: "host_server",
+                workspace: {
+                  type: "unmanaged",
+                  path: "/missing-check-directory",
+                },
+              },
+            }
+          : {}),
+      };
+      db.prepare("UPDATE automations SET execution = ? WHERE id = ?").run(
+        JSON.stringify(execution),
+        automation.id,
+      );
+      const api = createAutomationServiceBb();
+      const spawn = vi.fn(async () =>
+        makeThreadResponse({ id: "thread_unexpected" }),
+      );
+      const send = vi.fn(async () => {
+        throw new Error("unexpected wake");
+      });
+      const bb = {
+        ...api,
+        sdk: {
+          ...api.sdk,
+          threads: { ...api.sdk.threads, spawn, send },
+          hosts: { list: async () => [{ status: "connected" }] },
+        },
+      };
+      await sweepDueAutomations(bb, db, {
+        pluginDataDir: process.cwd(),
+        serverHostId: "host_server",
+        scriptRuns: createScriptRunScope(),
+        now: 1000,
+      });
+      expect(spawn).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(
+        listAutomationRuns(db, { automationId: automation.id, limit: 10 })[0],
+      ).toMatchObject({
+        status: "skipped",
+        threadId: null,
+        skipReason:
+          setup === "unsupported"
+            ? "pre-run check not yet supported for this environment"
+            : "check failed to spawn",
+      });
+      db.close();
+    },
+  );
   it("rejects unsupported saves and bypasses checks for manual runs", async () => {
     const db = createTestDb();
     const api = createAutomationServiceBb();
