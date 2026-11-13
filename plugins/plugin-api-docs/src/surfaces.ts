@@ -1063,6 +1063,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
       {
         title: "Data & platform",
         surfaceIds: [
+          "connect-page-notes",
           "storage",
           "bb-sdk",
           "thread-plugin-metadata",
@@ -1077,18 +1078,6 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
       },
     ],
     surfaces: [
-      {
-        id: "connect-page-notes",
-        title: "Connect page notes",
-        summary: "Read and edit owner notes on a shared preview page.",
-        experimental: true,
-        bullets: [
-          "Call connect.experimental_annotations.list with { port, url, hostId? }, or connect.experimental_annotations.change with { port, url, hostId?, change } through the connect plugin RPC. Omit hostId for server-host notes; pass an enrolled host ID for legacy machine notes.",
-          "Changes use annotation, annotation-update or annotation-delete messages. The overlay and CLI share this storage path; no operation delivers a thread message.",
-          "Current overlay coverage is legacy shares on the server host. Machine and connect-next previews remain unchanged.",
-        ],
-        apiSymbols: ["bb.sdk.plugins.callRpc"],
-      },
       {
         id: "cli",
         tagline: "Your own `bb <name>` command",
@@ -1625,6 +1614,19 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Pi provider",
         ],
         experimental: true,
+      },
+      {
+        id: "connect-page-notes",
+        title: "Connect page notes",
+        summary:
+          "Provide owner notes on shared preview pages. With this, a plugin can:",
+        experimental: true,
+        bullets: [
+          "List, add, update, and delete page notes through the connect plugin RPC",
+          "Read notes from legacy and connect-next previews on server and enrolled machine hosts",
+          "Use the same note store as the overlay and CLI, without sending thread messages",
+        ],
+        apiSymbols: ["bb.sdk.plugins.callRpc"],
       },
       {
         id: "storage",
