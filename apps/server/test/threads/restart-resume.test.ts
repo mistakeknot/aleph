@@ -479,6 +479,8 @@ describe("resuming threads after a restart", () => {
       expect(threadStatus(harness, thread.id)).toBe("active");
       expect(queue(harness, thread.id)).toEqual([]);
       expect(lastTurnRequest(harness, thread.id)).toMatchObject({
+        wakeCause: "restart",
+        retainedCause: "unknown",
         retryOfRequestId: requestId,
         retryAttempt: 2,
         input: [

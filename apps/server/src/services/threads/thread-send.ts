@@ -1,3 +1,4 @@
+import { wakeAttribution, type WakeAttribution } from "@bb/domain";
 import {
   getEnvironment,
   getThread,
@@ -102,9 +103,10 @@ type SendThreadMessageMode = SendMessageRequest["mode"];
 type TextPromptInput = Extract<PromptInput, { type: "text" }>;
 type SendThreadMessageTrigger = "auto-dispatch" | "user";
 
-type SendThreadMessagePayload = SendMessageRequest & {
-  inputGroups?: PromptInput[][];
-};
+type SendThreadMessagePayload = SendMessageRequest &
+  WakeAttribution & {
+    inputGroups?: PromptInput[][];
+  };
 
 interface SendThreadMessageArgs {
   beforeAppendInTransaction?: SendThreadMessageTransactionPreflight;
@@ -165,7 +167,7 @@ interface SendThreadMessageQueueRequest {
   ): SendThreadMessageQueueRequestResult;
 }
 
-interface AppendAndQueueSendThreadMessageArgs {
+interface AppendAndQueueSendThreadMessageArgs extends WakeAttribution {
   /** Retry provenance; absent for an original dispatch. */
   retryOf?: TurnRequestRetryMarker;
   beforeAppendInTransaction?: SendThreadMessageTransactionPreflight;
@@ -428,6 +430,11 @@ function appendAndQueueSendThreadMessageInTransaction({
   db,
   environmentId,
   execution,
+  wakeCause,
+  wakeRef,
+  retainedCause,
+  wakeSources,
+  wakeSourcesTruncated,
   initiator,
   input,
   inputGroups,
@@ -451,6 +458,13 @@ function appendAndQueueSendThreadMessageInTransaction({
             threadId: thread.id,
             environmentId,
             type: "client/turn/requested",
+            ...wakeAttribution({
+              wakeCause,
+              wakeRef,
+              retainedCause,
+              wakeSources,
+              wakeSourcesTruncated,
+            }),
             ...(retryOf !== undefined ? { retryOf } : {}),
             input,
             ...(inputGroups !== undefined ? { inputGroups } : {}),
@@ -693,6 +707,7 @@ async function sendHotThreadMessageWithoutContextClear(
       deps,
       environment,
       execution,
+      ...wakeAttribution(payload),
       initiator,
       input,
       inputGroups,
@@ -781,6 +796,7 @@ async function sendHotThreadMessageWithoutContextClear(
       db: deps.db,
       environmentId: thread.environmentId,
       execution,
+      ...wakeAttribution(payload),
       initiator,
       input,
       inputGroups,
@@ -884,6 +900,7 @@ async function sendHotThreadMessageWithoutContextClear(
     db: deps.db,
     environmentId: thread.environmentId,
     execution,
+    ...wakeAttribution(payload),
     initiator,
     input,
     inputGroups,

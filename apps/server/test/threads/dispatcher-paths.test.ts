@@ -1,5 +1,6 @@
 import {
   getQueuedThreadMessage,
+  deleteQueuedThreadMessage,
   listEvents,
   listQueuedThreadMessages,
   setQueuedThreadMessageGroupBoundary,
@@ -351,12 +352,22 @@ describe("queued delivery mode", () => {
         });
         const sendAt = Date.now() + 60_000;
         const response = await acceptThreadSendRequest(harness.deps, {
-          payload: { input: textInput("Later"), mode, sendAt },
+          payload: {
+            input: textInput("Later"),
+            mode,
+            sendAt,
+            wakeCause: "message",
+            wakeRef: "scheduled-1",
+          },
           thread,
         });
         expect(response).toMatchObject({
           delivery: "queued",
-          queuedMessage: { waitingOn: { kind: "time" } },
+          queuedMessage: {
+            waitingOn: { kind: "time" },
+            wakeCause: "message",
+            wakeRef: "scheduled-1",
+          },
         });
 
         await runQueuedMessageDispatch(harness.deps, {
@@ -583,3 +594,213 @@ describe("queue intent after the dispatch hook", () => {
     });
   });
 });
+
+describe("wake request attribution", () => {
+  it("preserves two distinct steers without replacing their request IDs", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedRunnableThread(harness, {
+        hostId: "host-wake-steers",
+        status: "active",
+      });
+      await acceptThreadSendRequest(harness.deps, {
+        thread,
+        payload: {
+          input: textInput("first"),
+          mode: "steer",
+          wakeCause: "card_pick",
+          wakeRef: "pick-1",
+        },
+      });
+      await acceptThreadSendRequest(harness.deps, {
+        thread,
+        payload: {
+          input: textInput("second"),
+          mode: "steer",
+          wakeCause: "message",
+          wakeRef: "note-2",
+        },
+      });
+      const requests = turnRequests(harness, thread.id).slice(-2);
+      expect(requests).toMatchObject([
+        { wakeCause: "card_pick", wakeRef: "pick-1" },
+        { wakeCause: "message", wakeRef: "note-2" },
+      ]);
+      expect(new Set(requests.map((request) => request.requestId)).size).toBe(
+        2,
+      );
+      for (const request of requests) expect(request.target.kind).toBe("steer");
+    });
+  });
+  it("does not turn scheduled delivery into a timer cause", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedRunnableThread(harness, {
+        hostId: "host-wake-scheduled",
+        status: "idle",
+      });
+      const requestsBefore = turnRequests(harness, thread.id);
+      const sendAt = Date.now() + 60_000;
+      await acceptThreadSendRequest(harness.deps, {
+        thread,
+        payload: {
+          input: textInput("later"),
+          mode: "auto",
+          sendAt,
+          wakeCause: "message",
+          wakeRef: "note-1",
+        },
+      });
+      expect(turnRequests(harness, thread.id)).toEqual(requestsBefore);
+      expect(queuedRows(harness, thread.id)[0]).toMatchObject({
+        wakeCause: "message",
+        wakeRef: "note-1",
+      });
+      await runQueuedMessageDispatch(harness.deps, {
+        kind: "time-reached",
+        now: sendAt + 1,
+      });
+      expect(turnRequests(harness, thread.id).at(-1)).toMatchObject({
+        wakeCause: "message",
+        wakeRef: "note-1",
+      });
+    });
+  });
+});
+
+describe("queued wake lifecycle", () => {
+  it("retains each mixed input source when a group dispatches", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedRunnableThread(harness, {
+        hostId: "host-wake-group",
+        status: "idle",
+      });
+      const sendAt = Date.now() + 60_000;
+      for (const wakeCause of ["message", "timer"] as const) {
+        await acceptThreadSendRequest(harness.deps, {
+          thread,
+          payload: {
+            input: textInput(wakeCause),
+            mode: "auto",
+            sendAt,
+            wakeCause,
+            wakeRef: wakeCause,
+          },
+        });
+      }
+      const rows = listQueuedThreadMessages(harness.db, thread.id);
+      expect(
+        setQueuedThreadMessageGroupBoundary({
+          db: harness.db,
+          notifier: harness.hub,
+          threadId: thread.id,
+          expectedGroupedPrefixQueuedMessageIds: rows.map((row) => row.id),
+          groupBoundaryQueuedMessageId: rows[1]!.id,
+        }).kind,
+      ).toBe("updated");
+      await runQueuedMessageDispatch(harness.deps, {
+        kind: "time-reached",
+        now: sendAt + 1,
+      });
+      expect(turnRequests(harness, thread.id).at(-1)).toMatchObject({
+        wakeCause: "unknown",
+        wakeSources: [
+          { wakeCause: "message", wakeRef: "message" },
+          { wakeCause: "timer", wakeRef: "timer" },
+        ],
+      });
+    });
+  });
+  it("does not create a turn for a canceled attributed row", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedRunnableThread(harness, {
+        hostId: "host-wake-canceled",
+        status: "idle",
+      });
+      const requestsBefore = turnRequests(harness, thread.id);
+      const sendAt = Date.now() + 60_000;
+      await acceptThreadSendRequest(harness.deps, {
+        thread,
+        payload: {
+          input: textInput("cancel"),
+          mode: "auto",
+          sendAt,
+          wakeCause: "card_pick",
+        },
+      });
+      const row = listQueuedThreadMessages(harness.db, thread.id)[0]!;
+      deleteQueuedThreadMessage(harness.db, harness.hub, row.id);
+      await runQueuedMessageDispatch(harness.deps, {
+        kind: "time-reached",
+        now: sendAt + 1,
+      });
+      expect(turnRequests(harness, thread.id)).toEqual(requestsBefore);
+    });
+  });
+});
+
+it("retains first-start attribution while the pending thread waits", async () => {
+  await withTestHarness(async (harness) => {
+    installDispatchHook(() => ({ action: "wait", reason: "Not yet" }));
+    const { host, project } = seedRunnableThread(harness, {
+      hostId: "host-wake-pending",
+      status: "idle",
+    });
+    const pending = await createThreadFromRequest(harness.deps, {
+      environment: {
+        type: "host",
+        hostId: host.id,
+        workspace: { type: "unmanaged", path: WORKSPACE_PATH },
+      },
+      input: textInput("First task"),
+      origin: "sdk",
+      projectId: project.id,
+      providerId: "codex",
+      startedOnBehalfOf: null,
+      wakeCause: "workflow",
+      wakeRef: "work-1",
+    });
+    expect(pending.status).toBe("pending");
+    expect(queuedRows(harness, pending.id)[0]).toMatchObject({
+      wakeCause: "workflow",
+      wakeRef: "work-1",
+    });
+    setPluginHookProvider(undefined);
+    await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+    expect(turnRequests(harness, pending.id).at(-1)).toMatchObject({
+      wakeCause: "workflow",
+      wakeRef: "work-1",
+    });
+  });
+});
+
+it.each(["idle", "active"] as const)(
+  "preserves immediate send attribution for a %s thread",
+  async (status) => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedRunnableThread(harness, {
+        hostId: `host-wake-${status}`,
+        status,
+      });
+      const response = await acceptThreadSendRequest(harness.deps, {
+        thread,
+        payload: {
+          input: textInput("Task"),
+          mode: "queue-if-active",
+          wakeCause: "review",
+          wakeRef: "review-1",
+        },
+      });
+      if (status === "active") {
+        expect(response).toMatchObject({
+          delivery: "queued",
+          queuedMessage: { wakeCause: "review", wakeRef: "review-1" },
+        });
+      } else {
+        expect(response.delivery).toBe("sent");
+        expect(turnRequests(harness, thread.id).at(-1)).toMatchObject({
+          wakeCause: "review",
+          wakeRef: "review-1",
+        });
+      }
+    });
+  },
+);

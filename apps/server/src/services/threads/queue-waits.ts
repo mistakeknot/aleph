@@ -1,3 +1,4 @@
+import { wakeAttribution, type WakeAttribution } from "@bb/domain";
 import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
   moveQueuedThreadMessageToFrontInTransaction,
@@ -68,7 +69,7 @@ export interface SettleQueueRowArgs {
 }
 
 /** The message a queued row will carry, as the queueing site supplies it. */
-export interface QueuedDispatchMessage {
+export interface QueuedDispatchMessage extends WakeAttribution {
   input: PromptInput[];
   execution: ResolvedThreadExecutionOptions;
   senderThreadId: string | null;
@@ -180,6 +181,7 @@ function createQueuedRowOrRefuse(
         const created = createQueuedThreadMessageInTransaction(tx, {
           threadId: args.requestedThreadId ?? args.thread.id,
           content: args.message.input,
+          ...wakeAttribution(args.message),
           retiredPosts: retiredUserPostsMode(),
           senderThreadId: args.message.senderThreadId,
           origin: args.message.origin,

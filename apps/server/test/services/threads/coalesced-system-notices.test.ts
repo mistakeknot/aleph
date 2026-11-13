@@ -1,3 +1,4 @@
+import type { WakeAttribution } from "@bb/domain";
 import {
   createProject,
   createThread,
@@ -43,9 +44,10 @@ function post(
   deps: Parameters<typeof postCoalescedSystemNotice>[0],
   threadId: string,
   label: string,
-  options: { withdrawWhenPending?: boolean } = {},
+  options: WakeAttribution & { withdrawWhenPending?: boolean } = {},
 ) {
   return postCoalescedSystemNotice<string[]>(deps, {
+    ...options,
     coalesceKey: COALESCE_KEY,
     execution: {
       model: "gpt-5",
@@ -94,7 +96,18 @@ describe("postCoalescedSystemNotice", () => {
     expect(listQueuedThreadMessages(db, parent.id)).toEqual([]);
     const rows = listQueuedThreadMessages(db, successor.id);
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.coalesceState).toBe(JSON.stringify(["child-a", "child-b"]));
+    expect(JSON.parse(rows[0]!.coalesceState!)).toEqual({
+      state: ["child-a", "child-b"],
+      wake: {
+        sources: [
+          { wakeCause: "unknown", wakeRef: null },
+          { wakeCause: "unknown", wakeRef: null },
+        ],
+        truncated: false,
+        wakeCause: "unknown",
+        wakeRef: null,
+      },
+    });
     expect(second?.sendAt).toBeGreaterThanOrEqual(first?.sendAt ?? 0);
     expect(notifyThread).toHaveBeenCalledWith(successor.id, ["queue-changed"]);
   });
@@ -105,7 +118,18 @@ describe("postCoalescedSystemNotice", () => {
     post(deps, parent.id, "child-b");
     const rows = listQueuedThreadMessages(db, parent.id);
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.coalesceState).toBe(JSON.stringify(["child-a", "child-b"]));
+    expect(JSON.parse(rows[0]!.coalesceState!)).toEqual({
+      state: ["child-a", "child-b"],
+      wake: {
+        sources: [
+          { wakeCause: "unknown", wakeRef: null },
+          { wakeCause: "unknown", wakeRef: null },
+        ],
+        truncated: false,
+        wakeCause: "unknown",
+        wakeRef: null,
+      },
+    });
   });
 
   it("withdraws the successor's batch through the retired parent", () => {
@@ -141,4 +165,39 @@ describe("postCoalescedSystemNotice", () => {
     expect(notifyThread).toHaveBeenCalledWith(successor.id, ["queue-changed"]);
     expect(notifyThread).toHaveBeenCalledWith(parent.id, ["queue-changed"]);
   });
+});
+
+it("replays bounded mixed coalesced provenance without losing notice state", () => {
+  const { db, deps, parent } = setup();
+  try {
+    post(deps, parent.id, "first", { wakeCause: "message", wakeRef: "note-1" });
+    const mixed = post(deps, parent.id, "second", {
+      wakeCause: "timer",
+      wakeRef: "deadline-2",
+    });
+    expect(mixed).toMatchObject({ wakeCause: "unknown", wakeRef: null });
+    expect(JSON.parse(mixed!.coalesceState!)).toMatchObject({
+      state: ["first", "second"],
+      wake: {
+        sources: [
+          { wakeCause: "message", wakeRef: "note-1" },
+          { wakeCause: "timer", wakeRef: "deadline-2" },
+        ],
+        truncated: false,
+      },
+    });
+    for (let i = 0; i < 35; i++)
+      post(deps, parent.id, String(i), {
+        wakeCause: "message",
+        wakeRef: String(i),
+      });
+    const row = listQueuedThreadMessages(db, parent.id)[0]!;
+    const stored = JSON.parse(row.coalesceState!);
+    expect(stored.wake.sources).toHaveLength(32);
+    expect(stored.wake.truncated).toBe(true);
+    expect(stored.state).toHaveLength(37);
+    expect(row).toMatchObject({ wakeCause: "unknown", wakeRef: null });
+  } finally {
+    db.$client.close();
+  }
 });

@@ -314,6 +314,8 @@ export function makeQueueEntry(
 ): QueueEntry {
   return {
     id: "queued_1",
+    wakeCause: "unknown",
+    wakeRef: null,
     origin: null,
     originPluginId: null,
     initiator: "user",

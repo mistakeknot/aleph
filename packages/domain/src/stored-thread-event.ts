@@ -54,9 +54,18 @@ interface StoredThreadEventParseArgs {
 }
 
 type StoredThreadEventDataByType = {
-  [TType in ThreadEventType]: StoredThreadEventDataFromEvent<
-    ThreadEventForType<TType>
-  >;
+  [TType in ThreadEventType]: TType extends "client/turn/requested"
+    ? Omit<
+        StoredThreadEventDataFromEvent<ThreadEventForType<TType>>,
+        "wakeCause" | "wakeRef"
+      > &
+        Partial<
+          Pick<
+            Extract<ThreadEvent, { type: "client/turn/requested" }>,
+            "wakeCause" | "wakeRef"
+          >
+        >
+    : StoredThreadEventDataFromEvent<ThreadEventForType<TType>>;
 };
 
 export type StoredThreadEventDataForType<TType extends ThreadEventType> =

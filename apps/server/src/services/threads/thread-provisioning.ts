@@ -1,3 +1,4 @@
+import { wakeAttribution, type WakeAttribution } from "@bb/domain";
 import {
   getLatestThreadSequence,
   getNonDestroyedHostByLaunchKey,
@@ -61,7 +62,7 @@ import { buildThreadStatusChangeMetadata } from "./thread-runtime-display.js";
 import { runtimeErrorLogFields } from "../lib/error-log-fields.js";
 import { recordAcceptedPromptHistoryEntry } from "../prompt-history.js";
 
-interface RequestThreadProvisionArgs {
+interface RequestThreadProvisionArgs extends WakeAttribution {
   author: DispatchAuthor;
   environmentIntent: ThreadProvisionEnvironmentIntent;
   execution: ResolvedThreadExecutionOptions;
@@ -75,7 +76,7 @@ interface RequestThreadProvisionArgs {
   titleProvided: boolean;
 }
 
-interface RequestThreadTargetReprovisionArgs {
+interface RequestThreadTargetReprovisionArgs extends WakeAttribution {
   beforeRequestAppendInTransaction?: (args: { tx: DbTransaction }) => void;
   environment: EnvironmentRow;
   execution: ResolvedThreadExecutionOptions;
@@ -309,6 +310,7 @@ export function requestThreadProvision(
       threadId: args.thread.id,
       environmentId: args.thread.environmentId,
       type: "client/turn/requested",
+      ...wakeAttribution(args),
       ...(args.retryOf !== undefined ? { retryOf: args.retryOf } : {}),
       input: args.input,
       execution: args.execution,
@@ -337,6 +339,7 @@ export function requestThreadProvision(
 
     const context = createThreadStartup({
       clientRequestId: request.requestId,
+      ...wakeAttribution(args),
       environmentIntent: args.environmentIntent,
       execution: args.execution,
       fork: args.fork,
@@ -405,6 +408,7 @@ export function requestThreadTargetReprovision(
       const request = appendReprovisionTurnRequest(deps, args);
       const context = createThreadStartup({
         clientRequestId: request.requestId,
+        ...wakeAttribution(args),
         environmentIntent:
           args.environment.status === "error" &&
           args.environment.path !== null &&
@@ -457,6 +461,7 @@ function appendReprovisionTurnRequest(
             threadId: args.thread.id,
             environmentId: args.environment.id,
             type: "client/turn/requested",
+            ...wakeAttribution(args),
             ...(args.retryOf !== undefined ? { retryOf: args.retryOf } : {}),
             input: args.input,
             ...(args.inputGroups !== undefined

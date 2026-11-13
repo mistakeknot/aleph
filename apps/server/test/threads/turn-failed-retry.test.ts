@@ -520,6 +520,11 @@ describe("retrying a failed turn", () => {
       if (retryRequest === undefined) throw new Error("expected a retry turn");
       const data = turnRequestData(retryRequest);
 
+      expect(data).toMatchObject({
+        wakeCause: "retry",
+        retainedCause: "unknown",
+      });
+      expect(queued).toMatchObject({ wakeCause: "retry" });
       expect(data.retryOfRequestId).toBe(requestId);
       expect(data.retryAttempt).toBe(2);
       expect(data.input[0]?.text).toBe("Do the thing");
@@ -986,6 +991,8 @@ describe("retrying a failed turn", () => {
       expect(requireThread(harness, thread.id).status).toBe("starting");
       expect(lastTurnRequest(harness, thread.id)).toMatchObject({
         retryAttempt: 3,
+        wakeCause: "retry",
+        retainedCause: "unknown",
         input: resent,
       });
       expect(

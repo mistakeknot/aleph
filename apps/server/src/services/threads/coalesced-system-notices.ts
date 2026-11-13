@@ -1,4 +1,10 @@
 import {
+  mergeWakeProvenance,
+  wakeProvenanceSchema,
+  type WakeAttribution,
+} from "@bb/domain";
+import { z } from "zod";
+import {
   createQueuedThreadMessageInTransaction,
   deleteCoalescedQueuedThreadMessageInTransaction,
   getPendingCoalescedQueuedThreadMessage,
@@ -24,7 +30,7 @@ export interface CoalescedNotice<State> {
   state: State;
 }
 
-export interface PostCoalescedSystemNoticeArgs<State> {
+export interface PostCoalescedSystemNoticeArgs<State> extends WakeAttribution {
   coalesceKey: string;
   execution: ResolvedThreadExecutionOptions;
   merge: (previous: State | null) => CoalescedNotice<State> | null;
@@ -53,10 +59,32 @@ export function postCoalescedSystemNotice<State>(
         coalesceKey: args.coalesceKey,
         threadId: destination.threadId,
       });
+      const stored =
+        pending?.coalesceState == null
+          ? null
+          : JSON.parse(pending.coalesceState);
+      const envelope = z
+        .object({ state: z.unknown(), wake: wakeProvenanceSchema })
+        .safeParse(stored);
+      const provenance = mergeWakeProvenance(
+        envelope.success
+          ? envelope.data.wake
+          : pending === null
+            ? null
+            : {
+                sources: [{ wakeCause: "unknown", wakeRef: null }],
+                truncated: false,
+              },
+        args,
+      );
       const next = args.merge(
         pending?.coalesceState == null
           ? null
-          : args.parseState(pending.coalesceState),
+          : args.parseState(
+              envelope.success
+                ? JSON.stringify(envelope.data.state)
+                : pending.coalesceState,
+            ),
       );
       if (next === null) {
         const withdrawn =
@@ -71,7 +99,12 @@ export function postCoalescedSystemNotice<State>(
         pending === null
           ? null
           : updateCoalescedQueuedThreadMessageInTransaction(tx, {
-              coalesceState: JSON.stringify(next.state),
+              coalesceState: JSON.stringify({
+                state: next.state,
+                wake: provenance,
+              }),
+              wakeCause: provenance.wakeCause,
+              wakeRef: provenance.wakeRef,
               content: next.input,
               id: pending.id,
               systemNotice: next.notice,
@@ -83,6 +116,8 @@ export function postCoalescedSystemNotice<State>(
         kind: "created",
         row: createQueuedThreadMessageInTransaction(tx, {
           threadId: args.threadId,
+          wakeCause: provenance.wakeCause,
+          wakeRef: provenance.wakeRef,
           content: next.input,
           senderThreadId: null,
           model: args.execution.model,
@@ -96,7 +131,7 @@ export function postCoalescedSystemNotice<State>(
           deliveryMode: "steer",
           coalesce: {
             key: args.coalesceKey,
-            state: JSON.stringify(next.state),
+            state: JSON.stringify({ state: next.state, wake: provenance }),
           },
         }),
       };

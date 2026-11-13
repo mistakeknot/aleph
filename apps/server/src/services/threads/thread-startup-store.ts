@@ -9,6 +9,8 @@ import {
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import {
   environmentMachineSelectionSchema,
+  wakeCauseSchema,
+  wakeRefSchema,
   jsonValueSchema,
   promptInputSchema,
   resolvedThreadExecutionOptionsSchema,
@@ -40,6 +42,8 @@ export const threadForkDescriptorSchema = z.object({
 });
 
 export const threadProvisionCommonPayloadSchema = z.object({
+  wakeCause: wakeCauseSchema.catch("unknown").optional(),
+  wakeRef: wakeRefSchema.nullable().catch(null).optional(),
   clientRequestId: clientTurnRequestIdSchema,
   environmentIntent: threadProvisionEnvironmentIntentSchema,
   execution: resolvedThreadExecutionOptionsSchema.nullable(),

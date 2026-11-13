@@ -70,6 +70,8 @@ describe("claimed system notice on a reprovisionable environment", () => {
         const row = createQueuedThreadMessage(harness.db, harness.hub, {
           threadId: thread.id,
           content: textInput("claimed notice"),
+          wakeCause: "message",
+          wakeRef: "notice-1",
           senderThreadId: null,
           model: "fake-model",
           reasoningLevel: "medium",
@@ -79,6 +81,10 @@ describe("claimed system notice on a reprovisionable environment", () => {
           sendAt: null,
           payload: { kind: "inline" },
           systemNotice: { kind: "child-completed", subject: null },
+        });
+        expect(row).toMatchObject({
+          wakeCause: "message",
+          wakeRef: "notice-1",
         });
         const requestedBefore = requestedTurnCount(harness, thread.id);
         setPluginHookProvider({
@@ -122,6 +128,13 @@ describe("claimed system notice on a reprovisionable environment", () => {
 
         const remaining = getQueuedThreadMessage(harness.db, row.id);
         if (duringHook === "proceed") {
+          const request = listEvents(harness.db, { threadId: thread.id })
+            .reverse()
+            .find((event) => event.type === "client/turn/requested");
+          expect(JSON.parse(request!.data)).toMatchObject({
+            wakeCause: "message",
+            wakeRef: "notice-1",
+          });
           expect(failure).toBeNull();
           expect(remaining).toBeNull();
           expect(requestedTurnCount(harness, thread.id)).toBe(

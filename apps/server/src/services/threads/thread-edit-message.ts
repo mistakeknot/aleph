@@ -637,6 +637,7 @@ async function editHotThreadMessage(
       thread: editableThread,
       payload: {
         ...sendPayload,
+        wakeCause: "message",
         input: [...target.leadingAgentOnlyInput, ...sendPayload.input],
         mode: "start",
       },

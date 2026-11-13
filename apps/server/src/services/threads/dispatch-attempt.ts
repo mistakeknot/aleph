@@ -1,4 +1,10 @@
 import {
+  wakeAttribution,
+  readWake,
+  storedWakeFields,
+  type WakeAttribution,
+} from "@bb/domain";
+import {
   requestQueuedMachineReadiness,
   requestQueuedMessageDispatch,
 } from "./queued-message-dispatch.js";
@@ -112,6 +118,7 @@ import { ensureProvisionalSuccessorFenceOpen } from "./provisional-successor-fen
 import { markTurnTraceSpan } from "../system/turn-trace.js";
 
 export const pendingThreadStartContextSchema = z.object({
+  ...storedWakeFields,
   environmentIntent: threadProvisionEnvironmentIntentSchema,
   fork: threadForkDescriptorSchema.nullable(),
   historyCopy: z.literal(FORK_HISTORY_COPY_MARK).optional(),
@@ -260,7 +267,8 @@ export type DispatchAttemptSource =
 export interface DispatchAttemptArgs {
   thread: Thread;
   requestedThreadId?: string;
-  payload: SendMessageRequest & { inputGroups?: PromptInput[][] };
+  payload: SendMessageRequest &
+    WakeAttribution & { inputGroups?: PromptInput[][] };
   source: DispatchAttemptSource;
   /**
    * The start context creation just wrote, on the attempt that is creating the
@@ -329,10 +337,14 @@ export function attemptDispatch(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: DispatchAttemptArgs,
 ): Promise<DispatchAttemptOutcome> {
-  return runDispatchAttempt(deps, args, {
-    deliveryMode: deliveryModeForSendMode(args.payload.mode),
-    reattempted: false,
-  });
+  return runDispatchAttempt(
+    deps,
+    { ...args, payload: { ...args.payload, ...wakeAttribution(args.payload) } },
+    {
+      deliveryMode: deliveryModeForSendMode(args.payload.mode),
+      reattempted: false,
+    },
+  );
 }
 
 function deliveryModeForSendMode(
@@ -442,6 +454,7 @@ async function runDispatchAttempt(
     interruptedStartupRequest === null
       ? null
       : {
+          ...readWake(interruptedStartupRequest),
           environmentIntent: interruptedStartupRequest.environmentIntent,
           fork: interruptedStartupRequest.fork,
           startedOnBehalfOf: args.startedOnBehalfOf,
@@ -490,6 +503,7 @@ async function runDispatchAttempt(
   }
   const resolvedPayload = resolveExecutionIntoPayload(payload, execution);
   const queuedMessage: QueuedDispatchMessage = {
+    ...wakeAttribution(payload),
     input: payload.input,
     execution,
     senderThreadId,
@@ -911,7 +925,8 @@ interface AdmitPendingThreadArgs {
   author: DispatchAuthor;
   claimed: ClaimedQueuedThreadMessageRow[] | null;
   originPluginId: string | null;
-  payload: SendMessageRequest & { inputGroups?: PromptInput[][] };
+  payload: SendMessageRequest &
+    WakeAttribution & { inputGroups?: PromptInput[][] };
   respectManualStopPause: boolean;
   retryOf: TurnRequestRetryMarker | undefined;
   /** Creation's own record; null on a re-attempt, which reads it back. */
@@ -1001,6 +1016,7 @@ async function admitPendingThread(
         if (starting === null) throw new PendingThreadAdmissionLost();
         requestThreadProvision(deps, {
           author: args.author,
+          ...wakeAttribution(args.payload),
           thread: starting,
           environmentIntent: startContext.environmentIntent,
           execution,
@@ -1059,9 +1075,10 @@ async function launchAdmittedThread(
  * queue drain has always used to replay a frozen tuple.
  */
 function resolveExecutionIntoPayload(
-  payload: SendMessageRequest & { inputGroups?: PromptInput[][] },
+  payload: SendMessageRequest &
+    WakeAttribution & { inputGroups?: PromptInput[][] },
   execution: ResolvedThreadExecutionOptions,
-): SendMessageRequest & { inputGroups?: PromptInput[][] } {
+): SendMessageRequest & WakeAttribution & { inputGroups?: PromptInput[][] } {
   return {
     ...payload,
     model: execution.model,
