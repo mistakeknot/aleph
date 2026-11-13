@@ -1,39 +1,41 @@
-Notifications for agent questions, finished turns and errors; plugins and CLI can send too.
+Notifications for questions, finished turns and errors; plugins and CLI can send too.
 
 ## Delivery
 
-Mobile push uses Expo, even with the app closed. Browsers and desktop use system notifications over the live connection; web needs HTTPS (or localhost) and permission. Mobile WebViews use mobile push only.
+Mobile uses Expo, even when closed. Browser/desktop system notifications need a live connection; web needs HTTPS or localhost and permission. Mobile WebViews use push only.
 
-Each thread has a level: `all` (questions, approvals, errors, finished turns), `input-only` (no finished turns), or `muted`. It uses its own level, else `childLevel` if it has a parent, else `defaultLevel`; every ancestor's own level caps it. Muting a parent mutes its subtree; a parent never makes workers louder.
+Thread levels: `all` (questions, approvals, errors, finished turns), `input-only` (no finished turns), `muted`. A thread uses its own level, else `childLevel` if it has a parent, else `defaultLevel`; every ancestor's own level caps it. Muting a parent mutes its subtree; parents never make workers louder.
 
-Clicking opens the thread, or bb if none; desktop also restores and focuses the window. With the `skipFocusedThreadNotifications` experiment (on for early adopters), a thread open in a visible, focused window or tab is not notified. Events combine, pending questions first. Read, archived, deleted, and hidden threads are suppressed at every level; tabs of one origin deduplicate. With the `dismissReadNotifications` experiment, reading a thread on any client removes its delivered notifications from phones, tablets, and open web and desktop clients.
+Clicks open the thread or bb; desktop restores focus. With `skipFocusedThreadNotifications` (on for early adopters), visible focused threads are not notified. Events coalesce, questions first. Read/archived/deleted/hidden threads are suppressed at every level; same-origin tabs deduplicate. With `dismissReadNotifications`, reading a thread removes its delivered notifications from mobile and open web/desktop clients.
 
 ## Thread menu
 
-Every thread menu has a **Notifications** entry for unarchived threads: Default, All activity, Needs input only, Muted. It shows the current level; a footnote says when a parent limits it. Only the thread's own level is stored.
+Unarchived threads offer **Notifications**: Default, All activity, Needs input only, Muted, showing parent limits. Only the own level is stored.
 
 ## Settings
 
-- `mobileEnabled`, `webEnabled`, `desktopEnabled` (**Mobile**, **Web**, **Desktop notifications**): channel switches. Default: true.
-- `defaultLevel` (**Default notifications**): `all`, `input-only`, or `muted` for threads you haven't set. Default: `all`.
-- `childLevel` (**Child thread notifications**): `inherit` (as `defaultLevel`), `all`, `input-only`, or `muted`. Default: `input-only`.
-- `blockerDailyCap` (**Blocker pushes per day**): blocker pushes per Pacific-time day, all sources; `0` turns them off. Default: 3.
-- `expoPushUrl` (**Expo push relay URL**): mobile relay. Default: `https://exp.host/--/api/v2/push/send`.
+- `mobileEnabled`, `webEnabled`, `desktopEnabled` (**Mobile**, **Web**, **Desktop notifications**): channels, default true.
+- `defaultLevel` (**Default notifications**): `all`, `input-only`, `muted`; default `all`.
+- `childLevel` (**Child thread notifications**): `inherit` (uses `defaultLevel`), `all`, `input-only`, `muted`; default `input-only`.
+- `blockerDailyCap` (**Blocker pushes per day**): all-source cap per Pacific day; `0` disables. Default 3.
+- `expoPushUrl` (**Expo push relay URL**): mobile relay, default `https://exp.host/--/api/v2/push/send`.
 
-Settings → Push notifications applies to this server immediately. Browser permission is per device, via **Allow notifications**. **Send test notification** confirms broadcast, not OS display.
+Settings → Push notifications applies immediately. Browser permission is per device via **Allow notifications**. **Send test notification** confirms broadcast, not OS display.
 
 ## CLI and SDK
 
-`bb push-notifications` manages devices, shows status, sends and tests notifications, pushes capped blockers, and reads or sets a thread's level; `bb plugin config push-notifications` changes settings. The `push-notifications` skill documents them. The `notifications.send` RPC sends notifications; `bb plugin rpc inspect push-notifications notifications.send` shows its schemas.
+`bb push-notifications` manages devices, status, sends, tests, blockers and thread levels; `bb plugin config push-notifications` changes settings. See the plugin skill. RPC `notifications.send` sends; `bb plugin rpc inspect push-notifications notifications.send` shows schemas.
 
 ## Blocker pushes
 
-Plugins and scripts can push blockers needing a person, using the sender, channels and subscriptions of `notifications.send` only; it ignores thread levels. One cap covers all sources: at most `blockerDailyCap` per America/Los_Angeles day (23 or 25 hours at clock changes).
+Plugins/scripts push blockers through the same sender/channels/devices, ignoring thread levels. All sources share `blockerDailyCap` per America/Los_Angeles day (23/25 hours at clock changes).
 
-Plugins call `sdk.plugins.callRpc` method `notifications.notify` with `{ kind: "blocker", title, body, threadId?, dedupeKey? }`. The host sets `source` to the plugin's id and refuses another; the CLI and other clients name their own, but new names do not raise the cap. `threadId` must be a bb thread id (`thr_` plus 10 characters), else it is refused before it is counted or sent. A repeated `dedupeKey` from a source that day is not pushed twice. `title` is cut to 80 characters, `body` to 180.
+Plugins call `sdk.plugins.callRpc` method `notifications.notify` with `{ kind: "blocker", title, body, threadId?, dedupeKey? }`. The host sets `source` to the plugin id and refuses another; CLI/clients name their own, but new sources do not raise the cap. `threadId` must be `thr_` plus 10 valid characters or is refused before counting/sending. A source's repeated daily `dedupeKey` is not pushed twice. Title/body limits: 80/180 characters.
 
-Results include `outcome` (`sent`, `capped` or `deduped`), `sentToday` (the day's total across sources) and `delivery` (null unless sent). Attempts count against the cap even if the relay fails or the thread is focused.
+Results: `outcome` (`sent`, `capped`, `deduped`), `sentToday` (all-source daily total), `delivery` (null unless sent). Attempts consume the cap even if delivery fails or the thread is focused.
 
-`bb push-notifications status --json` shows `blockerPush`: the cap and the last 14 days (newest first), with `sent`, `capped` and `deduped` counts per day and source. A capped call from a source with no sent push that day counts under `_overflow`; a day has at most `blockerDailyCap` source rows plus `_overflow`.
+`bb push-notifications status --json` includes `blockerPush`: cap and last 14 days, newest first, with sent/capped/deduped counts per day/source. Capped sources without a sent push that day count under `_overflow`; each day has at most `blockerDailyCap` source rows plus `_overflow`.
 
-`bb push-notifications counts --thread ID --json` reads persistent per-thread totals for question, turn-end, and error through the `notifications.counts` plugin RPC. These count selected automatic alert attempts after current filtering and coalescing, once per alert regardless of device count. Disabled channels and transport failures still count attempts; the totals do not measure receipt. Manual messages, blockers, test notifications and dismissals are excluded. Only counts and first/last timestamps are stored; no message text is stored by the counter. Deleted-thread totals remain available during measurement. This measurement does not change notification behavior or activate new defaults.
+## Measurement
+
+`bb push-notifications counts --thread ID --json` or RPC `notifications.counts` reads persistent question/turn-end/error attempts per thread. Counts follow existing filtering/coalescing, once per alert across devices, including disabled channels and transport failures; they do not prove receipt. Manual/blocker/test/dismiss pushes are excluded. Storage holds counts and first/last timestamps, never message text. Deleted-thread totals remain during measurement. No push behavior or defaults change.
