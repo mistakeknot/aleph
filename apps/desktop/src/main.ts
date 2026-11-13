@@ -2680,7 +2680,9 @@ async function waitForWindowsInstallerToFinish(): Promise<boolean> {
   return result === "finished" && !quitting;
 }
 
-async function waitForOwnedRuntimeReady(bbProcess: BbAppProcess): Promise<void> {
+async function waitForOwnedRuntimeReady(
+  bbProcess: BbAppProcess,
+): Promise<void> {
   let timer: NodeJS.Timeout | undefined;
   const result = await Promise.race([
     bbProcess.ready.then(() => "ready" as const),
