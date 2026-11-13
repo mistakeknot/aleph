@@ -667,7 +667,9 @@ export function parseOperationMessage(
   if (decoded.type === "system/operation") {
     if (
       decoded.operation === "plugin_interaction" ||
-      decoded.operation === "edit_message"
+      decoded.operation === "edit_message" ||
+      decoded.operation === "wake.turn-outcome.v1" ||
+      decoded.operation === "wake.effect.v1"
     ) {
       return null;
     }

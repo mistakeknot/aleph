@@ -5,6 +5,7 @@ import {
   type ThreadEventType,
   type WakeAttribution,
 } from "@bb/domain";
+import { projectThreadTimelineEvents } from "@bb/thread-view";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -13,7 +14,11 @@ import {
   appendClientTurnEvent,
   appendThreadEvent,
 } from "../../src/services/threads/thread-events.js";
-import { readWakeOutcomes } from "../../src/services/threads/wake-turn-outcome.js";
+import { toThreadEventWithMeta } from "../../src/services/threads/timeline.js";
+import {
+  readWakeOutcomes,
+  recordAcknowledgedWakeEffect,
+} from "../../src/services/threads/wake-turn-outcome.js";
 import { seedThreadFixture } from "../helpers/seed.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
 
@@ -203,6 +208,155 @@ const write: ThreadEventItem = {
 };
 
 describe("wake outcome report HTTP contract", () => {
+  it.each(["task", "card"] as const)(
+    "hides stored wake telemetry from projection while reporting an acknowledged %s effect without writes",
+    async (effectKind) => {
+      await withTestHarness(async (harness) => {
+        const f = fixture(harness);
+        const turnId = "projection-turn";
+        const requestId = f.request({
+          wakeCause: "card_pick",
+          wakeRef: "example.test",
+        });
+        f.start(turnId);
+        f.accept(turnId, requestId);
+        recordAcknowledgedWakeEffect(harness.deps, {
+          caller: { threadId: f.thread.id, turnId },
+          operationId: "acknowledged-effect",
+          effectKind,
+          acknowledged: true,
+          changed: true,
+        });
+        appendThreadEvent(harness.deps, {
+          threadId: f.thread.id,
+          scope: turnScope(turnId),
+          type: "system/operation",
+          data: {
+            operation: "wake.effect.v2",
+            operationId: "visible-operation",
+            status: "completed",
+            message: "Example visible operation",
+          },
+        });
+        f.finish(turnId);
+        f.settle(turnId);
+
+        const rows = () =>
+          harness.db
+            .select()
+            .from(events)
+            .where(eq(events.threadId, f.thread.id))
+            .orderBy(events.sequence)
+            .all();
+        const before = rows();
+        const storedEvents = before.map(toThreadEventWithMeta);
+        const operations = storedEvents.flatMap(({ event }) =>
+          event.type === "system/operation" ? [event] : [],
+        );
+        expect(operations.map((event) => event.operation)).toEqual([
+          "wake.effect.v1",
+          "wake.effect.v2",
+          "wake.turn-outcome.v1",
+        ]);
+        expect(operations[0]).toMatchObject({
+          scope: turnScope(turnId),
+          operationId: "acknowledged-effect",
+          status: "completed",
+          metadata: { effectKind, changed: true },
+        });
+        expect(operations[2]).toMatchObject({
+          scope: turnScope(turnId),
+          status: "completed",
+          metadata: {
+            origin: "settlement",
+            changedAnything: true,
+            effectKinds: [effectKind],
+          },
+        });
+
+        const threadBefore = getThread(harness.db, f.thread.id);
+        const totalChanges = () =>
+          harness.db.$client.prepare("SELECT total_changes() AS count").get();
+        const changesBefore = totalChanges();
+        const report = await f.report();
+        expect(report.outcomes).toHaveLength(1);
+        expect(report.outcomes[0]).toMatchObject({
+          turnId,
+          wakeCause: "card_pick",
+          wakeRef: "example.test",
+          changedAnything: true,
+          effectKinds: [effectKind],
+          coverage: {
+            attribution: "complete",
+            tools: "unknown",
+            effects: "unknown",
+          },
+          requests: [
+            {
+              requestId,
+              firstAcceptingTurnId: turnId,
+              wakeCause: "card_pick",
+              wakeRef: "example.test",
+            },
+          ],
+        });
+        expect(await f.report()).toEqual(report);
+        expect(rows()).toEqual(before);
+        expect(getThread(harness.db, f.thread.id)).toEqual(threadBefore);
+        expect(totalChanges()).toEqual(changesBefore);
+
+        const projection = projectThreadTimelineEvents({
+          events: storedEvents,
+          acceptedClientRequestContext: {
+            acceptedClientRequestEvents: [],
+            rejectedClientRequestEvents: [],
+          },
+          options: {
+            completedTurnDisplay: "collapse",
+            includeDiagnosticOperations: false,
+            includeNestedRows: true,
+            omitSettledDelegationChildRows: false,
+            isLatestPage: true,
+            summarizeShellCommands: false,
+            threadStatus: "idle",
+            threadName: "example.test",
+            workspaceRoot: null,
+          },
+        });
+        const messages = projection.entries.flatMap((entry) =>
+          entry.kind === "projected-message"
+            ? [entry.message]
+            : (entry.turn.messages ??
+              (entry.turn.terminalMessage ? [entry.turn.terminalMessage] : [])),
+        );
+        const projectedOperations = messages.flatMap((message) =>
+          message.kind === "operation" && message.threadOperation
+            ? [message.threadOperation.rawOperation]
+            : [],
+        );
+        expect(projectedOperations).toContain("wake.effect.v2");
+        for (const operation of ["wake.turn-outcome.v1", "wake.effect.v1"]) {
+          expect.soft(projectedOperations).not.toContain(operation);
+          const stored = storedEvents.find(
+            ({ event }) =>
+              event.type === "system/operation" &&
+              event.operation === operation,
+          );
+          expect(stored).toBeDefined();
+          expect.soft(messages).not.toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                sourceEvent: expect.objectContaining({ seq: stored!.meta.seq }),
+              }),
+            ]),
+          );
+        }
+        expect(rows()).toEqual(before);
+        expect(totalChanges()).toEqual(changesBefore);
+      });
+    },
+  );
+
   it("walks 205 turns newest first with a stable first-sequence cursor", async () => {
     await withTestHarness(async (harness) => {
       const f = fixture(harness);
