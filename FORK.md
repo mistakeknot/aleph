@@ -413,6 +413,10 @@ Update it as an enrolled machine, above.
 
 Beyond upstream, Aleph carries:
 
+- **Tasks reports (mk-ddtv5.3).** A separate optional result report, exposed
+  through task RPC, CLI and detail view, with a computed marker for tasks
+  done without a report. One nullable text column; existing asks stay intact.
+
 - **Account Pooler 0.1.2.** Thread availability bound to the thread's owning
   machine (403 on refusal, 503 on failed lookups, no caching); `bb pool exec`
   for Codex and Claude, with an argument allowlist, the transport marker

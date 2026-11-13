@@ -81,6 +81,7 @@ interface TaskRow {
   project_prefix: string;
   title: string;
   description: string;
+  report: string | null;
   status: Task["status"];
   priority: Task["priority"];
   due_date: string | null;
@@ -360,6 +361,7 @@ function taskFromRow(row: TaskRow): Task {
     key: `${row.project_prefix}-${row.number}`,
     title: row.title,
     description: row.description,
+    report: row.report,
     status: row.status,
     priority: row.priority,
     dueDate: row.due_date,
@@ -812,6 +814,7 @@ export function createTasksStore(db: PluginDatabase) {
           number,
           string,
           string,
+          string | null,
           Task["status"],
           Task["priority"],
           string | null,
@@ -823,9 +826,9 @@ export function createTasksStore(db: PluginDatabase) {
       >(
         `
       INSERT INTO tasks (
-        id, project_id, number, title, description, status, priority, due_date,
+        id, project_id, number, title, description, report, status, priority, due_date,
         parent_task_id, position, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       ).run(
         id,
@@ -833,6 +836,7 @@ export function createTasksStore(db: PluginDatabase) {
         project.nextTaskNumber,
         requireNonEmpty(input.title, "Task title"),
         input.description ?? "",
+        input.report ?? null,
         status,
         input.priority ?? "none",
         validateDueDate(input.dueDate ?? null),
@@ -1115,6 +1119,7 @@ export function createTasksStore(db: PluginDatabase) {
         [
           string,
           string,
+          string | null,
           Task["status"],
           Task["priority"],
           string | null,
@@ -1126,7 +1131,7 @@ export function createTasksStore(db: PluginDatabase) {
       >(
         `
         UPDATE tasks SET
-          title = ?, description = ?, status = ?, priority = ?, due_date = ?,
+          title = ?, description = ?, report = ?, status = ?, priority = ?, due_date = ?,
           parent_task_id = ?, position = ?, updated_at = ?
         WHERE id = ?
       `,
@@ -1135,6 +1140,7 @@ export function createTasksStore(db: PluginDatabase) {
           ? current.title
           : requireNonEmpty(input.title, "Task title"),
         input.description ?? current.description,
+        input.report === undefined ? (current.report ?? null) : input.report,
         status,
         input.priority ?? current.priority,
         input.dueDate === undefined

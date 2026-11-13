@@ -166,6 +166,10 @@ function buildTaskContext(
 
 ${task.description.trim() || "No description provided."}
 
+## Report
+
+${task.report?.trim() || (task.status === "done" ? "Closed without a report" : "No report provided.")}
+
 ## Sub-tasks
 
 ${formatSubtasks(store.tasks.listSubtasks(task.id))}
