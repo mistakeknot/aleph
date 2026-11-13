@@ -4211,6 +4211,9 @@ importers:
 
   plugins/connect-next:
     dependencies:
+      '@bb/connect-client':
+        specifier: workspace:*
+        version: link:../../packages/connect-client
       '@bb/frp-client':
         specifier: workspace:*
         version: link:../../packages/frp-client

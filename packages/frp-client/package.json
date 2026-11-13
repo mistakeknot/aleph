@@ -13,6 +13,10 @@
       "source": "./src/testing/frp-fixture.ts",
       "types": "./src/testing/frp-fixture.ts",
       "default": "./src/testing/frp-fixture.ts"
+    },
+    "./share-ingress": {
+      "types": "./src/share-ingress.ts",
+      "default": "./src/share-ingress.ts"
     }
   },
   "scripts": {

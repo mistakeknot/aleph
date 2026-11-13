@@ -996,8 +996,9 @@ async function checkShares(
       `${page?.status ?? "no answer"}, dev server saw Host ${pageSeen?.host ?? "?"}`,
     );
     check(
-      "shares: the dev server sees Host 127.0.0.1:<port> and the gate assertion",
-      pageSeen?.host === `127.0.0.1:${dev.port}` && pageSeen.assertion === true,
+      "shares: the dev server sees Host 127.0.0.1:<port> without the gate assertion",
+      pageSeen?.host === `127.0.0.1:${dev.port}` &&
+        pageSeen.assertion === false,
       JSON.stringify(pageSeen),
     );
     const posted = await shareVisit("/api/save", {
@@ -1478,8 +1479,9 @@ async function checkMachines(
       `${page?.status ?? "no answer"}`,
     );
     check(
-      "machines: the machine's dev server sees Host 127.0.0.1:<port> and the gate assertion",
-      pageSeen?.host === `127.0.0.1:${dev.port}` && pageSeen.assertion === true,
+      "machines: the machine's dev server sees Host 127.0.0.1:<port> without the gate assertion",
+      pageSeen?.host === `127.0.0.1:${dev.port}` &&
+        pageSeen.assertion === false,
       JSON.stringify(pageSeen),
     );
     const posted = await shareVisit("/api/save", {

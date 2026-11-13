@@ -106,6 +106,7 @@ export function requireDeclaredAnnotationShare(
     hostId: string;
     port: number;
     url: string;
+    nextUrl?: string;
     unavailableReason?: string;
   }[],
 ): void {
@@ -115,7 +116,9 @@ export function requireDeclaredAnnotationShare(
   if (
     !share ||
     share.unavailableReason ||
-    new URL(share.url).origin !== new URL(scope.url).origin
+    ![share.url, ...(share.nextUrl ? [share.nextUrl] : [])].some(
+      (url) => new URL(url).origin === new URL(scope.url).origin,
+    )
   )
     throw new Error("This host page is not shared");
 }

@@ -36,13 +36,13 @@ connect Postgres database (PlanetScale, reached through Hyperdrive); only the da
 5. `frpc` forwards to the server's tunnel ingress, a loopback port separate from the main one. The
    ingress refuses any request without a valid assertion for this server (401) and turns a valid one
    into the same request context the Cloudflare path produces (`getGateAuthKind`). The main loopback
-   port keeps today's local trust. Share traffic (`<label>--<port>`) does not use the ingress: its
-   frpc proxy goes straight to `127.0.0.1:<port>` with `Host` rewritten to `127.0.0.1:<port>`, as the
-   Cloudflare tunnel does, and the gate rewrites an `Origin` equal to the share's own public origin
-   (`<scheme>://<label>--<port>.<domain>[:port]`) to `http://127.0.0.1:<port>` (HTTP and WebSocket
-   upgrades), so dev servers such as Vite accept the request and their HMR socket. Any other `Origin`
-   is forwarded unchanged (and refused by the gate on state changes and WebSockets). The assertion
-   header still reaches the dev server, which ignores it.
+   port keeps today's local trust. Share proxies use separate per-port loopback ingresses that
+   verify the signed target, audience, method and path before forwarding to the preview port.
+   They remove gate markers and rewrite Host for the preview. The gate's same-origin Origin
+   rewrite remains in place for dev servers and WebSockets; the annotation bridge restores
+   the registered public origin for its own same-origin mutation checks. Signed owner sessions
+   receive eligible page overlays. Public visitors retain ordinary preview access. Revocation
+   closes the corresponding listener and active connections.
 
 The server fetches gate public keys from `https://getbb.app/.well-known/bb-connect-gate-keys.json`
 (`BB_CONNECT_GATE_KEYS_URL` overrides it) and caches them; an unknown `kid` triggers one refetch.
@@ -209,7 +209,7 @@ next address off without disabling the plugin.
   `connect-next`.
 - **Shares.** Every port the connect plugin shares from the server machine (`bb connect expose`)
   becomes an frpc proxy `share-<port>`: `subdomain = <label>--<port>`, `localIP = 127.0.0.1`,
-  `localPort = <port>`, `hostHeaderRewrite = 127.0.0.1:<port>`. The plugin learns them from connect's
+  `localPort = <verified share ingress port>`. The plugin learns them from connect's
   `connect.internal_DO_NOT_USE.serverShares` and long-polls `connect.internal_DO_NOT_USE.waitForServerSharesChange({ afterRevision })`
   (25 s; both answer `{ revision, ports }` and only to `bb--connect-next`); a stopped connect plugin
   means no shares. A change rewrites `frpc.json` and hot-reloads frpc, so the main proxy and its
@@ -263,7 +263,8 @@ nextRetryAt, since, shares: [{ port, state, error }] } }` whenever it changes an
   `metadatas.credential` = the machine credential, `frpc` in `<data dir>/connect-next/frp/<version>/`
   (or `BB_CONNECT_FRPC`), `frpc.json` (0600) and `roots.pem` in `<data dir>/connect-next/frp/`, and
   one proxy `share-<port>` per shared port (`subdomain = <machine-label>--<port>`,
-  `127.0.0.1:<port>`, `hostHeaderRewrite = 127.0.0.1:<port>`). Every `connect-shares.replace`
+  a per-port verified loopback ingress). The daemon obtains its exact machine audience from
+  the authenticated machine-label response and fetches verification keys from the trusted next gate. Every `connect-shares.replace`
   hot-reloads the list (`/api/reload`); dropping to no port reloads to an empty list, waits 1 s so
   the gate sees the proxy removed rather than dropped, then stops frpc. `null`, a new config (then
   it restarts), daemon shutdown and machine removal stop it too, and so does losing the server
@@ -515,7 +516,7 @@ and `FLY_*` variables except `BB_E2E_*`, then:
    any WebSocket `Origin` but its loopback origin) and runs `bb connect expose <port>`, which must
    print both share URLs; `bb connect-next status` lists the share `active`; through
    `cne2e--<port>.next.bb.localhost` the owner loads the page (the dev server sees its own Host and
-   the assertion header), a POST with the share's own Origin arrives with the loopback origin and a
+   no gate assertion header), a POST with the share's own Origin arrives with the loopback origin and a
    foreign Origin arrives unchanged, another user gets 403 and no cookie the sign-in page, the HMR
    WebSocket opens and echoes, and foreign-origin or other-user WebSockets get 403.
    `bb connect unexpose` makes the address 503 within 10 s while the main address keeps answering
@@ -530,7 +531,7 @@ and `FLY_*` variables except `BB_E2E_*`, then:
    `bb connect expose <port> --host <machine>` and checks the listing's `nextUrl`, the machine and
    share in `bb connect-next status` (`--json` and text), the daemon's `frpc.json` (machine label,
    machine credential, one proxy per share), that the daemon log never holds the credential, the
-   owner's 200 at `<machine-label>--<port>.next…` with Host `127.0.0.1:<port>` and the assertion,
+   owner's 200 at `<machine-label>--<port>.next…` with Host `127.0.0.1:<port>` and no gate assertion,
    the Origin rewrite, another user's 403, the HMR WebSocket and a foreign-origin WebSocket's 403;
    that unexposing answers 503 within 10 s while the server address keeps answering 200 and stops
    the machine's frpc; that exposing again brings it back; and that `bb connect-next off` stops the

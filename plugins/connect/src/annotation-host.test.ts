@@ -92,3 +92,30 @@ it("persists and edits host notes without changing the same page on another host
   await store.change(scope, { type: "annotation-delete", id: "note" });
   expect(await store.list(scope)).toEqual([]);
 });
+
+it("admits only the declared next origin for machine notes", async () => {
+  const { requireDeclaredAnnotationShare } =
+    await import("./annotation-store.js");
+  const share = {
+    hostId: "host-a",
+    port: 3000,
+    url: "https://machine--3000.example.test",
+    nextUrl: "https://machine--3000.next.example.test",
+  };
+  expect(() =>
+    requireDeclaredAnnotationShare(
+      { hostId: share.hostId, port: share.port, url: share.nextUrl + "/page" },
+      [share],
+    ),
+  ).not.toThrow();
+  expect(() =>
+    requireDeclaredAnnotationShare(
+      {
+        hostId: share.hostId,
+        port: share.port,
+        url: "https://other--3000.next.example.test/page",
+      },
+      [share],
+    ),
+  ).toThrow();
+});

@@ -31,10 +31,14 @@ Anonymous, machine and OAuth visitors are excluded. Enrolled legacy daemons
 install the callbacks on their authenticated outbound tunnel and persist through
 the active enrolled host session. The server verifies the session owner and
 registered host, port and page origin. Server-host notes retain their existing
-storage keys. Connect-next FRP shares currently point directly to the
-preview port; they bypass the server's assertion-verifying ingress, which rejects
-non-null share targets. They remain unchanged until a verified share ingress is
-implemented. These routes do not yet have annotation coverage.
+storage keys. Connect-next server and machine FRP proxies route registered shares
+through a loopback ingress that verifies gate signatures, exact server or machine
+audience, method, path, query and target. Only owner sessions receive the overlay;
+public, machine and OAuth requests retain preview behavior without note access.
+Share removal and shutdown close the ingress and its active connections. Machine
+notes use the same authenticated server persistence route. The gate's authenticated
+machine-label response supplies the machine ID used for audience verification;
+older gates without that field fail closed until updated.
 
 Only complete successful UTF-8 HTML with a declared content length up to 1 MiB
 is eligible. Compressed, chunked, unknown-length, partial, attachment, oversized
