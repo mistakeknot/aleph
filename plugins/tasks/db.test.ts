@@ -62,7 +62,7 @@ describe("tasks storage", () => {
             "SELECT COUNT(*) AS count FROM schema_version",
           )
           .get()?.count,
-      ).toBe(10);
+      ).toBe(11);
     } finally {
       await harness.dispose();
     }

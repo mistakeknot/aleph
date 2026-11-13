@@ -247,6 +247,21 @@ const MIGRATIONS = [
     ALTER TABLE tasks ADD COLUMN return_at TEXT;
     ALTER TABLE tasks ADD COLUMN return_thread_id TEXT;
   `,
+  `
+    CREATE TABLE IF NOT EXISTS progress_notes (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      author_name TEXT NOT NULL,
+      preset_name TEXT,
+      thread_id TEXT,
+      body TEXT NOT NULL,
+      proof_url TEXT,
+      created_at TEXT NOT NULL,
+      CHECK (thread_id IS NULL OR thread_id GLOB 'thr_*')
+    );
+    CREATE INDEX IF NOT EXISTS idx_progress_notes_task_order
+      ON progress_notes(task_id, created_at, id);
+  `,
 ] as const;
 
 export function initializeTasksSchema(db: PluginDatabase): void {
