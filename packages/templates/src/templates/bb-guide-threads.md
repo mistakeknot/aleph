@@ -207,3 +207,10 @@ Lifecycle ownership:
   dependents; deleting it deletes them. Unarchive the owner before explicitly
   restoring a dependent. Stop does not cascade. Sidebar parents and ordinary
   forks keep their own policies.
+
+Wake attribution for `bb thread tell`, `bb thread spawn`, and `bb thread fork`:
+`--wake-cause <cause>` accepts card_pick, merge, review, timer, message,
+workflow, retry, restart, interaction, or unknown. Omission records unknown.
+`--wake-ref <ref>` carries an opaque operation ID of at most 200 UTF-16 units;
+never use prompt text, credentials, tokens, or cookies. Scheduling changes
+when delivery happens, not its cause. Queue edits preserve original attribution.

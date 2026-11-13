@@ -1016,3 +1016,25 @@ describe("triggers", () => {
     ).toEqual([{ source_thread_id: source.id, successor_thread_id: null }]);
   });
 });
+
+it.each(["transfer", "retire"] as const)("preserves wake attribution through %s", (operation) => {
+  const fixture = setup();
+  try {
+    const row = enqueue(fixture.db, fixture.source.id, "attributed", { wakeCause: "card_pick", wakeRef: "operation-1" });
+    if (operation === "transfer") {
+      fixture.db.transaction((tx) => transferQueuedThreadMessageInTransaction(tx, {
+        queuedMessageId: row.id,
+        sourceThreadId: fixture.source.id,
+        targetThreadId: fixture.target.id,
+        resolveWaitingOn,
+      }));
+    } else {
+      retire(fixture);
+    }
+    expect(listQueuedThreadMessages(fixture.db, fixture.target.id)).toEqual([
+      expect.objectContaining({ wakeCause: "card_pick", wakeRef: "operation-1" }),
+    ]);
+  } finally {
+    fixture.db.$client.close();
+  }
+});

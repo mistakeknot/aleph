@@ -1,3 +1,4 @@
+import { parseWakeOptions } from "./wake.js";
 import { Command } from "commander";
 import {
   threadVisibilitySchema,
@@ -23,6 +24,8 @@ import {
 } from "./spawn.js";
 
 interface ThreadForkCommandOptions {
+  wakeCause?: string;
+  wakeRef?: string;
   agentContextSeed?: string;
   baseBranch?: string;
   environment?: string;
@@ -151,6 +154,11 @@ export function registerForkCommand(
       collectOption,
       [],
     )
+    .option("--wake-cause <cause>", "Wake attribution cause (omitted: unknown)")
+    .option(
+      "--wake-ref <ref>",
+      "Opaque operation ID, at most 200 UTF-16 units; never prompt text or secrets",
+    )
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(
@@ -227,6 +235,7 @@ export function registerForkCommand(
                 ? { lifecycleOwnerThreadId: opts.lifecycleOwnerThread }
                 : {}),
               origin: "cli",
+              ...parseWakeOptions(opts),
               ...(environment === undefined ? {} : { environment }),
               ...(input === undefined ? {} : { input }),
               ...(sourceSeqEnd === undefined ? {} : { sourceSeqEnd }),

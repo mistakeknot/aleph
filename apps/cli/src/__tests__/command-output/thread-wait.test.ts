@@ -16,6 +16,8 @@ function retryRow(
 ): ThreadQueuedMessage {
   return {
     id: "queued-retry",
+    wakeCause: "unknown",
+    wakeRef: null,
     origin: null,
     originPluginId: null,
     initiator: "system",

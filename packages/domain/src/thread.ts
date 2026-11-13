@@ -1,3 +1,4 @@
+import { storedWakeFields } from "./wake.js";
 import { z } from "zod";
 import { threadCreateOriginSchema } from "./thread-create-origin.js";
 import { environmentWorkspaceDisplayKindSchema } from "./environment.js";
@@ -52,6 +53,9 @@ export type ThreadRuntimeState = z.infer<typeof threadRuntimeStateSchema>;
 export type ThreadActivityState = z.infer<typeof threadActivityStateSchema>;
 
 export const threadQueuedMessageSchema = z.object({
+  ...storedWakeFields,
+  wakeSources: z.array(z.object(storedWakeFields)).optional(),
+  wakeSourcesTruncated: z.boolean().optional(),
   id: z.string(),
   origin: threadCreateOriginSchema.nullable(),
   originPluginId: z.string().nullable(),

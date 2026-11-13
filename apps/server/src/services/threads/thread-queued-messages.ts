@@ -1,3 +1,4 @@
+import { readWake, wakeProvenanceSchema } from "@bb/domain";
 import {
   promptInputSchema,
   queuedMessageSystemNoticeSchema,
@@ -22,6 +23,9 @@ import { ApiError } from "../../errors.js";
 import { resolveDispatchAuthor } from "./dispatch-author.js";
 
 interface StoredQueuedThreadMessageRow {
+  coalesceState?: string | null;
+  wakeCause?: string;
+  wakeRef?: string | null;
   origin: ThreadCreateOrigin | null;
   originPluginId: string | null;
   content: string;
@@ -189,7 +193,23 @@ export function toThreadQueuedMessage(
     senderThreadId: row.senderThreadId,
     startedOnBehalfOf: storedQueuedThreadMessageRequestedBy(row),
   });
+  let provenance;
+  if (row.coalesceState != null) {
+    try {
+      const envelope = z
+        .object({ wake: wakeProvenanceSchema })
+        .safeParse(JSON.parse(row.coalesceState));
+      if (envelope.success) provenance = envelope.data.wake;
+    } catch {}
+  }
   return threadQueuedMessageSchema.parse({
+    ...(provenance === undefined
+      ? {}
+      : {
+          wakeSources: provenance.sources,
+          wakeSourcesTruncated: provenance.truncated,
+        }),
+    ...readWake(row),
     id: row.id,
     origin: row.origin,
     originPluginId: row.originPluginId,

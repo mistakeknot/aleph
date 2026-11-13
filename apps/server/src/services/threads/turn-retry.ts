@@ -1,3 +1,5 @@
+import { listStoredClientTurnRequestRowsByKeys } from "@bb/db";
+import { parseStoredTurnRequestEvent } from "./thread-events.js";
 import {
   getFirstUnclaimedQueuedRetry,
   hasQueuedRetryOfTurnRequest,
@@ -267,10 +269,15 @@ export async function retryTurnAfterRestart(
         `Thread ${args.thread.id} has no turn to resume.`,
       );
     }
-    return dispatchRetry(deps, { ...args, failed: latest });
+    return dispatchRetry(deps, {
+      ...args,
+      failed: latest,
+      wakeCause: "restart",
+    });
   }
   return dispatchRetry(deps, {
     ...args,
+    wakeCause: "restart",
     failed: requireFailedTurn(deps, {
       thread: args.thread,
       turnRequestId: args.request.turnRequestId,
@@ -283,11 +290,19 @@ async function dispatchRetry(
   args: RetryFailedTurnArgs & {
     continuation: string;
     failed: FailedTurnRecord;
+    wakeCause?: "retry" | "restart";
   },
 ): Promise<RetryTurnResponse> {
   const { continuation, failed, request, thread } = args;
   const chain = retryChain(failed.request);
   const originalRequestId = chain.originalRequestId;
+  const originalRow = listStoredClientTurnRequestRowsByKeys(deps.db, {
+    keys: [{ threadId: thread.id, requestId: originalRequestId }],
+  })[0];
+  const original =
+    originalRow === undefined
+      ? failed.request
+      : parseStoredTurnRequestEvent(originalRow);
   const inFlightKey = `${thread.id}:${originalRequestId}`;
   if (
     retriesInFlight.has(inFlightKey) ||
@@ -317,6 +332,9 @@ async function dispatchRetry(
     const outcome = await attemptDispatch(deps, {
       thread,
       payload: {
+        wakeCause: args.wakeCause ?? "retry",
+        wakeRef: failed.request.wakeRef ?? undefined,
+        retainedCause: original.retainedCause ?? original.wakeCause,
         // A retry never steers: it re-runs a turn, so a thread that is busy
         // again is something to wait behind rather than to interrupt.
         mode: "queue-if-active",

@@ -1,3 +1,4 @@
+import { wakeAttribution, type WakeAttribution } from "@bb/domain";
 import {
   appendStoredThreadEventsInTransaction,
   createEventId,
@@ -75,7 +76,7 @@ export interface TurnRequestRetryMarker {
   attempt: number;
 }
 
-interface ClientTurnRequestedEventArgs {
+interface ClientTurnRequestedEventArgs extends WakeAttribution {
   /**
    * Set only when a `turn.failed` retry row is dispatching, marking this turn
    * as attempt N of an earlier request rather than something the user just
@@ -203,6 +204,11 @@ function buildClientTurnRequestedEventData(
 ): TurnRequestEventData {
   return {
     ...buildClientTurnBaseEventData(args),
+    ...wakeAttribution(args),
+    wakeRef: args.wakeRef ?? null,
+    ...(args.retainedCause === undefined
+      ? {}
+      : { retainedCause: args.retainedCause }),
     requestId,
     ...(args.retryOf !== undefined
       ? {

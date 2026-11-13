@@ -18,7 +18,14 @@ import { createThread, noopNotifier, migrate } from "../src/index.js";
 import {
   createQueuedThreadMessage,
   getQueuedThreadMessage,
+  transferQueuedThreadMessageInTransaction,
 } from "../src/data/queued-thread-messages.js";
+
+function closeConnection(
+  db: ReturnType<typeof createMigratedConnection>,
+): void {
+  db.$client.close();
+}
 
 describe("queue wake attribution", () => {
   it("upgrades legacy inline, scheduled retry and coalesced rows without changing messages", () => {
@@ -83,7 +90,7 @@ describe("queue wake attribution", () => {
           wakeRef: null,
         });
     } finally {
-      db.$client.close();
+      closeConnection(db);
       rmSync(folder, { recursive: true, force: true });
     }
   });
@@ -150,12 +157,42 @@ describe("queue wake attribution", () => {
         wakeRef: "pick-1",
         content: JSON.stringify(input.content),
       });
+      db.$client
+        .prepare(
+          "UPDATE queued_thread_messages SET wake_cause = ? WHERE id = ?",
+        )
+        .run("future-cause", row.id);
+      expect(getQueuedThreadMessage(db, row.id)).toMatchObject({
+        wakeCause: "unknown",
+        wakeRef: "pick-1",
+      });
+      const target = createThread(db, noopNotifier, {
+        projectId: PERSONAL_PROJECT_ID,
+        providerId: "test",
+        status: "idle",
+      });
+      const transferred = db.transaction((tx) =>
+        transferQueuedThreadMessageInTransaction(tx, {
+          queuedMessageId: row.id,
+          sourceThreadId: thread.id,
+          targetThreadId: target.id,
+          resolveWaitingOn: () => null,
+        }),
+      );
+      expect(transferred).toMatchObject({
+        kind: "transferred",
+        queuedMessage: {
+          wakeCause: "unknown",
+          wakeRef: "pick-1",
+          content: JSON.stringify(input.content),
+        },
+      });
       expect(createQueuedThreadMessage(db, noopNotifier, input)).toMatchObject({
         wakeCause: "unknown",
         wakeRef: null,
       });
     } finally {
-      db.$client.close();
+      closeConnection(db);
     }
   });
 });

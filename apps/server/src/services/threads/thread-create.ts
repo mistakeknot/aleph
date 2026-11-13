@@ -1,3 +1,4 @@
+import { readWake, wakeAttribution } from "@bb/domain";
 import { requestThreadStorageDeletion } from "./thread-lifecycle.js";
 import { seedThreadSessionOptionSelections } from "./thread-session-options.js";
 import {
@@ -486,6 +487,7 @@ async function createPendingThreadAndAttemptFirstDispatch(
     });
   }
   const startContext: PendingThreadStartContext = {
+    ...readWake(wakeAttribution(args.request)),
     environmentIntent: args.environmentIntent,
     fork: args.fork?.descriptor ?? null,
     ...(args.providerInput !== undefined
@@ -545,6 +547,8 @@ async function createPendingThreadAndAttemptFirstDispatch(
     await attemptDispatch(deps, {
       thread,
       payload: {
+        wakeCause: args.request.wakeCause ?? "unknown",
+        wakeRef: args.request.wakeRef,
         input: args.request.input,
         mode: "start",
         model: execution.model,

@@ -1,3 +1,4 @@
+import { storedWakeFields } from "./wake.js";
 import { z } from "zod";
 import {
   approvalPendingInteractionResolutionSchema,
@@ -61,6 +62,10 @@ export type ClientTurnLifecycleEventData = z.infer<
 >;
 
 export const turnRequestEventDataSchema = z.object({
+  ...storedWakeFields,
+  wakeSourcesTruncated: z.boolean().optional(),
+  wakeSources: z.array(z.object(storedWakeFields)).optional(),
+  retainedCause: storedWakeFields.wakeCause.optional(),
   direction: z.literal("outbound"),
   requestId: clientTurnRequestIdSchema,
   // Retry provenance, written only when a `turn.failed` gate's retry row

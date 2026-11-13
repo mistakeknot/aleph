@@ -1,3 +1,6 @@
+import { listStoredClientTurnRequestRowsByKeys } from "@bb/db";
+import { parseStoredTurnRequestEvent } from "./thread-events.js";
+import { readWake, wakeAttribution } from "@bb/domain";
 import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
   abortTransferOperation,
@@ -285,6 +288,7 @@ async function createQueuedMessageForResolvedThread(
           const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
             threadId: args.thread.id,
             content: input,
+            ...wakeAttribution(payload),
             senderThreadId,
             retiredPosts: retiredUserPostsMode(),
             model: execution.model,
@@ -976,9 +980,40 @@ async function sendPinnedClaimedQueuedMessageForThread(
       ? sendModeForDeliveryMode(args.queuedMessages)
       : args.mode;
   const systemNotice = parseStoredQueuedThreadMessageSystemNotice(lead);
+  const original =
+    queuedMessage.payload.kind === "retry"
+      ? listStoredClientTurnRequestRowsByKeys(deps.db, {
+          keys: [
+            {
+              threadId: args.thread.id,
+              requestId: queuedMessage.payload.retryOfTurnRequestId,
+            },
+          ],
+        })[0]
+      : undefined;
+  const retained =
+    original === undefined ? undefined : parseStoredTurnRequestEvent(original);
   const outcome = await attemptDispatch(deps, {
     thread: args.thread,
     payload: {
+      ...readWake(lead),
+      wakeRef: lead.wakeRef ?? undefined,
+      wakeCause:
+        new Set(queuedMessages.map((entry) => entry.wakeCause)).size === 1
+          ? queuedMessage.wakeCause
+          : "unknown",
+      wakeSources: queuedMessages.flatMap(
+        (entry) => entry.wakeSources ?? [readWake(entry)],
+      ),
+      wakeSourcesTruncated: queuedMessages.some(
+        (entry) => entry.wakeSourcesTruncated === true,
+      ),
+      ...(queuedMessage.payload.kind === "retry"
+        ? {
+            retainedCause:
+              retained?.retainedCause ?? retained?.wakeCause ?? "unknown",
+          }
+        : {}),
       ...(systemNotice === null
         ? sendQueuedMessagePayload(
             { ...queuedMessage, content: input },

@@ -1,3 +1,4 @@
+import { wakeFields } from "@bb/domain";
 import { z } from "zod";
 import {
   activeThinkingSchema,
@@ -129,6 +130,7 @@ export type ExistingThreadExecutionInputSources = z.infer<
 
 export const createThreadRequestSchema = z
   .object({
+    ...wakeFields,
     projectId: z.string().min(1),
     providerId: z.string().min(1).optional(),
     origin: threadCreateOriginSchema,
@@ -227,6 +229,7 @@ const agentOnlyPromptInputSchema = promptInputSchema.and(
 
 export const forkThreadRequestSchema = z
   .object({
+    ...wakeFields,
     sourceThreadId: z.string().min(1),
     sourceSeqEnd: z.number().int().nonnegative().optional(),
     input: z.array(promptInputSchema).min(1).optional(),
@@ -279,6 +282,7 @@ export const forkThreadRequestSchema = z
 export type ForkThreadRequest = z.infer<typeof forkThreadRequestSchema>;
 
 const sendMessageRequestFieldsSchema = z.object({
+  ...wakeFields,
   input: z.array(promptInputSchema).min(1),
   model: z.string().optional(),
   serviceTier: serviceTierSchema.optional(),
@@ -341,6 +345,8 @@ export type SendMessageResponse = z.infer<typeof sendMessageResponseSchema>;
 // already been dispatched, so there is nothing left to schedule.
 export const editMessageRequestSchema = sendMessageRequestFieldsSchema
   .omit({
+    wakeCause: true,
+    wakeRef: true,
     mode: true,
     sendAt: true,
     pluginSubmission: true,
@@ -422,6 +428,7 @@ export const sendQueuedMessageModeSchema = z.enum(["auto", "steer"]);
 export type SendQueuedMessageMode = z.infer<typeof sendQueuedMessageModeSchema>;
 
 export const createQueuedMessageRequestSchema = z.object({
+  ...wakeFields,
   input: z.array(promptInputSchema).min(1),
   model: z.string().optional(),
   serviceTier: serviceTierSchema.optional(),
@@ -444,6 +451,7 @@ export const updateQueuedMessageRequestSchema = z
     permissionMode: permissionModeInputSchema.optional(),
     serviceTier: serviceTierSchema.optional(),
   })
+  .strict()
   .refine(
     ({ expectedUpdatedAt: _expectedUpdatedAt, ...changes }) =>
       Object.values(changes).some((value) => value !== undefined),
