@@ -1,3 +1,4 @@
+import { createPushCounts } from "./push-counts.js";
 import { randomUUID } from "node:crypto";
 import {
   PluginCliError,
@@ -268,7 +269,10 @@ export function createPushNotificationsPlugin(
       ...(options.now === undefined ? {} : { now: options.now }),
       ...(options.createId === undefined ? {} : { createId: options.createId }),
     });
+    const pushCounts = createPushCounts(bb);
     const sender = createPushSender({
+      recordPush: (threadId, trigger, at) =>
+        pushCounts.record(threadId, trigger, at),
       bb,
       subscriptions,
       getDeliverySettings: () => settings.get(),
@@ -444,6 +448,7 @@ export function createPushNotificationsPlugin(
     );
 
     bb.rpc.register(pushNotificationsRpcContract, {
+      "notifications.counts": ({ threadId }) => pushCounts.get(threadId),
       "notifications.test": ({ channel }) => sendTest(channel),
       "notifications.notify": (input, context) =>
         notifyBlocker(input, context.experimental_caller),
@@ -480,6 +485,22 @@ export function createPushNotificationsPlugin(
         description:
           "Mobile devices receive Expo push messages; web and desktop clients receive system notifications while they are open.",
         commands: {
+          counts: cliCommand({
+            summary: "Read thread push attempts by trigger",
+            options: {
+              thread: {
+                type: "string",
+                description: "Thread id",
+                required: true,
+              },
+              json: JSON_OPTION,
+            },
+            async run(input) {
+              const threadId = z.string().min(1).parse(input.options.thread);
+              const counts = await pushCounts.get(threadId);
+              return { exitCode: 0, stdout: JSON.stringify(counts) };
+            },
+          }),
           test: cliCommand({
             summary:
               "Send a test to connected web or desktop clients with permission",

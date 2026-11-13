@@ -1,3 +1,4 @@
+import type { PushTrigger } from "./push-counts.js";
 import { randomUUID } from "node:crypto";
 import type {
   BbPluginApi,
@@ -225,6 +226,11 @@ export interface CreatePushSenderArgs {
     webEnabled: boolean;
     desktopEnabled: boolean;
   }>;
+  recordPush?(
+    threadId: string,
+    trigger: PushTrigger,
+    at: number,
+  ): Promise<void>;
   fetch?: PushSenderFetch;
   coalesceMs?: number;
   now?: () => number;
@@ -437,6 +443,22 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
       resolved.body,
       referencedThreadTitle,
     );
+    if (args.recordPush) {
+      const trigger =
+        resolved.kind === "pending-interaction"
+          ? "question"
+          : resolved.kind === "thread-error"
+            ? "error"
+            : "turn-end";
+      track(
+        Promise.resolve()
+          .then(() => args.recordPush?.(thread.id, trigger, now()))
+          .catch(() => {
+            bb.log.error("Push counter update failed");
+          }),
+        "Push counter update",
+      );
+    }
     await deliver({
       title: threadDisplayTitle(thread),
       body: preview || FALLBACK_BODIES[resolved.kind],
