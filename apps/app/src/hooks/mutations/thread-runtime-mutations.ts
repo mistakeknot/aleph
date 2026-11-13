@@ -126,6 +126,8 @@ export function createThreadMutationOptions(queryClient: QueryClient) {
     mutationFn: (request: AppCreateThreadRequest) =>
       sdk.threads.spawn({
         ...request,
+        wakeCause: "message",
+        wakeRef: request.wakeRef ?? crypto.randomUUID(),
         origin: "app",
         originKind: request.originKind ?? null,
         startedOnBehalfOf: request.startedOnBehalfOf ?? null,
@@ -169,7 +171,14 @@ export function sendThreadMessageMutationOptions(queryClient: QueryClient) {
       showErrorToast: false,
     },
     mutationFn: async ({ id, ...request }: SendThreadMessageMutationRequest) =>
-      await timeSendAck(() => sdk.threads.send({ threadId: id, ...request })),
+      await timeSendAck(() =>
+        sdk.threads.send({
+          threadId: id,
+          ...request,
+          wakeCause: "message",
+          wakeRef: request.wakeRef ?? crypto.randomUUID(),
+        }),
+      ),
     onMutate: async (variables): Promise<SendThreadMessageTransaction> =>
       beginSendThreadMessageTransaction({
         queryClient,

@@ -232,6 +232,8 @@ describe("task return times", () => {
         if (!unavailable)
           expect(harness.sdk.callsTo("threads.send")[0]).toMatchObject([
             {
+              wakeCause: "timer",
+              wakeRef: expect.any(String),
               threadId: "thr_setter",
               input: [
                 { text: expect.stringContaining(`${task.key}: ${task.title}`) },

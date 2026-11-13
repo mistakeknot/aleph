@@ -134,6 +134,8 @@ describe("run outcomes", () => {
         },
       });
       expect(harness.sdk.callsTo("threads.spawn")[0]?.[0]).toMatchObject({
+        wakeCause: "timer",
+        wakeRef: next.id,
         prompt: `[bb automation due:a]\n\nPrevious run (1970-01-01T00:00:00.001Z): ${getAutomationRun(db, run.id)!.outcome}\nwork`,
       });
       closeAutomationRun(db, { runId: next.id, status: "succeeded", now: 4 });

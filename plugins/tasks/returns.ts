@@ -83,8 +83,9 @@ export async function registerReturns(
         finish(row, "return time missed: thread unavailable");
       } else {
         try {
-          // Design choice: at-least-once delivery; a crash after SDK acceptance and before clearing can duplicate a wake, never lose it (mk-ddtv5.6.11).
           await bb.sdk.threads.send({
+            wakeCause: "timer",
+            wakeRef: `${row.id}:${row.return_at}`,
             threadId: row.return_thread_id,
             input: [
               {

@@ -145,6 +145,8 @@ export async function executeAgentRun(
     }
     const thread = sdkThreadSchema.parse(
       await bb.sdk.threads.spawn({
+        wakeCause: "timer",
+        wakeRef: args.run.id,
         projectId: args.automation.projectId,
         environment: args.execution.environment,
         prompt: renderAutomationDueMessage({
@@ -234,6 +236,8 @@ async function reuseTargetThreadForRun(
     threadId: args.targetThreadId,
   });
   await bb.sdk.threads.send({
+    wakeCause: "timer",
+    wakeRef: args.run.id,
     threadId: args.targetThreadId,
     mode: "steer-if-active",
     input: [

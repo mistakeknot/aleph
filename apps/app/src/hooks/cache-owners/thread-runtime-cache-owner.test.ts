@@ -238,9 +238,9 @@ describe("thread runtime cache owner", () => {
     });
     expect(
       queryClient
-        .getQueryData<
-          ThreadQueuedMessage[]
-        >(threadQueuedMessagesQueryKey("thread-1"))
+        .getQueryData<ThreadQueuedMessage[]>(
+          threadQueuedMessagesQueryKey("thread-1"),
+        )
         ?.map((queuedMessage) => ({
           content: queuedMessage.content,
           groupWithNext: queuedMessage.groupWithNext,
@@ -268,9 +268,9 @@ describe("thread runtime cache owner", () => {
     });
     expect(
       queryClient
-        .getQueryData<
-          ThreadQueuedMessage[]
-        >(threadQueuedMessagesQueryKey("thread-1"))
+        .getQueryData<ThreadQueuedMessage[]>(
+          threadQueuedMessagesQueryKey("thread-1"),
+        )
         ?.map((queuedMessage) => queuedMessage.id),
     ).toEqual(["qmsg-first", "qmsg-edit", "qmsg-last"]);
 
@@ -445,6 +445,8 @@ describe("thread runtime cache owner", () => {
       ).toMatchObject([
         {
           id: expect.stringMatching(/^optimistic-queued-/u),
+          wakeCause: "message",
+          wakeRef: null,
           content: [{ type: "text", text: "Queue through send", mentions: [] }],
         },
       ]);
@@ -885,9 +887,9 @@ describe("thread runtime cache owner", () => {
 
     expect(
       queryClient
-        .getQueryData<
-          ThreadQueuedMessage[]
-        >(threadQueuedMessagesQueryKey("thread-1"))
+        .getQueryData<ThreadQueuedMessage[]>(
+          threadQueuedMessagesQueryKey("thread-1"),
+        )
         ?.map((queuedMessage) => queuedMessage.id),
     ).toEqual(["qmsg-3"]);
     const timeline = queryClient.getQueryData<ThreadTimelineResponse>(

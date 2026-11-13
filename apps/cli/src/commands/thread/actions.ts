@@ -834,7 +834,11 @@ async function postThreadMessage(
       ...(args.reasoningLevel ? { reasoningLevel: args.reasoningLevel } : {}),
       ...(args.serviceTier ? { serviceTier: args.serviceTier } : {}),
       ...(args.senderThreadId ? { senderThreadId: args.senderThreadId } : {}),
-      ...parseWakeOptions(args),
+      ...parseWakeOptions({
+        ...args,
+        wakeCause: args.wakeCause ?? "message",
+        wakeRef: args.wakeRef ?? crypto.randomUUID(),
+      }),
       ...(args.sendAt === undefined ? {} : { sendAt: args.sendAt }),
       ...(args.compactFirst ? { compactFirst: true } : {}),
     });

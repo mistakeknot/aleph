@@ -103,7 +103,11 @@ export function NewChatPage({ subPath }: PluginNavPanelProps) {
   );
   const submit = useCallback(
     async (request: NewThreadRequest) => {
-      const thread = await sdk.threads.spawn(request);
+      const thread = await sdk.threads.spawn({
+        ...request,
+        wakeCause: "message",
+        wakeRef: crypto.randomUUID(),
+      });
       navigate.toThread(thread.id);
     },
     [navigate, sdk],

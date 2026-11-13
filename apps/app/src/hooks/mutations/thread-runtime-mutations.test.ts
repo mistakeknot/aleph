@@ -171,6 +171,12 @@ describe("thread runtime mutations", () => {
       input: [{ type: "text", text: "Queued work", mentions: [] }],
     });
 
+    expect(sdk.threads.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        wakeCause: "message",
+        wakeRef: expect.any(String),
+      }),
+    );
     await vi.waitFor(() =>
       expect(sdk.threads.queuedMessages.list).toHaveBeenCalledWith(
         expect.objectContaining({ threadId: "thread-1" }),
@@ -348,6 +354,7 @@ describe("thread runtime mutations", () => {
 
     expect(sdk.threads.send).toHaveBeenCalledWith(
       expect.objectContaining({
+        wakeCause: "message",
         executionInputSources,
         compactFirst: true,
         threadId: "thread-1",
@@ -437,9 +444,9 @@ describe("thread runtime mutations", () => {
 
     expect(
       queryClient
-        .getQueryData<
-          ThreadQueuedMessage[]
-        >(threadQueuedMessagesQueryKey("thread-1"))
+        .getQueryData<ThreadQueuedMessage[]>(
+          threadQueuedMessagesQueryKey("thread-1"),
+        )
         ?.map((queuedMessage) => queuedMessage.id),
     ).toEqual(["qmsg-2"]);
   });

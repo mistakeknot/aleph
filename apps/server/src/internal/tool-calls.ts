@@ -109,6 +109,7 @@ export function registerInternalToolCallRoutes(app: Hono, deps: AppDeps): void {
             }),
           onDetachedResult: (result) =>
             deliverDetachedToolResult(deps, {
+              wakeRef: payload.callId,
               threadId: thread.id,
               toolName: payload.tool,
               presentation: pluginTool.record.presentation,

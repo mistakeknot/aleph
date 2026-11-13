@@ -77,6 +77,8 @@ describe("Codex async questions", () => {
       expect(host.harness.sdk.callsTo("threads.send")).toEqual([
         [
           {
+            wakeCause: "interaction",
+            wakeRef: "call-5",
             threadId: THREAD_ID,
             mode: "auto",
             input: [

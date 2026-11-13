@@ -391,6 +391,8 @@ describe("workflow service policy integration", () => {
         });
         expect(test.harness.sdk.callsTo("threads.spawn")[0]?.[0]).toMatchObject(
           {
+            wakeCause: "workflow",
+            wakeRef: expect.any(String),
             providerId: "codex",
             model: "gpt-test",
             reasoningLevel: resolved,

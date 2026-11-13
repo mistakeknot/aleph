@@ -94,6 +94,8 @@ export function registerAsyncQuestions(bb: BbPluginApi): void {
     if (result.outcome !== "submitted") return;
     const response = asyncQuestionResponseSchema.parse(result.value);
     await bb.sdk.threads.send({
+      wakeCause: "interaction",
+      wakeRef: state.itemId,
       threadId,
       mode: "auto",
       input: [

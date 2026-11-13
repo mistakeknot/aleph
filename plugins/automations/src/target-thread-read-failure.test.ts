@@ -228,6 +228,8 @@ describe("target threads whose last turn failed", () => {
       expect(host.harness.sdk.callsTo("threads.send")).toHaveLength(1),
     );
     expect(host.harness.sdk.callsTo("threads.send")[0]?.[0]).toMatchObject({
+      wakeCause: "timer",
+      wakeRef: expect.any(String),
       threadId: THREAD_ID,
       mode: "steer-if-active",
       input: [

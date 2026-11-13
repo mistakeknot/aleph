@@ -32,3 +32,22 @@ export function childOutcomeSystemMessageKind(
     }
   }
 }
+
+export function systemMessageWakeCause(kind: SystemMessageKind) {
+  switch (kind) {
+    case "tool-result-delivered":
+      return "interaction" as const;
+    case "unlabeled":
+      return "unknown" as const;
+    case "ownership-assigned":
+    case "ownership-removed":
+    case "ownership-batch":
+    case "child-needs-attention":
+    case "child-completed":
+    case "child-failed":
+    case "child-interrupted":
+    case "child-outcome-batch":
+    case "environment-directory-updated":
+      return "message" as const;
+  }
+}

@@ -1,3 +1,4 @@
+import { systemMessageWakeCause } from "./system-message-kind.js";
 import {
   createQueuedThreadMessageInTransaction,
   getThread,
@@ -31,6 +32,7 @@ export interface ParentSystemMessageTaxonomy {
 }
 
 interface QueueParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
+  wakeRef?: string;
   input: PromptInput[];
   parentThreadId: string;
 }
@@ -219,6 +221,8 @@ async function queueParentSystemMessageToResolvedParent(
         assertThreadHostAcceptsWork(tx, parentThread);
         return createQueuedThreadMessageInTransaction(tx, {
           threadId: requestedParent.id,
+          wakeCause: systemMessageWakeCause(args.systemMessageKind),
+          wakeRef: args.wakeRef ?? crypto.randomUUID(),
           content: args.input,
           senderThreadId: null,
           model: execution.model,

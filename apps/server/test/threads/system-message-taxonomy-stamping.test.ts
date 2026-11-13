@@ -64,6 +64,7 @@ function seedParentFixture(
 }
 
 interface StampedSystemMessage {
+  wakeCause: string;
   systemMessageKind: SystemMessageKind;
   systemMessageSubject: SystemMessageSubject | null;
 }
@@ -89,6 +90,7 @@ async function waitForStampedSystemMessage(
       const data = turnRequestEventDataSchema.parse(JSON.parse(row.data));
       if (data.initiator === "system") {
         return {
+          wakeCause: data.wakeCause,
           systemMessageKind: data.systemMessageKind ?? "unlabeled",
           systemMessageSubject: data.systemMessageSubject ?? null,
         };
@@ -131,6 +133,7 @@ describe("Family B emit-site discriminator stamping", () => {
           harness,
           fixture.parentThreadId,
         );
+        expect(stamped.wakeCause).toBe("message");
         expect(stamped.systemMessageKind).toBe(expectedKind);
         expect(stamped.systemMessageSubject).toEqual({
           kind: "thread",
@@ -173,6 +176,7 @@ describe("Family B emit-site discriminator stamping", () => {
         harness,
         fixture.parentThreadId,
       );
+      expect(stamped.wakeCause).toBe("message");
       expect(stamped.systemMessageKind).toBe("child-outcome-batch");
       expect(stamped.systemMessageSubject).toEqual({
         kind: "thread-batch",
@@ -204,6 +208,7 @@ describe("Family B emit-site discriminator stamping", () => {
         harness,
         fixture.parentThreadId,
       );
+      expect(stamped.wakeCause).toBe("message");
       expect(stamped.systemMessageKind).toBe("child-needs-attention");
       expect(stamped.systemMessageSubject).toEqual({
         kind: "thread",
@@ -231,6 +236,7 @@ describe("Family B emit-site discriminator stamping", () => {
         harness,
         fixture.parentThreadId,
       );
+      expect(stamped.wakeCause).toBe("message");
       expect(stamped.systemMessageKind).toBe("ownership-assigned");
       expect(stamped.systemMessageSubject).toEqual({
         kind: "thread",
@@ -258,6 +264,7 @@ describe("Family B emit-site discriminator stamping", () => {
         harness,
         fixture.parentThreadId,
       );
+      expect(stamped.wakeCause).toBe("message");
       expect(stamped.systemMessageKind).toBe("ownership-removed");
       expect(stamped.systemMessageSubject).toEqual({
         kind: "thread",

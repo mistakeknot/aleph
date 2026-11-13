@@ -375,6 +375,8 @@ function buildOptimisticQueuedMessage({
 
   return {
     id: `optimistic-queued-${nanoid()}`,
+    wakeCause: "message",
+    wakeRef: request.wakeRef ?? null,
     origin: null,
     originPluginId: null,
     initiator: "user",

@@ -61,6 +61,8 @@ describe("bb thread tell command output", () => {
     expect(post).toHaveBeenCalledWith(
       expect.objectContaining({
         json: expect.objectContaining({
+          wakeCause: "message",
+          wakeRef: expect.any(String),
           input: [expect.objectContaining({ type: "text", text: message })],
         }),
       }),
@@ -229,6 +231,8 @@ describe("bb thread tell command output", () => {
     expect(post).toHaveBeenCalledWith({
       param: { id: "thread-queue-tell" },
       json: {
+        wakeCause: "message",
+        wakeRef: expect.any(String),
         input: [{ type: "text", text: "hello", mentions: [] }],
         mode: "queue-if-active",
       },
@@ -247,6 +251,8 @@ describe("bb thread tell command output", () => {
     expect(post).toHaveBeenCalledWith({
       param: { id: "thread-auto-tell" },
       json: {
+        wakeCause: "message",
+        wakeRef: expect.any(String),
         input: [{ type: "text", text: "hello", mentions: [] }],
         mode: "auto",
       },
@@ -278,6 +284,8 @@ describe("bb thread tell command output", () => {
     expect(post).toHaveBeenCalledWith({
       param: { id: "thread-execution-options" },
       json: {
+        wakeCause: "message",
+        wakeRef: expect.any(String),
         input: [{ type: "text", text: "hello", mentions: [] }],
         mode: "steer-if-active",
         model: "gpt-5.5",
@@ -308,6 +316,8 @@ describe("bb thread tell command output", () => {
     expect(post).toHaveBeenCalledWith({
       param: { id: "thread-plan" },
       json: {
+        wakeCause: "message",
+        wakeRef: expect.any(String),
         input: [
           {
             type: "text",
@@ -411,6 +421,8 @@ describe("bb thread tell command output", () => {
         expect(post).toHaveBeenCalledWith({
           param: { id: "thread-attachments" },
           json: {
+            wakeCause: "message",
+            wakeRef: expect.any(String),
             input: [
               { type: "text", text: "review these", mentions: [] },
               { type: "localFile", path: "existing-report.pdf" },
@@ -438,6 +450,8 @@ describe("bb thread tell command output", () => {
     expect(post).toHaveBeenCalledWith({
       param: { id: "thread-receiver" },
       json: {
+        wakeCause: "message",
+        wakeRef: expect.any(String),
         input: [{ type: "text", text: "hello from sender", mentions: [] }],
         mode: "steer-if-active",
         senderThreadId: "thread-sender",
@@ -455,6 +469,8 @@ describe("bb thread tell command output", () => {
     expect(post).toHaveBeenCalledWith({
       param: { id: "thread-self" },
       json: {
+        wakeCause: "message",
+        wakeRef: expect.any(String),
         input: [{ type: "text", text: "self note", mentions: [] }],
         mode: "steer-if-active",
       },

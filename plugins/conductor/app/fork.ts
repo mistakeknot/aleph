@@ -16,6 +16,8 @@ export async function forkToNewWorkspace(
       : await sdk.environments.get({ environmentId });
   try {
     const fork = await sdk.threads.fork({
+      wakeCause: "message",
+      wakeRef: crypto.randomUUID(),
       sourceThreadId: source.id,
       sourceSeqEnd: context.message.sourceSeqEnd,
       ...(source.title === null ? {} : { title: source.title }),

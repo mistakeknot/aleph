@@ -516,6 +516,8 @@ async function queueChildThreadTurnNotificationBatchItem(
     const row = postCoalescedSystemNotice<
       ChildThreadTurnNotificationBatchItem[]
     >(deps, {
+      wakeCause: "message",
+      wakeRef: args.turnId ?? crypto.randomUUID(),
       coalesceKey: CHILD_THREAD_TURN_NOTIFICATION_COALESCE_KEY,
       execution,
       merge: (previous) => {

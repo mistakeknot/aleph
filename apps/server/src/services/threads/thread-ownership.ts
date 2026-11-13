@@ -217,6 +217,8 @@ function postThreadOwnershipNotice(
   args: PostThreadOwnershipNoticeArgs,
 ): void {
   const row = postCoalescedSystemNotice<ThreadOwnershipNoticeEntry[]>(deps, {
+    wakeCause: "message",
+    wakeRef: crypto.randomUUID(),
     coalesceKey: THREAD_OWNERSHIP_NOTICE_COALESCE_KEY,
     execution: args.execution,
     merge: (previous) =>

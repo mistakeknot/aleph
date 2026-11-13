@@ -100,6 +100,8 @@ describe("createSideChat rpc", () => {
 
     expect(result).toEqual({ threadId: "thr_fork" });
     expect(fork).toHaveBeenCalledWith({
+      wakeCause: "message",
+      wakeRef: expect.any(String),
       lifecycleOwnerThreadId: "thr_src",
       sourceThreadId: "thr_src",
       sourceSeqEnd: 42,
@@ -219,6 +221,8 @@ describe("createSideChat rpc", () => {
     });
 
     expect(fork).toHaveBeenCalledWith({
+      wakeCause: "message",
+      wakeRef: expect.any(String),
       lifecycleOwnerThreadId: "thr_src",
       sourceThreadId: "thr_src",
       visibility: "hidden",

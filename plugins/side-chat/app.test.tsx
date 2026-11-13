@@ -27,6 +27,8 @@ describe("SideChatPanel", () => {
 
     await waitFor(() => {
       expect(send).toHaveBeenCalledWith({
+        wakeCause: "message",
+        wakeRef: expect.any(String),
         threadId: "thr_src",
         mode: "queue-if-active",
         input: [{ type: "text", text: "test message text", mentions: [] }],
