@@ -102,6 +102,7 @@ it
           provider: "claude",
           args: ["--print", "--model=claude-sonnet-4-6", "Respond with OK."],
           cwd,
+          workspacePath: cwd,
           stdinPath: null,
           stdinDir: null,
           token: "synthetic-claude-pool-probe",

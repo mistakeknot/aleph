@@ -1,5 +1,13 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  stat,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -22,6 +30,67 @@ function fakeChild() {
 }
 
 describe("Account Pooler host exec", () => {
+  it("streams large output, forwards cwd prompt stdin, and keeps dispatch settings", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pool-run-"));
+    try {
+      await writeFile(`${root}/prompt`, "prompt through stdin");
+      const child = fakeChild();
+      const spawn = vi.fn(
+        (_command: string, _args: readonly string[], _options: unknown) =>
+          child,
+      );
+      const received: Buffer[] = [];
+      child.stdin.on("data", (chunk) => received.push(Buffer.from(chunk)));
+      const harness = experimental_createHostEntryHarness(
+        createAccountPoolHostEntry({ spawn, env: {} }),
+      );
+      const pending = harness.experimental_call("run", {
+        provider: "claude",
+        args: [
+          "--permission-mode=dontAsk",
+          "--allowedTools=Bash",
+          "--setting-sources=project,local",
+          "-p",
+        ],
+        cwd: root,
+        workspacePath: root,
+        stdinDir: null,
+        stdinPath: null,
+        promptPath: `${root}/prompt`,
+        outputPath: `${root}/output`,
+        timeoutSeconds: 10,
+        token: "pool-secret",
+        baseUrl: "http://127.0.0.1",
+      });
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+      child.emit("spawn");
+      child.stdout.write(Buffer.alloc(1_000_000, "x"));
+      child.stderr.write("pool-");
+      child.stderr.write("secret");
+      child.emit("close", 23, null);
+      await expect(pending).resolves.toMatchObject({
+        exitCode: 23,
+        stdout: "",
+        stderr: "",
+      });
+      expect(Buffer.concat(received).toString()).toBe("prompt through stdin");
+      expect(spawn.mock.calls[0]?.[1]).toEqual([
+        "--setting-sources",
+        "project,local",
+        "--strict-mcp-config",
+        "--permission-mode=dontAsk",
+        "--allowedTools=Bash",
+        "-p",
+      ]);
+      expect(await readFile(`${root}/output.stderr`, "utf8")).toBe(
+        "[REDACTED]",
+      );
+      expect((await stat(`${root}/output`)).size).toBe(1_000_000);
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it.each([null, "/configured-input"])(
     "forwards a 160 KiB prompt from the daemon default or server override %s",
     async (stdinDir) => {
@@ -40,7 +109,8 @@ describe("Account Pooler host exec", () => {
       const pending = harness.experimental_call("run", {
         provider: "codex",
         args: ["exec", "-"],
-        cwd: "/caller-cwd",
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
         stdinDir,
         stdinPath: `${directory}/prompt`,
         token: "pool-secret",
@@ -65,10 +135,12 @@ describe("Account Pooler host exec", () => {
   );
 
   it.each(
-    [undefined, "", "daemon-config", "/daemon-config"].flatMap((configDir) => [
-      { configDir, emptySources: false },
-      { configDir, emptySources: true },
-    ]),
+    [undefined, "", "../daemon-config", "/daemon-config"].flatMap(
+      (configDir) => [
+        { configDir, emptySources: false },
+        { configDir, emptySources: true },
+      ],
+    ),
   )(
     "owns Claude settings sources and anchors config %j at the daemon, not the caller cwd",
     async ({ configDir, emptySources }) => {
@@ -106,7 +178,8 @@ describe("Account Pooler host exec", () => {
             : []),
           "hello",
         ],
-        cwd: "/caller-cwd",
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
         stdinPath: null,
         stdinDir: null,
         token: "pool-secret",
@@ -123,13 +196,14 @@ describe("Account Pooler host exec", () => {
       expect(args).toEqual([
         "--setting-sources",
         emptySources ? "" : "user",
+        ...(!emptySources ? ["--strict-mcp-config"] : []),
         "--print",
         ...(emptySources ? ["--tools=", "--strict-mcp-config"] : []),
         "--",
         "hello",
       ]);
       expect(options).toMatchObject({
-        cwd: "/caller-cwd",
+        cwd: process.cwd(),
         env: {
           CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
           CLAUDE_CODE_USE_BEDROCK: "0",
@@ -187,7 +261,8 @@ describe("Account Pooler host exec", () => {
         system,
         "-",
       ],
-      cwd: "/caller-cwd",
+      cwd: process.cwd(),
+      workspacePath: process.cwd(),
       stdinPath: null,
       stdinDir: null,
       token: "pool-secret",
@@ -209,7 +284,6 @@ describe("Account Pooler host exec", () => {
       "--safe-mode",
       "--tools=",
       "--strict-mcp-config",
-      '--mcp-config={"mcpServers":{}}',
       "--disable-slash-commands",
       "--no-session-persistence",
       "--no-chrome",
@@ -239,7 +313,8 @@ describe("Account Pooler host exec", () => {
       const result = await harness.experimental_call("run", {
         provider: "claude",
         args: ["--print", ...extra, "hello"],
-        cwd: "/caller-cwd",
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
         stdinPath: null,
         stdinDir: null,
         token: "pool-secret",
@@ -276,7 +351,8 @@ describe("Account Pooler host exec", () => {
     const pending = harness.experimental_call("run", {
       provider: "codex",
       args: ["exec", "hello"],
-      cwd: "/work",
+      cwd: process.cwd(),
+      workspacePath: process.cwd(),
       stdinPath: "/tmp/prompt.txt",
       stdinDir: "/tmp",
       token: "pool-secret",
@@ -305,7 +381,7 @@ describe("Account Pooler host exec", () => {
     expect(args).not.toContain("pool-secret");
     expect(JSON.stringify(args)).not.toContain("pool-secret");
     expect(options).toMatchObject({
-      cwd: "/work",
+      cwd: process.cwd(),
       env: {
         PATH: "/bin",
         CODEX_POOL_AUTH_TOKEN: "pool-secret",
@@ -354,7 +430,8 @@ describe("Account Pooler host exec", () => {
         harness.experimental_call("run", {
           provider: "codex",
           args,
-          cwd: null,
+          cwd: process.cwd(),
+          workspacePath: process.cwd(),
           stdinPath: null,
           stdinDir: null,
           token: "pool-secret",
@@ -392,7 +469,8 @@ describe("Account Pooler host exec", () => {
         const result = await harness.experimental_call("run", {
           provider: "codex",
           args: ["exec", "-"],
-          cwd: null,
+          cwd: process.cwd(),
+          workspacePath: process.cwd(),
           stdinDir,
           stdinPath: path.join(stdinDir, "prompt"),
           token: "pool-secret",
@@ -403,7 +481,8 @@ describe("Account Pooler host exec", () => {
       const result = await harness.experimental_call("run", {
         provider: "codex",
         args: ["exec", "-"],
-        cwd: null,
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
         stdinDir: inputs,
         stdinPath: path.join(inputs, "link"),
         token: "pool-secret",
@@ -432,7 +511,8 @@ describe("Account Pooler host exec", () => {
         provider: "codex",
         command: "/tmp/codex",
         args: [],
-        cwd: null,
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
         stdinPath: null,
         stdinDir: null,
         token: "pool-secret",
@@ -454,7 +534,8 @@ describe("Account Pooler host exec", () => {
       harness.experimental_call("run", {
         provider: "codex",
         args: ["exec", "-"],
-        cwd: null,
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
         stdinPath: "/etc/passwd",
         stdinDir: "/tmp",
         token: "pool-secret",
@@ -479,7 +560,8 @@ describe("Account Pooler host exec", () => {
     const pending = harness.experimental_call("run", {
       provider: "claude",
       args: ["--print", "hello"],
-      cwd: null,
+      cwd: process.cwd(),
+      workspacePath: process.cwd(),
       stdinPath: null,
       stdinDir: null,
       token: "pool-secret",
@@ -513,7 +595,8 @@ describe("Account Pooler host exec", () => {
       {
         provider: "claude",
         args: ["--print"],
-        cwd: null,
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
         stdinPath: null,
         stdinDir: null,
         token: "pool-secret",

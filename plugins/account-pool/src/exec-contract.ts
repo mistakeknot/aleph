@@ -10,8 +10,12 @@ export const poolExecHostContract = defineRpcContract({
         provider: poolExecProviderSchema,
         args: z.array(z.string().max(65_536)).max(1_024),
         cwd: z.string().min(1).max(16_384).nullable(),
+        workspacePath: z.string().min(1).max(16_384).nullable().default(null),
         stdinPath: z.string().min(1).max(16_384).nullable(),
         stdinDir: z.string().min(1).max(16_384).nullable(),
+        promptPath: z.string().min(1).max(16_384).nullable().default(null),
+        outputPath: z.string().min(1).max(16_384).nullable().default(null),
+        timeoutSeconds: z.number().int().min(1).max(3600).default(3600),
         token: z.string().min(1).max(65_536),
         baseUrl: z.url(),
       })
