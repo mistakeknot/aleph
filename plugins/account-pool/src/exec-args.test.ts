@@ -381,6 +381,31 @@ describe("restrictive Claude reviewer arguments", () => {
 });
 
 describe("bounded dispatch arguments", () => {
+  it("requires dispatch permission and fixed tools for project/local settings", () => {
+    for (const args of [
+      [],
+      ["--permission-mode=dontAsk"],
+      ["--allowedTools=Bash"],
+    ])
+      expect(
+        parsePoolExecArgs("claude", [
+          "--setting-sources=project,local",
+          ...args,
+          "-p",
+        ]),
+      ).toBeNull();
+    expect(
+      parsePoolExecArgs("claude", [
+        "--setting-sources=project,local",
+        "--permission-mode=dontAsk",
+        "--allowedTools=Bash",
+        "-p",
+      ]),
+    ).not.toBeNull();
+    expect(
+      poolExecArgsRefusal("claude", ["--setting-sources=project,local", "-p"]),
+    ).toContain("require --permission-mode dontAsk");
+  });
   it.each([
     ["--effort", "low"],
     ["--effort", "medium"],
@@ -397,7 +422,6 @@ describe("bounded dispatch arguments", () => {
     ["--output-format", "text"],
     ["--output-format", "json"],
     ["--output-format", "stream-json"],
-    ["--setting-sources", "project,local"],
   ])("accepts %s %s with print last and stdin prompt", (flag, value) => {
     expect(parsePoolExecArgs("claude", [flag, value, "-p"])).toEqual([
       `${flag}=${value}`,

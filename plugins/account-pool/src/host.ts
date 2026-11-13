@@ -110,7 +110,14 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
         let output: Awaited<ReturnType<typeof createExecOutput>> | undefined;
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
         try {
-          cwd = await validateExecDirectory(input.cwd, permittedArgs);
+          if (input.workspacePath === null)
+            throw new Error("Missing server-owned environment workspace");
+          cwd = await validateExecDirectory(
+            input.cwd,
+            permittedArgs,
+            deps.env,
+            input.workspacePath,
+          );
           if (input.promptPath !== null) {
             if (input.stdinPath !== null)
               throw new Error("Choose only one stdin source");
@@ -173,7 +180,14 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
               sources === undefined
                 ? "user"
                 : sources.slice("--setting-sources=".length),
-              ...args.filter((arg) => !arg.startsWith("--setting-sources=")),
+              ...(!args.includes("--strict-mcp-config")
+                ? ["--strict-mcp-config"]
+                : []),
+              ...args.filter(
+                (arg) =>
+                  !arg.startsWith("--setting-sources=") &&
+                  !arg.startsWith("--mcp-config="),
+              ),
             ];
           }
 

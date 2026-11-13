@@ -59,6 +59,7 @@ it.runIf(process.env.BB_POOL_EXEC_CODEX_PROBE === "1")(
             "Respond with OK.",
           ],
           cwd: process.cwd(),
+          workspacePath: process.cwd(),
           stdinPath: null,
           stdinDir: null,
           token: "synthetic-pool-probe",

@@ -153,10 +153,13 @@ or `-` for stdin. Value options accept separate or `--key=value` forms. Claude
 must include `--print` or `-p`; it accepts `--model`, `--output-format` (text, json or stream-json), `--max-turns`, `--json-schema`, `--system-prompt`, and one prompt.
 Restriction flags are `--safe-mode`, `--no-session-persistence`, `--no-chrome`,
 `--strict-mcp-config`, and `--disable-slash-commands`. `--tools` and
-`--setting-sources` accept only an empty value. `--mcp-config` accepts only
+`--setting-sources` support an empty value; the exact `project,local` source list
+also requires `--permission-mode dontAsk` and fixed `--allowedTools`. `--mcp-config` accepts only
 inline JSON with exactly one field, an empty `mcpServers` object, for example
 `--mcp-config='{"mcpServers":{}}'`. Empty strings, files, extra fields and
-non-empty servers are rejected. These valued flags accept separate and equals
+non-empty servers are rejected. The host discards this empty MCP config and
+forces `--strict-mcp-config` on every Claude child, so no project MCP server is
+loaded. These valued flags accept separate and equals
 forms. System prompt file options and other short options are not accepted.
 
 Claude receives `--setting-sources user` after argument validation by default;

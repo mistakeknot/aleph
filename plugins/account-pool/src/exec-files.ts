@@ -1,6 +1,7 @@
 import { constants, openSync, closeSync, writeSync } from "node:fs";
 import { open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { validatePoolDirectory } from "./exec-input.js";
 
 function inside(root: string, value: string): boolean {
   const relative = path.relative(root, value);
@@ -15,10 +16,20 @@ function inside(root: string, value: string): boolean {
 export async function validateExecDirectory(
   cwd: string | null,
   args: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+  workspacePath?: string,
 ): Promise<string> {
   if (!cwd || !path.isAbsolute(cwd))
     throw new Error("Caller cwd must be an absolute existing directory");
-  const canonical = await realpath(cwd);
+  const canonical = await realpath(await validatePoolDirectory(cwd, env));
+  if (
+    workspacePath !== undefined &&
+    (!path.isAbsolute(workspacePath) ||
+      !inside(await realpath(workspacePath), canonical))
+  )
+    throw new Error(
+      "Caller cwd must be inside its recorded environment workspace",
+    );
   if (!(await stat(canonical)).isDirectory())
     throw new Error("Caller cwd must be a directory");
   for (const arg of args.filter((arg) => arg.startsWith("--add-dir="))) {

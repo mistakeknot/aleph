@@ -34,6 +34,31 @@ it("validates cwd and confines canonical add-dir grants to cwd", async () => {
   }
 });
 
+it("refuses credential directories and confines cwd to the server workspace", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "exec-boundary-"));
+  try {
+    const env = { HOME: `${root}/home` };
+    await mkdir(`${root}/home/.codex`, { recursive: true });
+    await mkdir(`${root}/workspace`);
+    await mkdir(`${root}/other`);
+    for (const cwd of ["/", root, env.HOME, `${env.HOME}/.codex`])
+      await expect(validateExecDirectory(cwd, [], env, root)).rejects.toThrow();
+    await expect(
+      validateExecDirectory(`${root}/other`, [], env, `${root}/workspace`),
+    ).rejects.toThrow();
+    expect(
+      await validateExecDirectory(
+        `${root}/workspace`,
+        [],
+        env,
+        `${root}/workspace`,
+      ),
+    ).toBe(`${root}/workspace`);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it("forwards bounded prompt files and streams redacted output beyond 900KB", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "exec-files-"));
   try {

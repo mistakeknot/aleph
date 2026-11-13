@@ -31,6 +31,52 @@ async function canonicalPath(value: string): Promise<string> {
   }
 }
 
+export async function validatePoolDirectory(
+  directory: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  if (!path.isAbsolute(directory))
+    throw new Error("Exec directory must be absolute");
+  const home = path.resolve(env.HOME || homedir());
+  const [
+    allowed,
+    protectedHome,
+    codexHome,
+    defaultCodexHome,
+    claudeHome,
+    defaultClaudeHome,
+    sshHome,
+  ] = await Promise.all([
+    canonicalPath(directory),
+    canonicalPath(home),
+    canonicalPath(path.resolve(env.CODEX_HOME || path.join(home, ".codex"))),
+    canonicalPath(path.join(home, ".codex")),
+    canonicalPath(
+      path.resolve(env.CLAUDE_CONFIG_DIR || path.join(home, ".claude")),
+    ),
+    canonicalPath(path.join(home, ".claude")),
+    canonicalPath(path.join(home, ".ssh")),
+  ]);
+  if (
+    [
+      protectedHome,
+      codexHome,
+      defaultCodexHome,
+      claudeHome,
+      defaultClaudeHome,
+      sshHome,
+    ].some((protectedPath) => contains(allowed, protectedPath)) ||
+    [codexHome, defaultCodexHome, claudeHome, defaultClaudeHome, sshHome].some(
+      (protectedPath) => contains(protectedPath, allowed),
+    )
+  ) {
+    throw new Error(
+      "unsafe stdin directory: root, home, and Codex credential directories or their ancestors are forbidden",
+    );
+  }
+  return allowed;
+}
+
 export async function readPoolInput(
   directory: string,
   filename: string,
@@ -38,28 +84,9 @@ export async function readPoolInput(
 ): Promise<Buffer> {
   if (process.platform !== "linux")
     throw new Error("stdin files require a Linux host with /proc/self/fd");
-  if (!path.isAbsolute(directory) || !path.isAbsolute(filename))
+  if (!path.isAbsolute(filename))
     throw new Error("stdin paths must be absolute");
-  const home = path.resolve(env.HOME || homedir());
-  const [allowed, protectedHome, codexHome, defaultCodexHome] =
-    await Promise.all([
-      canonicalPath(directory),
-      canonicalPath(home),
-      canonicalPath(path.resolve(env.CODEX_HOME || path.join(home, ".codex"))),
-      canonicalPath(path.join(home, ".codex")),
-    ]);
-  if (
-    [protectedHome, codexHome, defaultCodexHome].some((protectedPath) =>
-      contains(allowed, protectedPath),
-    ) ||
-    [codexHome, defaultCodexHome].some((protectedPath) =>
-      contains(protectedPath, allowed),
-    )
-  ) {
-    throw new Error(
-      "unsafe stdin directory: root, home, and Codex credential directories or their ancestors are forbidden",
-    );
-  }
+  const allowed = await validatePoolDirectory(directory, env);
   if (path.dirname(path.resolve(filename)) !== path.resolve(directory)) {
     throw new Error(
       "stdin file is outside the configured directory (direct children only)",

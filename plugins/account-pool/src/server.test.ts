@@ -543,6 +543,7 @@ function sdkStubs() {
     environments: {
       get: async () => ({
         id: "env-one",
+        path: "/work",
         projectId: "project-one",
         status: "ready",
         hostId: "host-one",
@@ -9192,6 +9193,7 @@ describe("pool exec CLI", () => {
           provider: "codex",
           args: ["exec", "hello"],
           cwd: "/work",
+          workspacePath: "/work",
           stdinPath: "/tmp/prompt.txt",
           stdinDir: inputDir ?? null,
           baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",

@@ -58,6 +58,12 @@ export function parsePoolExecArgs(
 ): string[] | null {
   const options = parseUnguardedPoolExecArgs(provider, args);
   if (
+    options?.includes("--setting-sources=project,local") &&
+    (!options.includes("--permission-mode=dontAsk") ||
+      !options.some((option) => option.startsWith("--allowedTools=")))
+  )
+    return null;
+  if (
     options?.includes("--setting-sources=") &&
     !EMPTY_SETTING_SOURCES_GUARDS.every((guard) => options.includes(guard))
   )
@@ -70,6 +76,12 @@ export function poolExecArgsRefusal(
   args: readonly string[],
 ): string | null {
   if (parsePoolExecArgs(provider, args) !== null) return null;
+  if (
+    parseUnguardedPoolExecArgs(provider, args)?.includes(
+      "--setting-sources=project,local",
+    )
+  )
+    return "claude project,local settings require --permission-mode dontAsk and a fixed --allowedTools value.";
   if (parseUnguardedPoolExecArgs(provider, args) !== null)
     return EMPTY_SETTING_SOURCES_REFUSAL;
   return `${provider} arguments are not permitted by the Account Pooler execution allowlist.`;

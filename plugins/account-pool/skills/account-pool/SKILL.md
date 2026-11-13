@@ -10,15 +10,19 @@ Use `bb pool` for this plugin's accounts and routes. Inspect current state with
 Use `bb pool burn --json` to see the share of the weekly pooled quota used in the last hour.
 Use `bb pool --help` for available commands.
 
-Use `bb pool exec -- codex ...` or `bb pool exec -- claude ...` when a process
-outside a bb thread must use the current pool on the server's primary enrolled
+Use `bb pool exec -- codex ...` or `bb pool exec -- claude ...` when a tool
+inside a bb thread must use the current pool on the server's primary enrolled
 host. Only allowlisted `codex exec` and `claude --print` options are accepted;
 all caller Codex config/profile/provider overrides are rejected. The host pins
 the pooled provider inside `exec`. The command exits with the child status.
 Claude receives `--setting-sources user` by default and host-managed provider
 routing. Dispatch may select exactly `project,local`, replacing that default
-without adding user settings. Its config directory
-is anchored to the daemon environment, not the caller cwd; the daemon's user
+without adding user settings.
+Selecting `project,local` requires explicit `dontAsk` and a fixed allowed-tools
+list. Every pooled Claude child receives `--strict-mcp-config` with no MCP
+configuration, so project MCP servers do not load. Clavain dispatch does not
+pass MCP configuration for review or execution seats.
+The config directory is anchored to the daemon environment, not the caller cwd; the daemon's user
 hooks/plugins remain trusted operator code. See the reference for this boundary.
 A confirmed, provider-pinned child start adds a
 `bb-pool-exec: transport=pooled provider=<provider>` stderr marker; an
@@ -37,8 +41,12 @@ directories, their ancestors and their descendants are forbidden. See the refere
 argument allowlist and descriptor-based file boundary.
 
 Exec requires a live calling thread on the primary host. Its absolute cwd must
-exist there; missing thread provenance or a different host is refused. Raw piped
-stdin is not forwarded. Use `--prompt-file <absolute-path>` before `--` for a
+exist there; missing thread provenance or a different host is refused.
+The host also confines canonical cwd to the thread's recorded environment path
+and refuses root, home, credential directories and their ancestors. Credential
+roots include configured/default Codex and Claude directories and `.ssh`;
+their descendants are refused too.
+Raw piped stdin is not forwarded. Use `--prompt-file <absolute-path>` before `--` for a
 regular, non-symlink prompt file directly in canonical caller cwd, at most 8 MiB.
 Do not combine it with `--stdin-file`; prompt bytes become child stdin, never argv.
 Use `--output-file <absolute-path>` to stream stdout into a new file directly in

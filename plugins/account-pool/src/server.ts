@@ -368,6 +368,7 @@ export function createAccountPoolPlugin(
           };
         }
         const token = await hubTokens.forHost(primaryHostId);
+        let workspacePath: string;
         try {
           if (!context.threadId || !context.cwd)
             throw new Error("missing thread or cwd");
@@ -383,6 +384,9 @@ export function createAccountPoolPlugin(
           const environment = await bb.sdk.environments.get({
             environmentId: thread.environmentId,
           });
+          if (!environment.path)
+            throw new Error("missing environment workspace");
+          workspacePath = environment.path;
           if (
             environment.id !== thread.environmentId ||
             environment.projectId !== thread.projectId ||
@@ -413,6 +417,7 @@ export function createAccountPoolPlugin(
             {
               ...request,
               cwd: context.cwd ?? null,
+              workspacePath,
               stdinDir: execInputDir,
               token,
               baseUrl,
