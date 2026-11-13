@@ -9,6 +9,8 @@ Schedule work once or on a repeat, and let bb run it while you do something else
 
 ## For agents
 
+Agent run history includes a nullable `outcome`: the first nonempty line of the last completed assistant message, trimmed to 280 characters. Failed and skipped runs use their status and reason. The next agent run receives this line with the previous run's UTC start time before its configured prompt. Old runs and runs without an assistant message have no outcome; script runs keep their existing behavior. Outcomes are available through the SDK run history and `bb automation runs --json`.
+
 Agent automations may set `execution.checkCommand` (CLI: `--check-command`; remove with `--clear-check-command`). Before a scheduled tick, bb runs this shell command in the automation's directory. Exit 0 proceeds; other exits, timeout, or a spawn failure record a skipped run without starting or waking a thread. Manual **Run now** bypasses the check.
 
 Checks currently require full access and an explicit absolute unmanaged path on the server host, without branch changes or a target thread. Remote hosts, reused environments, project defaults, Personal environments, and new managed worktrees are unsupported and rejected when saved. Stored unsupported configurations skip safely. Checks use the server process environment and a 60-second timeout to bound a lightweight readiness probe. History retains the exit code, elapsed run time, reason, and last 2 KB of stderr; stdout is discarded. Avoid printing secrets to stderr.

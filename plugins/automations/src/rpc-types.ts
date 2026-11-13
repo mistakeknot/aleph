@@ -423,6 +423,7 @@ export const automationRunResponseSchema = z
     skipReason: z.string().nullable(),
     error: z.string().nullable(),
     output: z.string().nullable(),
+    outcome: z.string().nullable().default(null),
     exitCode: z.number().int().nullable(),
     scheduledFor: z.number(),
     startedAt: z.number(),
