@@ -27,7 +27,9 @@ describe("task return storage migration", () => {
       }
     }
     db.exec("DELETE FROM schema_version WHERE version > 9");
-    const before = db.prepare("SELECT * FROM tasks").all();
+    const before = db
+      .prepare<[], Record<string, unknown>>("SELECT * FROM tasks")
+      .all();
     try {
       const migrated = createTasksStore(db);
       expect(db.prepare("SELECT * FROM tasks").all()).toEqual(
