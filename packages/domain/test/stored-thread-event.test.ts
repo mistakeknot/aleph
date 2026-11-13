@@ -61,6 +61,39 @@ describe("parseStoredThreadEvent", () => {
       type: "client/turn/requested",
       initiator: "user",
       senderThreadId: null,
+      wakeCause: "unknown",
+      wakeRef: null,
+    });
+  });
+
+  it("reads a future stored cause without losing the request", () => {
+    const event = parseStoredThreadEvent({
+      type: "client/turn/requested",
+      threadId: "thread-1",
+      scope: threadScope(),
+      data: {
+        direction: "outbound",
+        requestId: "creq_23456789ab",
+        source: "tell",
+        initiator: "user",
+        wakeCause: "future-cause",
+        wakeRef: "operation-1",
+        input: [{ type: "text", text: "legacy" }],
+        target: { kind: "new-turn" },
+        request: { method: "turn/start", params: {} },
+        execution: {
+          model: "gpt-5",
+          serviceTier: "default",
+          reasoningLevel: "medium",
+          permissionMode: "full",
+          source: "client/turn/requested",
+        },
+      },
+    });
+    expect(event).toMatchObject({
+      wakeCause: "unknown",
+      wakeRef: "operation-1",
+      requestId: "creq_23456789ab",
     });
   });
 

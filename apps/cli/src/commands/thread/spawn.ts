@@ -1,3 +1,4 @@
+import { parseWakeOptions } from "./wake.js";
 import { Command } from "commander";
 import {
   jsonValueSchema,
@@ -47,6 +48,8 @@ const PROVIDER_HELP =
   "Provider ID for the thread. Omit to use the project's remembered provider choice";
 
 interface ThreadSpawnCommandOptions {
+  wakeCause?: string;
+  wakeRef?: string;
   prompt?: string;
   promptFile?: string;
   json?: boolean;
@@ -338,6 +341,11 @@ export function registerSpawnCommand(
       "--lifecycle-owner-thread <id>",
       "Archive/delete this thread with its lifecycle owner",
     )
+    .option("--wake-cause <cause>", "Wake attribution cause (omitted: unknown)")
+    .option(
+      "--wake-ref <ref>",
+      "Opaque operation ID, at most 200 UTF-16 units; never prompt text or secrets",
+    )
     .option("--json", "Print machine-readable JSON output")
     .requiredOption("--project <id>", "Project ID")
     .option(
@@ -601,6 +609,7 @@ export function registerSpawnCommand(
           });
           thread = await sdk.threads.spawn({
             origin: "cli",
+            ...parseWakeOptions(opts),
             projectId,
             ...(providerId ? { providerId } : {}),
             ...(opts.model ? { model: opts.model } : {}),

@@ -1,3 +1,4 @@
+import { wakeCauseSchema, wakeRefSchema } from "./wake.js";
 import { z } from "zod";
 import { pluginIdSchema } from "./plugin-id.js";
 import { clientTurnRequestIdSchema } from "./protocol-ids.js";
@@ -219,25 +220,10 @@ export type QueuedMessageSystemNotice = z.infer<
   typeof queuedMessageSystemNoticeSchema
 >;
 
-export const queuedMessageWakeCauseSchema = z.enum([
-  "card_pick",
-  "merge",
-  "review",
-  "timer",
-  "message",
-  "workflow",
-  "retry",
-  "restart",
-  "interaction",
-  "unknown",
-]);
+export const queuedMessageWakeCauseSchema = wakeCauseSchema;
 export const QUEUED_MESSAGE_WAKE_REF_MAX_LENGTH = 200;
 export const queuedMessageWakeSchema = z.object({
   wakeCause: queuedMessageWakeCauseSchema.default("unknown"),
-  wakeRef: z
-    .string()
-    .max(QUEUED_MESSAGE_WAKE_REF_MAX_LENGTH)
-    .nullable()
-    .default(null),
+  wakeRef: wakeRefSchema.nullable().default(null),
 });
 export type QueuedMessageWake = z.infer<typeof queuedMessageWakeSchema>;

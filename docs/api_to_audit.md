@@ -5021,3 +5021,13 @@ Legacy machine annotation persistence uses the same connect RPC and store as the
 CLI and server overlay. Optional `hostId` selects enrolled machine notes; omission
 preserves server-host storage. The internal host route derives `hostId` from an
 authenticated active session and rejects caller-supplied host IDs.
+
+## Wake attribution arguments
+
+`wakeCause` and `wakeRef` are optional arguments on existing SDK thread send,
+spawn, fork, and queue admission contracts, rather than new plugin API members;
+they therefore retain these names without an `experimental_` prefix. Core and
+SDK callers share the same server admission and dispatch path. Missing causes
+record unknown; invalid new values fail validation. Stored legacy or future
+causes read as unknown. The opaque ref is limited to 200 UTF-16 units and must
+never contain prompt text or secrets. These fields are immutable during edits.

@@ -1,3 +1,4 @@
+import { readWake } from "@bb/domain";
 import { randomUUID } from "node:crypto";
 import { acquireProjectAttachmentOwnership } from "./project-attachments.js";
 import {
@@ -112,7 +113,7 @@ export interface CreateQueuedThreadMessageInput extends Partial<QueuedMessageWak
   coalesce?: { key: string; state: string } | null;
 }
 
-export interface UpdateCoalescedQueuedThreadMessageInput {
+export interface UpdateCoalescedQueuedThreadMessageInput extends Partial<QueuedMessageWake> {
   coalesceState: string;
   content: PromptInput[];
   id: string;
@@ -1108,6 +1109,7 @@ export function updateCoalescedQueuedThreadMessageInTransaction(
         content: JSON.stringify(input.content),
         systemNotice: JSON.stringify(input.systemNotice),
         coalesceState: input.coalesceState,
+        ...queuedMessageWakeSchema.parse(input),
         sendAt: sql`CASE WHEN ${queuedThreadMessages.state} = 'scheduled' AND ${queuedThreadMessages.sendAt} > ${now} AND json_extract(${queuedThreadMessages.waitingOn}, '$.kind') = 'time' THEN ${input.windowEndsAt} ELSE ${queuedThreadMessages.sendAt} END`,
         updatedAt: now,
       })
@@ -1332,13 +1334,14 @@ export function releaseQueuedThreadMessageEditHold(
 }
 
 export function getQueuedThreadMessage(db: DbQueryConnection, id: string) {
-  return (
+  const row = (
     db
       .select()
       .from(queuedThreadMessages)
       .where(eq(queuedThreadMessages.id, id))
       .get() ?? null
   );
+  return row === null ? null : { ...row, ...readWake(row) };
 }
 
 export function hasClaimedQueuedThreadMessages(
@@ -3101,7 +3104,7 @@ export function transferQueuedThreadMessageInTransaction(
     threadVerified: args.targetVerified,
     threadId: args.targetThreadId,
     content: JSON.parse(source.content) as PromptInput[],
-    ...queuedMessageWakeSchema.parse(source),
+    ...readWake(source),
     senderThreadId: source.senderThreadId,
     origin: source.origin,
     originPluginId: source.originPluginId,

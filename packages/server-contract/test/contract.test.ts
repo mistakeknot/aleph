@@ -434,8 +434,18 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "Thread creation, queued messages, and follow-up messages omit their sender unless the request originates from another thread or, for sends, a plugin.",
+      "Thread creation, queued messages, and follow-up messages omit sender and wake attribution for legacy callers; absent attribution is unknown. Group provenance is absent for ordinary queue entries.",
     fields: [
+      "createQueuedMessageRequestSchema.wakeCause",
+      "createQueuedMessageRequestSchema.wakeRef",
+      "createThreadRequestSchema.wakeCause",
+      "createThreadRequestSchema.wakeRef",
+      "forkThreadRequestSchema.wakeCause",
+      "forkThreadRequestSchema.wakeRef",
+      "sendMessageRequestSchema.wakeCause",
+      "sendMessageRequestSchema.wakeRef",
+      "sendQueuedMessageResponseSchema.queuedMessage.wakeSources",
+      "sendQueuedMessageResponseSchema.queuedMessage.wakeSourcesTruncated",
       "createQueuedMessageRequestSchema.senderThreadId",
       "sendMessageRequestSchema.senderThreadId",
       "createThreadRequestSchema.senderThreadId",

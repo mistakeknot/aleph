@@ -1,3 +1,4 @@
+import { wakeAttribution, type WakeAttribution } from "@bb/domain";
 import type {
   PromptInput,
   ResolvedThreadExecutionOptions,
@@ -26,7 +27,7 @@ export interface ReadyThreadEnvironment extends EnvironmentRow {
   status: "ready";
 }
 
-interface DispatchTurnDuringReprovisionArgs {
+interface DispatchTurnDuringReprovisionArgs extends WakeAttribution {
   beforeRequestAppendInTransaction?: (args: { tx: DbTransaction }) => void;
   deps: LoggedPendingInteractionWorkSessionDeps;
   environment: EnvironmentRow;
@@ -85,6 +86,7 @@ export async function dispatchTurnDuringReprovision(
       },
       environment: args.environment,
       execution: args.execution,
+      ...wakeAttribution(args),
       initiator: args.initiator,
       input: args.input,
       inputGroups: args.inputGroups,

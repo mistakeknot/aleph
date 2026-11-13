@@ -207,6 +207,8 @@ export function makeThreadQueuedMessage(
 ): ThreadQueuedMessage {
   return {
     id: "qmsg_test",
+    wakeCause: "unknown",
+    wakeRef: null,
     origin: null,
     originPluginId: null,
     initiator: "user",

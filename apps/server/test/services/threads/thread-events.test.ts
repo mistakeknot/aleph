@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { events, getThread, threads } from "@bb/db";
+import { events, getThread, threads, listEvents } from "@bb/db";
 import type { AppendStoredThreadEventArgs } from "@bb/db";
 import {
   createStandaloneBuiltinCompactCommandInput,
@@ -63,6 +63,8 @@ describe("thread event appends", () => {
         type: "client/turn/requested",
         originPluginId: null,
         input: textInput("Keep working"),
+        wakeCause: "card_pick",
+        wakeRef: "pick-1",
         target: { kind: "new-turn" },
         execution: {
           model: "gpt-5",
@@ -99,6 +101,8 @@ describe("thread event appends", () => {
         type: "client/turn/requested",
         originPluginId: null,
         input: createStandaloneBuiltinCompactCommandInput(),
+        wakeCause: "interaction",
+        wakeRef: "interaction-2",
         target: { kind: "steer", expectedTurnId: turnId },
         execution: {
           model: "gpt-5",
@@ -123,6 +127,25 @@ describe("thread event appends", () => {
         },
       });
 
+      const rows = listEvents(harness.db, { threadId: thread.id });
+      const accepted = rows
+        .filter((row) => row.type === "turn/input/accepted")
+        .map((row) => JSON.parse(row.data).clientRequestId);
+      expect(accepted).toEqual([
+        initialRequest.requestId,
+        compactSteer.requestId,
+      ]);
+      const requests = rows
+        .filter((row) => row.type === "client/turn/requested")
+        .map((row) => JSON.parse(row.data));
+      expect(requests).toMatchObject([
+        { requestId: accepted[0], wakeCause: "card_pick", wakeRef: "pick-1" },
+        {
+          requestId: accepted[1],
+          wakeCause: "interaction",
+          wakeRef: "interaction-2",
+        },
+      ]);
       const activeThread = getThread(harness.db, thread.id);
       if (!activeThread) {
         throw new Error("Expected active thread");

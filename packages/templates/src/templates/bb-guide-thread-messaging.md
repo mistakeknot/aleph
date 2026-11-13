@@ -268,3 +268,10 @@ Application links in messages:
   behavior. Desktop and native mobile clients need application-link support
   (mobile bridge version 3); older clients show an update message. Web browsers
   handle their own OS handoff and cannot reliably report missing applications.
+
+Wake attribution for `bb thread tell`, `bb thread spawn`, and `bb thread fork`:
+`--wake-cause <cause>` accepts card_pick, merge, review, timer, message,
+workflow, retry, restart, interaction, or unknown. Omission records unknown.
+`--wake-ref <ref>` carries an opaque operation ID of at most 200 UTF-16 units;
+never use prompt text, credentials, tokens, or cookies. Scheduling changes
+when delivery happens, not its cause. Queue edits preserve original attribution.

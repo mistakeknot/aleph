@@ -108,7 +108,7 @@ function pendingNotices(fixture: OwnershipFixture) {
       parent: parentId,
       kind: JSON.parse(row.systemNotice ?? "null")?.kind,
       children: (
-        JSON.parse(row.coalesceState ?? "[]") as {
+        JSON.parse(row.coalesceState ?? '{"state":[]}').state as {
           change: string;
           childThread: { id: string };
         }[]

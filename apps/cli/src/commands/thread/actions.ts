@@ -1,3 +1,4 @@
+import { parseWakeOptions } from "./wake.js";
 import { Command } from "commander";
 import { rethrowThreadConflict } from "./conditional-write.js";
 import { randomUUID } from "node:crypto";
@@ -96,6 +97,8 @@ interface ThreadDeleteCommandOptions {
 }
 
 interface ThreadTellCommandOptions {
+  wakeCause?: string;
+  wakeRef?: string;
   json?: boolean;
   messageFile?: string;
   model?: string;
@@ -134,6 +137,8 @@ interface ThreadEditMessageCommandOptions {
 type ThreadTellDeliveryMode = "auto" | "queue" | "steer";
 
 interface PostThreadMessageArgs {
+  wakeCause?: string;
+  wakeRef?: string;
   getUrl: () => string;
   threadId: string;
   message: string;
@@ -635,6 +640,11 @@ export function registerActionsCommands(
     .command("tell <id> [message]")
     .aliases(["message", "send"])
     .description("Send a follow-up message to a thread")
+    .option("--wake-cause <cause>", "Wake attribution cause (omitted: unknown)")
+    .option(
+      "--wake-ref <ref>",
+      "Opaque operation ID, at most 200 UTF-16 units; never prompt text or secrets",
+    )
     .option(
       "--message-file <path>",
       `Read the message from a file instead of [message]; ${TEXT_FILE_HELP_SUFFIX}`,
@@ -691,6 +701,7 @@ export function registerActionsCommands(
             permissionMode: parsePermissionMode(opts.permissionMode),
             reasoningLevel: parseReasoningLevel(opts.reasoningLevel),
             serviceTier: parseServiceTier(opts.serviceTier),
+            ...parseWakeOptions(opts),
             senderThreadId: resolveSenderThreadId(id),
             plan: opts.plan,
             files: opts.file,
@@ -823,6 +834,7 @@ async function postThreadMessage(
       ...(args.reasoningLevel ? { reasoningLevel: args.reasoningLevel } : {}),
       ...(args.serviceTier ? { serviceTier: args.serviceTier } : {}),
       ...(args.senderThreadId ? { senderThreadId: args.senderThreadId } : {}),
+      ...parseWakeOptions(args),
       ...(args.sendAt === undefined ? {} : { sendAt: args.sendAt }),
       ...(args.compactFirst ? { compactFirst: true } : {}),
     });
