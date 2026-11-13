@@ -187,7 +187,7 @@ describe("delivery mode upgrade from the previous Aleph main", () => {
             "SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1",
           )
           .get(),
-      ).toEqual({ created_at: 1794340346214 });
+      ).toEqual({ created_at: 1794340346215 });
       expect(
         db.$client
           .prepare(
