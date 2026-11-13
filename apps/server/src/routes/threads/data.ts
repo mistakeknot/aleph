@@ -1,4 +1,7 @@
-import { readWakeOutcomes } from "../../services/threads/wake-turn-outcome.js";
+import {
+  IncompleteWakeOutcomeError,
+  readWakeOutcomes,
+} from "../../services/threads/wake-turn-outcome.js";
 import {
   getAppSettings,
   getDatabaseDataVersion,
@@ -245,9 +248,14 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(routes.wakeOutcomes, (context) =>
-    withHotPublicThread(context.req.param("id"), (thread) =>
-      context.json(readWakeOutcomes(deps, { threadId: thread.id })),
-    ),
+    withHotPublicThread(context.req.param("id"), (thread) => {
+      try {
+        return context.json(readWakeOutcomes(deps, { threadId: thread.id }));
+      } catch (error) {
+        if (!(error instanceof IncompleteWakeOutcomeError)) throw error;
+        throw new ApiError(500, "internal_error", error.message);
+      }
+    }),
   );
 
   get(routes.headState, (context) => {

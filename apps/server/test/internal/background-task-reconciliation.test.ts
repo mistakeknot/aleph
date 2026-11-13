@@ -1020,11 +1020,42 @@ describe("active thread disconnect reconciliation triggers", () => {
 
       expect(eventsResponse.status).toBe(200);
       expect(getThread(harness.deps.db, thread.id)?.status).toBe("idle");
-      expect(
-        listEvents(harness.deps.db, { threadId: thread.id }).map(
-          (row) => row.type,
-        ),
-      ).toEqual(["turn/started", "item/completed", "turn/completed"]);
+      const rows = listEvents(harness.deps.db, { threadId: thread.id });
+      expect(rows.map((row) => row.type)).toEqual([
+        "turn/started",
+        "item/completed",
+        "turn/completed",
+        "system/operation",
+      ]);
+      expect(rows[3]).toMatchObject({
+        threadId: thread.id,
+        scopeKind: "turn",
+        turnId: "turn-live-1",
+      });
+      expect(JSON.parse(rows[3]!.data)).toEqual({
+        operation: "wake.turn-outcome.v1",
+        operationId: "turn-live-1",
+        status: "completed",
+        message: "Observed turn outcome",
+        metadata: {
+          turnId: "turn-live-1",
+          completed: true,
+          wakeCause: "unknown",
+          wakeRef: null,
+          wakeSources: [],
+          wakeSourcesTruncated: false,
+          requestsTruncated: false,
+          requests: [],
+          toolCount: null,
+          changedAnything: "unknown",
+          effectKinds: [],
+          coverage: {
+            tools: "unknown",
+            effects: "unknown",
+            attribution: "unknown",
+          },
+        },
+      });
     });
   });
 

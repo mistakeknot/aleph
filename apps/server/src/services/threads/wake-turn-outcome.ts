@@ -18,6 +18,13 @@ import { appendThreadEventInTransaction } from "./thread-events.js";
 
 type Deps = Pick<AppDeps, "db" | "hub">;
 type EffectKind = WakeTurnOutcome["effectKinds"][number];
+
+export class IncompleteWakeOutcomeError extends Error {
+  constructor() {
+    super("Wake outcome identity or completion evidence is incomplete");
+  }
+}
+
 const toolTypes = new Set<ThreadEventItem["type"]>([
   "commandExecution",
   "fileChange",
@@ -232,8 +239,8 @@ function hasOperation(
           eq(eventTable.threadId, threadId),
           eq(eventTable.turnId, turnId),
           eq(eventTable.type, "system/operation"),
-          sql`json_extract(${eventTable.data}, '$.operation') = ${operation}`,
-          sql`json_extract(${eventTable.data}, '$.operationId') = ${operationId}`,
+          sql`CASE WHEN json_valid(${eventTable.data}) THEN json_extract(${eventTable.data}, '$.operation') END = ${operation}`,
+          sql`CASE WHEN json_valid(${eventTable.data}) THEN json_extract(${eventTable.data}, '$.operationId') END = ${operationId}`,
         ),
       )
       .get() !== undefined
@@ -386,13 +393,28 @@ export function readWakeOutcomes(
         .all(),
     ),
   );
+  let incompleteDecode = false;
+  const decoded = new Map<number, ThreadEvent>();
+  const decode = (row: StoredEventRow): void => {
+    if (decoded.has(row.sequence)) return;
+    try {
+      decoded.set(row.sequence, parseStoredEvent(row));
+    } catch {
+      if (
+        row.type === "turn/started" ||
+        row.type === "turn/completed" ||
+        row.type === "turn/input/accepted"
+      ) {
+        throw new IncompleteWakeOutcomeError();
+      }
+      incompleteDecode = true;
+    }
+  };
+  for (const row of rows) decode(row);
   const requestIds = new Set(
-    rows.flatMap((row) => {
-      const event = parseStoredEvent(row);
-      return event.type === "turn/input/accepted"
-        ? [event.clientRequestId]
-        : [];
-    }),
+    [...decoded.values()].flatMap((event) =>
+      event.type === "turn/input/accepted" ? [event.clientRequestId] : [],
+    ),
   );
   for (const requestId of requestIds) {
     const request = deps.db
@@ -402,13 +424,13 @@ export function readWakeOutcomes(
         and(
           eq(eventTable.threadId, threadId),
           eq(eventTable.type, "client/turn/requested"),
-          sql`json_extract(${eventTable.data}, '$.requestId') = ${requestId}`,
+          sql`CASE WHEN json_valid(${eventTable.data}) THEN json_extract(${eventTable.data}, '$.requestId') END = ${requestId}`,
         ),
       )
       .orderBy(asc(eventTable.sequence))
       .limit(1)
       .get();
-    if (request) rows.push(request);
+    if (request) decode(request);
     const firstAcceptance = deps.db
       .select()
       .from(eventTable)
@@ -417,17 +439,17 @@ export function readWakeOutcomes(
           eq(eventTable.threadId, threadId),
           eq(eventTable.type, "turn/input/accepted"),
           eq(eventTable.scopeKind, "turn"),
-          sql`json_extract(${eventTable.data}, '$.clientRequestId') = ${requestId}`,
+          sql`CASE WHEN json_valid(${eventTable.data}) THEN json_extract(${eventTable.data}, '$.clientRequestId') END = ${requestId}`,
         ),
       )
       .orderBy(asc(eventTable.sequence))
       .limit(1)
       .get();
-    if (firstAcceptance) rows.push(firstAcceptance);
+    if (firstAcceptance) decode(firstAcceptance);
   }
-  const events = [...new Map(rows.map((row) => [row.sequence, row])).values()]
-    .sort((a, b) => a.sequence - b.sequence)
-    .map(parseStoredEvent);
+  const events = [...decoded.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, event]) => event);
   const outcomes = selectedTurnIds.map((turnId) => {
     const outcome = reduceWakeTurnOutcome({
       threadId,
@@ -435,6 +457,10 @@ export function readWakeOutcomes(
       events,
       telemetry: "unknown",
     });
+    if (incompleteDecode) {
+      outcome.wakeCause = "unknown";
+      outcome.coverage.attribution = "unknown";
+    }
     const hasStart = events.some(
       (event) =>
         event.type === "turn/started" &&

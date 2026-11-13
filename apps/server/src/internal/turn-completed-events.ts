@@ -103,10 +103,18 @@ export function applyTurnCompletedEvent(
   deps: TurnCompletionDeps,
   { afterIdle, payload }: ApplyTurnCompletedEventArgs,
 ): TurnCompletedTransition {
-  readWakeOutcomes(deps, {
-    threadId: payload.threadId,
-    snapshotTurnId: requireThreadEventScopeTurnId(payload),
-  });
+  const snapshotTurnId = requireThreadEventScopeTurnId(payload);
+  try {
+    readWakeOutcomes(deps, {
+      threadId: payload.threadId,
+      snapshotTurnId,
+    });
+  } catch {
+    deps.logger.warn(
+      { threadId: payload.threadId, turnId: snapshotTurnId },
+      "Wake outcome snapshot unavailable during turn settlement",
+    );
+  }
   rejectUnconfirmedSteersAfterTurnCompleted(deps, payload.threadId);
   const lifecycleEvent = lifecycleEventForTurnCompletion(payload.status);
   if (inFlightTurnRequestCountByThreadId.has(payload.threadId)) {
