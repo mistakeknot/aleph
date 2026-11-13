@@ -6,6 +6,7 @@ import {
   getAutomation,
   listRunningAutomationRuns,
   listRunningAutomationRunsByThread,
+  listAutomationRuns,
   setAutomationEnabled,
   setAutomationRunThread,
   type AutomationRow,
@@ -13,6 +14,7 @@ import {
   type Db,
 } from "./data.js";
 import { publishAutomationChange } from "./realtime.js";
+import { renderPreviousOutcome } from "./outcome.js";
 import {
   executeStoredScript,
   mapScriptResultToRun,
@@ -121,6 +123,19 @@ export async function executeAgentRun(
   args: AgentRunArgs,
 ): Promise<void> {
   try {
+    const previous =
+      listAutomationRuns(db, {
+        automationId: args.automation.id,
+        limit: 1,
+        cursor: { startedAt: args.run.startedAt, id: args.run.id },
+      })[0] ?? null;
+    args = {
+      ...args,
+      execution: {
+        ...args.execution,
+        prompt: renderPreviousOutcome(args.execution.prompt, previous),
+      },
+    };
     if (args.automation.targetThreadId !== null) {
       await reuseTargetThreadForRun(bb, db, {
         ...args,
@@ -338,7 +353,12 @@ async function runScript(
 export function closeAutomationRunForSettledThread(
   bb: Pick<BbPluginApi, "realtime">,
   db: Db,
-  args: { threadId: string; status: "idle" | "failed"; error?: string | null },
+  args: {
+    threadId: string;
+    status: "idle" | "failed";
+    error?: string | null;
+    outcome?: string | null;
+  },
 ): void {
   const runs = listRunningAutomationRunsByThread(db, args.threadId);
   const now = Date.now();
@@ -348,6 +368,7 @@ export function closeAutomationRunForSettledThread(
       runId: run.id,
       status: args.status === "idle" ? "succeeded" : "failed",
       error: args.status === "idle" ? null : (args.error ?? "Turn failed"),
+      outcome: args.outcome,
       threadId: args.threadId,
       now,
     });
@@ -371,6 +392,7 @@ type ReconcileOutcome =
 export async function reconcileRunningAutomationRuns(
   bb: AgentRunApi,
   db: Db,
+  readOutcome?: (threadId: string) => Promise<string | null>,
 ): Promise<void> {
   const changedProjects = new Set<string>();
   for (const run of listRunningAutomationRuns(db)) {
@@ -379,6 +401,10 @@ export async function reconcileRunningAutomationRuns(
     const closed = closeAutomationRun(db, {
       runId: run.id,
       ...outcome,
+      outcome:
+        outcome.status === "succeeded" && run.threadId !== null && readOutcome
+          ? await readOutcome(run.threadId)
+          : null,
       now: Date.now(),
     });
     if (!closed) continue;
