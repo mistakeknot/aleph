@@ -108,9 +108,17 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             stderr: `${poolExecArgsRefusal(input.provider, input.args) ?? `${input.provider} arguments are not permitted by the Account Pooler execution allowlist.`}\n`,
           };
         }
+        const usesProjectSettings = permittedArgs.some(
+          (arg) =>
+            arg.startsWith("--setting-sources=") &&
+            arg
+              .slice("--setting-sources=".length)
+              .split(",")
+              .some((source) => source === "project" || source === "local"),
+        );
         if (
           input.provider === "claude" &&
-          !permittedArgs.includes("--tools=") &&
+          (!permittedArgs.includes("--tools=") || usesProjectSettings) &&
           !(await (deps.checkClaudeScrub ?? verifyClaudeScrub)(deps.env))
         ) {
           return {
@@ -119,7 +127,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             exitCode: 1,
             stdout: "",
             stderr:
-              "Pool exec refused: tool-capable Claude requires verified Claude Code 2.1.323 subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation. Tool-free --print --tools= may still run.\n",
+              "Pool exec refused: Claude with tools or project/local settings requires verified Claude Code 2.1.323 subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation. Tool-free --print --tools= without project/local settings may still run.\n",
           };
         }
         let cwd: string;

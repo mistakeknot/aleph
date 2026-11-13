@@ -34,7 +34,12 @@ CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1, CLAUDE_CODE_USE_BEDROCK=0,
 CLAUDE_CODE_USE_VERTEX=0, CLAUDE_CODE_USE_FOUNDRY=0 (provider pinning),
 ENABLE_TOOL_SEARCH=true (tool discovery), DISABLE_AUTOUPDATER=1 (keep the
 verified executable from updating itself), and
-CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (credential isolation for tools).
+CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (pool-token isolation for tools).
+
+This isolation applies to the pool token only. HOME and CLAUDE_CONFIG_DIR
+still point at the daemon user's real home and Claude configuration directory;
+other credentials stored in files there are outside this guarantee. This is
+the same home/configuration boundary used by dispatch.sh today.
 
 Tool-capable launches require Linux, the verified Claude Code 2.1.323 release,
 working socat and ripgrep executables, and a successful bubblewrap user/PID/network
@@ -43,8 +48,10 @@ closed until verified. The check runs before passing a pool token to Claude;
 probe failures return a fixed error without subprocess output. This version's
 scrub mode removes ANTHROPIC_AUTH_TOKEN from tool subprocesses and isolates
 protected paths; merely omitting other daemon secrets does not protect this
-token. Explicit --print --tools= launches remain available without the
-preflight, but keep the scrub variable set (Claude can itself refuse startup
+token. Explicit --print --tools= launches skip the preflight only when their
+settings sources exclude project and local. Project/local settings can load
+shell-bearing commands, so they always require the full preflight, even with
+--tools=. All launches keep the scrub variable set (Claude can itself refuse startup
 if bubblewrap is missing). Proxy, certificate, XDG and other tuning variables are deliberately excluded;
 hosts that need those variables need a separately reviewed allowlist change.
 The preflight checks dependencies and namespace primitives, not every possible

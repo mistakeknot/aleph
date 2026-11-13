@@ -37,6 +37,51 @@ function fakeChild() {
 
 describe("Account Pooler host exec", () => {
   it.each([
+    { sources: undefined, available: false, checks: 0, started: true },
+    { sources: "", available: false, checks: 0, started: true },
+    { sources: "project,local", available: false, checks: 1, started: false },
+    { sources: "project,local", available: true, checks: 1, started: true },
+  ])(
+    "gates tool-free seats by settings sources: %j",
+    async ({ sources, available, checks, started }) => {
+      const checkClaudeScrub = vi.fn(async () => available);
+      const spawn = vi.fn(() => {
+        const child = fakeChild();
+        setImmediate(() => {
+          child.emit("spawn");
+          child.emit("close", 0, null);
+        });
+        return child;
+      });
+      const harness = experimental_createHostEntryHarness(
+        createAccountPoolHostEntry({ spawn, env: {}, checkClaudeScrub }),
+      );
+      const result = await harness.experimental_call("run", {
+        provider: "claude",
+        args: [
+          "--print",
+          "--tools=",
+          "--strict-mcp-config",
+          ...(sources === undefined ? [] : [`--setting-sources=${sources}`]),
+          ...(sources === "project,local"
+            ? ["--permission-mode=dontAsk", "--allowedTools=Bash"]
+            : []),
+        ],
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
+        stdinDir: null,
+        stdinPath: null,
+        token: "synthetic-secret",
+        baseUrl: "http://127.0.0.1",
+      });
+      expect(checkClaudeScrub).toHaveBeenCalledTimes(checks);
+      expect(spawn).toHaveBeenCalledTimes(started ? 1 : 0);
+      expect(result.started).toBe(started);
+      if (!started) expect(result.stderr).toContain("subprocess env scrubbing");
+    },
+  );
+
+  it.each([
     ["--print"],
     ["--print", "--allowedTools=Bash", "--permission-mode=dontAsk"],
   ])(
