@@ -1,4 +1,5 @@
 import { getThread, hasRootStoredTurnStarted } from "@bb/db";
+import { readWakeOutcomes } from "../services/threads/wake-turn-outcome.js";
 import {
   requireThreadEventScopeTurnId,
   type ThreadEvent,
@@ -102,6 +103,10 @@ export function applyTurnCompletedEvent(
   deps: TurnCompletionDeps,
   { afterIdle, payload }: ApplyTurnCompletedEventArgs,
 ): TurnCompletedTransition {
+  readWakeOutcomes(deps, {
+    threadId: payload.threadId,
+    snapshotTurnId: requireThreadEventScopeTurnId(payload),
+  });
   rejectUnconfirmedSteersAfterTurnCompleted(deps, payload.threadId);
   const lifecycleEvent = lifecycleEventForTurnCompletion(payload.status);
   if (inFlightTurnRequestCountByThreadId.has(payload.threadId)) {

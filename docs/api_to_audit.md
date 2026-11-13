@@ -5031,3 +5031,15 @@ SDK callers share the same server admission and dispatch path. Missing causes
 record unknown; invalid new values fail validation. Stored legacy or future
 causes read as unknown. The opaque ref is limited to 200 UTF-16 units and must
 never contain prompt text or secrets. These fields are immutable during edits.
+
+## Observed wake outcomes
+
+`PluginBbSdk.threads.experimental_wakeOutcomes({ threadId })` reads the core
+GET /threads/:id/wake-outcomes report. The core CLI uses the same SDK member;
+plugins inherit it through the existing SDK adapter. The report exposes bounded
+attribution, tri-state effects, explicit coverage, and per-request first-turn
+and steer-window counts. It contains no prompt or tool payloads.
+Stabilization requires replay and late-event validation, independent review,
+and a bounded real-provider coverage canary. Exact-turn task/card/outbound
+caller instrumentation remains unavailable in the current RPC/send contexts.
+See [the contract](wake-outcomes.md) for immutable snapshot/read semantics.

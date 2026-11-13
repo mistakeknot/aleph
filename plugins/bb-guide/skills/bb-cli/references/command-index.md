@@ -217,6 +217,7 @@ Use `--selected-model <model-id>` to discover its reasoning choices and include 
 - `bb thread stop`
 - `bb thread compact`
 - `bb thread context`
+- `bb thread wake-outcomes`
 - `bb thread runtime-config`
 - `bb thread commands`
 - `bb thread options`

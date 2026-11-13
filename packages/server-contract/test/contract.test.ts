@@ -2075,6 +2075,7 @@ describe("server-contract clients", () => {
 
   it("keeps contract optional fields on an explicit allowlist", () => {
     const optionalFieldPaths = collectOptionalFieldPaths({
+      wakeOutcomesResponseSchema: contract.wakeOutcomesResponseSchema,
       apiErrorSchema: contract.apiErrorSchema,
       commitActionResponseSchema: contract.commitActionResponseSchema,
       createQueuedMessageRequestSchema:

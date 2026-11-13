@@ -1,4 +1,8 @@
 import {
+  wakeOutcomesResponseSchema,
+  type WakeOutcomesResponse,
+} from "@bb/server-contract";
+import {
   type PromptInput,
   type PendingInteraction,
   type PendingInteractionResolution,
@@ -683,6 +687,9 @@ export interface ThreadsArea {
   ): Promise<ThreadDefaultExecutionOptionsResult>;
   delete(args: ThreadDeleteArgs): Promise<ThreadDeleteResult>;
   editMessage(args: ThreadEditMessageArgs): Promise<ThreadEditMessageResult>;
+  experimental_wakeOutcomes(input: {
+    threadId: string;
+  }): Promise<WakeOutcomesResponse>;
   events: ThreadEventsArea;
   fork(args: ThreadForkArgs): Promise<ThreadForkResult>;
   get(args: ThreadGetArgs): Promise<ThreadGetResult>;
@@ -1488,6 +1495,20 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
           json,
         }),
       );
+    },
+    async experimental_wakeOutcomes(input) {
+      const parsed = wakeOutcomesResponseSchema.safeParse(
+        await transport.readJson(
+          transport.api.v1.threads[":id"]["wake-outcomes"].$get({
+            param: { id: input.threadId },
+          }),
+        ),
+      );
+      if (!parsed.success)
+        throw new Error(
+          "Server returned an invalid wake outcome report; update the server and CLI to compatible versions.",
+        );
+      return parsed.data;
     },
     events,
     async fork(input) {

@@ -1,3 +1,4 @@
+import { readWakeOutcomes } from "../../services/threads/wake-turn-outcome.js";
 import {
   getAppSettings,
   getDatabaseDataVersion,
@@ -242,6 +243,12 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       });
     });
   });
+
+  get(routes.wakeOutcomes, (context) =>
+    withHotPublicThread(context.req.param("id"), (thread) =>
+      context.json(readWakeOutcomes(deps, { threadId: thread.id })),
+    ),
+  );
 
   get(routes.headState, (context) => {
     return withHotPublicThread(context.req.param("id"), (thread) => {
