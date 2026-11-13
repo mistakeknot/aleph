@@ -1038,6 +1038,7 @@ describe("active thread disconnect reconciliation triggers", () => {
         status: "completed",
         message: "Observed turn outcome",
         metadata: {
+          origin: "settlement",
           turnId: "turn-live-1",
           completed: true,
           wakeCause: "unknown",
