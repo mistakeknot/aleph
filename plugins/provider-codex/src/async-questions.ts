@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { PLUGIN_INTERACTION_MAX_TITLE_LENGTH } from "@get-bb/plugin-sdk/provider-bridge";
 import {
@@ -95,7 +96,10 @@ export function registerAsyncQuestions(bb: BbPluginApi): void {
     const response = asyncQuestionResponseSchema.parse(result.value);
     await bb.sdk.threads.send({
       wakeCause: "interaction",
-      wakeRef: state.itemId,
+      wakeRef:
+        state.itemId.length <= 200
+          ? state.itemId
+          : `sha256:${createHash("sha256").update(state.itemId).digest("hex")}`,
       threadId,
       mode: "auto",
       input: [

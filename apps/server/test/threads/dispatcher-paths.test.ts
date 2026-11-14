@@ -1,3 +1,4 @@
+import { deliverDetachedToolResult } from "../../src/services/plugins/detached-tool-result-delivery.js";
 import { queueParentSystemMessage } from "../../src/services/threads/parent-system-messages.js";
 import {
   getQueuedThreadMessage,
@@ -888,5 +889,37 @@ it.each([
         wakeRef: "event-1",
       });
     });
+  },
+);
+
+it.each(["call-short", "x".repeat(200), "x".repeat(201), "call-".repeat(100)])(
+  "delivers detached results with bounded stable provider references (%#)",
+  async (callId) => {
+    const refs: (string | null)[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await withTestHarness(async (harness) => {
+        const { thread } = seedRunnableThread(harness, {
+          hostId: "bounded-ref",
+          status: "idle",
+        });
+        await deliverDetachedToolResult(harness.deps, {
+          threadId: thread.id,
+          wakeRef: callId,
+          toolName: "test-tool",
+          presentation: null,
+          response: {
+            success: true,
+            contentItems: [{ type: "inputText", text: "Complete" }],
+          },
+        });
+        const request = turnRequests(harness, thread.id).at(-1)!;
+        expect(request.wakeCause).toBe("interaction");
+        expect(request.wakeRef).toBeTypeOf("string");
+        expect(request.wakeRef!.length).toBeLessThanOrEqual(200);
+        if (callId.length <= 200) expect(request.wakeRef).toBe(callId);
+        refs.push(request.wakeRef);
+      });
+    }
+    expect(refs[0]).toBe(refs[1]);
   },
 );

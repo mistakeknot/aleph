@@ -1,4 +1,5 @@
 import { systemMessageWakeCause } from "./system-message-kind.js";
+import { producerWakeRef } from "./producer-wake-ref.js";
 import {
   createQueuedThreadMessageInTransaction,
   getThread,
@@ -222,7 +223,7 @@ async function queueParentSystemMessageToResolvedParent(
         return createQueuedThreadMessageInTransaction(tx, {
           threadId: requestedParent.id,
           wakeCause: systemMessageWakeCause(args.systemMessageKind),
-          wakeRef: args.wakeRef ?? crypto.randomUUID(),
+          wakeRef: producerWakeRef(args.wakeRef ?? crypto.randomUUID()),
           content: args.input,
           senderThreadId: null,
           model: execution.model,

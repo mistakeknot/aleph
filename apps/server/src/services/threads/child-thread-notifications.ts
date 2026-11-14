@@ -1,3 +1,4 @@
+import { producerWakeRef } from "./producer-wake-ref.js";
 import {
   childThreadOutcomeSchema,
   threadEventTurnStatusSchema,
@@ -517,7 +518,7 @@ async function queueChildThreadTurnNotificationBatchItem(
       ChildThreadTurnNotificationBatchItem[]
     >(deps, {
       wakeCause: "message",
-      wakeRef: args.turnId ?? crypto.randomUUID(),
+      wakeRef: producerWakeRef(args.turnId ?? crypto.randomUUID()),
       coalesceKey: CHILD_THREAD_TURN_NOTIFICATION_COALESCE_KEY,
       execution,
       merge: (previous) => {
