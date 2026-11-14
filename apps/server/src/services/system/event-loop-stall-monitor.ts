@@ -45,13 +45,16 @@ export function startEventLoopStallMonitor(
           {
             ...stall,
             ...work,
+            inFlightWorkAtObservationAttribution: "context-only",
             stallAttribution: hasCandidate ? "candidate" : "unattributed",
             stallCauseCandidate: hasCandidate
               ? work.longestSynchronousWork
               : null,
             ...gc,
             stallGcCandidate:
-              gc.gcMaxDurationMs + stall.resolutionMs >= stall.maxDelayMs,
+              (gc.gcMaxKind === "major" &&
+                gc.gcMaxDurationMs >= 0.8 * stall.maxDelayMs) ||
+              gc.gcDurationMs >= 0.8 * stall.maxDelayMs,
             heap: heapSummary(),
           },
           "Event loop stalled",

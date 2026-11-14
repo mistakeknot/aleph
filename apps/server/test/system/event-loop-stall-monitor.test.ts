@@ -35,6 +35,7 @@ function advanceSampleWindow(maxDelayMs?: number): void {
 
 const EMPTY_WORK_SNAPSHOT = {
   inFlightWorkAtObservation: null,
+  inFlightWorkAtObservationAttribution: "context-only",
   lastCompletedWork: null,
   lastCompletedWorkWallMs: null,
   longestSynchronousWork: null,
@@ -378,6 +379,70 @@ describe("event loop stall monitor", () => {
       monitor.stop();
     }
     expect(gcWindow.stop).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [5_000, 4_000, 4_000, "major", true],
+    [7_000, 5_800, 5_900, "major", true],
+    [9_000, 8_000, 8_100, "major", true],
+    [5_000, 3_999, 3_999, "major", false],
+    [6_000, 2_500, 4_800, "major", true],
+    [5_000, 20, 100, "minor", false],
+    [5_000, 2_000, 4_000, "minor", true],
+    [5_000, 0, 0, null, false],
+  ] as const)(
+    "classifies delay %i with max GC %i and total GC %i (%s) as %s",
+    (delay, maximum, total, kind, expected) => {
+      const logger = { info: vi.fn() };
+      const monitor = startEventLoopStallMonitor({
+        logger,
+        gcWindow: fakeGcWindow({
+          gcCount: total === 0 ? 0 : 2,
+          gcDurationMs: total,
+          gcMaxDurationMs: maximum,
+          gcMaxKind: kind,
+          gcByKind: {},
+        }),
+        heapSummary: () => TEST_HEAP,
+      });
+      try {
+        advanceSampleWindow(delay);
+        expect(logger.info).toHaveBeenCalledWith(
+          expect.objectContaining({ stallGcCandidate: expected }),
+          "Event loop stalled",
+        );
+      } finally {
+        monitor.stop();
+      }
+    },
+  );
+
+  it("retains long-lived service labels as context across stall windows", async () => {
+    const logger = { info: vi.fn() };
+    let release!: () => void;
+    const held = runEventLoopWork("account-pool service hub", () =>
+      runEventLoopWork("automation-sweep", () => new Promise<void>((resolve) => {
+        release = resolve;
+      })),
+    );
+    const monitor = startEventLoopStallMonitor({ logger });
+    try {
+      advanceSampleWindow(5_000);
+      advanceSampleWindow(6_000);
+      expect(logger.info).toHaveBeenCalledTimes(2);
+      for (const [row] of logger.info.mock.calls) {
+        expect(row).toEqual(expect.objectContaining({
+          inFlightWorkAtObservation: "account-pool service hub > automation-sweep",
+          inFlightWorkAtObservationAttribution: "context-only",
+          stallAttribution: "unattributed",
+          stallCauseCandidate: null,
+        }));
+      }
+    } finally {
+      release();
+      await held;
+      monitor.stop();
+    }
   });
 
   it("drains the GC window on quiet samples so a later stall sees only its own pauses", () => {
