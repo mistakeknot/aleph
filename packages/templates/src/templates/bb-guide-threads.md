@@ -131,6 +131,27 @@ Spawning:
   unavailable and why. The first-party providers are Project checkout,
   Worktree, and Personal workspace.
 
+Orchestrating workers:
+  Spawn worker threads only when the user explicitly asked for BB
+  orchestration. That covers creating, waiting on, and integrating workers for
+  the requested task; it does not authorize --permission-mode full, provider
+  permission bypasses, merging into a protected main branch, pushing, or
+  publishing. Provider-native subagents (Claude Code Task agents, Codex
+  subagents) run inside the current provider session and do not create BB
+  child sessions, managed worktrees, or parent notifications.
+
+    bb thread spawn --project "$BB_PROJECT_ID" --parent-self \
+      --new-environment worktree --parent-notifications auto \
+      --prompt-file <worker-brief> --json
+
+  Confirm with `bb thread show <id> --json` that thread.parentThreadId is the
+  current thread and that environment.path and environment.branchName name the
+  new worktree. Stay in the lead turn and block with
+  `bb thread wait <id> --terminal` until every worker finishes; read
+  `bb thread log <id>` for any worker in error, then integrate the branches and
+  run tests before the final response. Under stuck or off, the brief must tell
+  the worker to send results with `bb thread tell`.
+
 Handoff:
   The app's Handoff to new thread (in the follow-up model picker) starts a new
   thread that references the source. From the CLI, run bb thread spawn with

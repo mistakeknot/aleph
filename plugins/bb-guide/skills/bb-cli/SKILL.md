@@ -84,6 +84,46 @@ unconditional, idempotent pin/unpin behavior.
   as `$env:NAME`, separate commands with `;`, and continue a line with a
   backtick.
 
+## Orchestrating BB workers
+
+Spawn worker threads only when the user has explicitly asked for BB
+orchestration or delegation. That authorization covers creating, waiting on,
+and integrating workers for the requested task. It does not authorize
+bypassing permissions (`--permission-mode full` or provider bypass flags),
+merging into a protected main branch, pushing, or publishing.
+
+Do not substitute provider-native subagents, such as Claude Code Task agents
+or Codex subagents. They are a separate provider mechanism. They run inside your own
+session and do not create BB child sessions, managed worktrees, or parent
+notifications. When the user asks for BB orchestration, delegate through
+`bb thread spawn` instead.
+
+1. Write each worker brief to a file: objective, constraints, files in scope,
+   validation to run, and what to report back.
+2. Spawn each worker as a child in its own managed worktree:
+
+   ```sh
+   bb thread spawn --project "$BB_PROJECT_ID" --parent-self \
+     --new-environment worktree --parent-notifications auto \
+     --prompt-file <worker-brief> --json
+   ```
+
+3. Verify parentage and workspace before relying on a worker:
+   `bb thread show <id> --json` must report `thread.parentThreadId` equal to
+   `$BB_THREAD_ID`, and `environment.path` and `environment.branchName` must
+   name the new worktree, not your own checkout.
+4. Stay in your turn and block with `bb thread wait <id> --terminal` for each
+   worker until all of them finish. Do not end your turn expecting a wake to
+   resume you.
+5. For a worker that ends in `error`, read `bb thread show <id> --json` and
+   `bb thread log <id>` before retrying or reporting it.
+6. Integrate the workers' branches into your environment, run the relevant
+   tests, and only then write your final response.
+
+`--parent-notifications auto` reports each finished turn to the parent. Use
+`stuck` or `off` only when the brief tells the worker to send its results with
+`bb thread tell`; see `bb guide threads`.
+
 ## Working with threads
 
 - Give each task one clear owner. Spawn independent tasks separately.
