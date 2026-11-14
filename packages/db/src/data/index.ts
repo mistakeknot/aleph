@@ -151,7 +151,6 @@ export {
   getPluginRecommendationId,
   setPluginRecommendationId,
   getAppKeybindingOverrides,
-  claimInstallTurnNumber,
   getAppSettings,
   getDisabledPluginProviderCatalog,
   getDisabledProviderIds,
