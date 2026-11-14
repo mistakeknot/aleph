@@ -141,7 +141,7 @@ describe("Account Pooler host exec", () => {
         stdinDir: null,
         stdinPath: null,
         token: "synthetic-secret",
-        baseUrl: "http://127.0.0.1",
+        baseUrl: "https://example.test/api/v1/plugins/account-pool/http",
       });
       await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
       child.emit("spawn");
@@ -159,6 +159,7 @@ describe("Account Pooler host exec", () => {
           "ANTHROPIC_AUTH_TOKEN",
           "ENABLE_TOOL_SEARCH",
           "DISABLE_AUTOUPDATER",
+          "CLAUDE_CODE_SHELL_PREFIX",
         ].sort(),
       );
       expect(spawn.mock.calls[0]![2].env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe(

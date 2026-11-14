@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { homedir } from "node:os";
+import { isolateClaudePoolTools } from "@bb/process-utils/claude-pool-tools";
 import path from "node:path";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
@@ -222,7 +223,8 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           try {
             child = deps.spawn(input.provider, args, {
               cwd,
-              env,
+              env:
+                input.provider === "claude" ? isolateClaudePoolTools(env) : env,
               stdio: ["pipe", "pipe", "pipe"],
             });
           } catch (error) {
