@@ -1,41 +1,39 @@
-Use your own Claude Code and Codex accounts, budgeted. The Account Pooler puts the accounts you own behind a local hub and applies the order and quota thresholds you set to each request.
+Budget Claude Code and Codex accounts with a local hub, priorities and quota thresholds.
 
 ## What you get
 
-- Your own Claude and Codex accounts, added by signing in (browser or device code) or with an Anthropic API key. Each keeps its own login; **Sign in again** renews one in place.
-- Accounts run one after another in priority order, with ties following the order added. New conversations stay on the current fallback even when an earlier account recovers. Existing conversations keep their account until the provider refuses it.
-- Drag handles set the account order within each provider in settings (keyboard: Space to pick up and drop, arrow keys to move, Escape to cancel), with the same operation available through `bb pool account reorder <claude|codex> <id>...`.
-- Live limit windows per account and model family in the plugin's settings page, and the same numbers from `bb pool status`.
+- Add accounts by browser/device sign-in or Anthropic API key. Each keeps a login; **Sign in again** renews it in place.
+- Accounts run in priority order, ties by addition order. New conversations stay on the current fallback after earlier accounts recover. Existing conversations keep their account until refused.
+- Reorder accounts in settings (Space: pick up/drop; arrows: move; Escape: cancel), or `bb pool account reorder <claude|codex> <id>...`.
+- Account/model limits in settings and `bb pool status`.
 - A routing switch per provider and a bypass per thread, so one thread can go straight to its own credentials.
-- A pooled burn figure in the header chip: the share of one weekly window the whole pool used in the last hour, per provider. It counts all use of the OAuth accounts with a reading, including use outside the pool, and shows `—` until two readings exist. Hovering shows the five-hour equivalent and each account's share.
+- Header burn: pooled weekly-window share used in the last hour per provider, including outside-pool OAuth usage. Shows `—` until two readings; hover for five-hour equivalent and account shares.
 
 ## How it works
 
-The hub runs inside BB and serves Anthropic Messages and OpenAI Responses endpoints. With routing on, the provider receives a hub base URL and a machine-scoped token, and reports **Proxied**. An account in error is skipped. Accounts below the switch threshold (98 percent of a window by default) go first; accounts above it still serve until the provider refuses them, and are rechecked before fallback. Claude extra usage and Codex credits come last, and conversations return when quota recovers. Codex spending-control and credit-depletion restrictions block routing even below the threshold. The pool never enables extra usage, buys credits, or changes spending limits; Settings shows "Extra usage available" only for reported allowance. Secrets stay on the server and refresh in the background.
+BB's hub serves Anthropic Messages and OpenAI Responses. Routed providers receive its URL and a machine-scoped token and report **Proxied**. Errored accounts are skipped. Accounts below the switch threshold (default 98%) go first; others serve until refused and are rechecked before fallback. Claude extra usage and Codex credits come last, and conversations return when quota recovers. Codex spending-control and credit-depletion restrictions block routing even below the threshold. The pool never enables extra usage, buys credits or changes spending limits. "Extra usage available" requires reported allowance. Secrets remain server-side and refresh automatically.
 
-The pool waits once on the same account for short rate limits. Longer holds return Retry-After for pinned conversations while new ones advance. Session pins survive restarts and expire after 30 idle minutes.
+Short rate limits wait once on the same account. Longer holds return Retry-After for pinned conversations; new ones advance. Pins survive restarts and expire after 30 idle minutes.
 
-The pool owns its upstream connections over HTTP/1.1, honors proxy environment variables, and logs connection failures as error codes only.
+Upstream HTTP/1.1 honors proxy environment variables; connection failures log error codes only.
 
 ## Nested bb servers
 
-On Linux and macOS, pooled Claude launches use a shell wrapper to remove the pool URL, pool token and managed-provider flag from shell tool subprocesses. The parent Claude process stays pooled. Nested Claude runs from those tools use the machine's own Claude login, outside pool accounting; that login must be available to the child. Existing shell wrappers run after routing is removed; otherwise the wrapper resolves Bash or zsh using Claude's shell overrides and search order. Claude's shell prefix also covers shell-form hooks and stdio MCP startup. PowerShell and exec-form hooks, LSP servers and plugin monitors do not use that boundary and may retain routing. Windows routing is unchanged. A scoped pooled child credential is tracked separately in mk-gzfpf.1.
+On Linux and macOS, a shell wrapper removes the pool URL, token and managed-provider flag from pooled Claude's shell tool subprocesses; the parent stays pooled. Nested Claude from those tools uses the machine's own Claude login, which must be available, outside pool accounting. Existing wrappers run after routing removal; otherwise Bash or zsh is resolved using Claude's shell overrides and search order. Claude's shell prefix also covers shell-form hooks and stdio MCP startup. PowerShell and exec-form hooks, LSP servers and plugin monitors may retain routing. Windows routing is unchanged. Scoped pooled child credentials are tracked in mk-gzfpf.1.
 
-A bb server in an opted-in parent thread detects the parent's pooler and enables this plugin. Opt in with `bb pool config set nestedLaunchThreadIds '["thr_example"]'`; `'[]'` (default) opts all out. Mode, in settings or `bb pool parent`:
+A bb server in an opted-in parent thread detects its pooler and enables this plugin. Opt in with `bb pool config set nestedLaunchThreadIds '["thr_example"]'`; `'[]'` (default) opts all out. Select mode in settings or `bb pool parent`:
 
-- **proxy** (default): keep a local hub with its own machine tokens and forward traffic to the parent, so the parent's token never reaches this server's agents.
-- **isolate**: neutralise the inherited routing and use this instance's own accounts, or each provider's own credentials.
+- **proxy** (default): a local hub with its own machine tokens forwards to the parent; agents never receive the parent's token.
+- **isolate**: remove inherited routing and use this instance's accounts or the provider's own credentials.
 
 ## Requirements
 
-The shell prefix uses Claude's wrapper-enabled command and hook paths, which can differ from an unwrapped launch in job handling, zsh setup and hook validation. It requires Bash or zsh on the host. The two plugin bundles carry identical helper copies, checked by a regression test, so they do not depend on private workspace packages.
+The shell prefix uses Claude's wrapper-enabled command and hook paths, which may differ in job handling, zsh setup and hook validation. Without an existing shell prefix or executable Bash/zsh, pooled Claude launches fail. Both bundles carry identical tested helpers without private workspace dependencies.
 
-Accounts you own and are permitted to use this way.
-
-This plugin is experimental. Routing, storage, and the CLI can change.
+Use your own accounts only as permitted. Experimental: routing, storage and CLI may change.
 
 ## For agents
 
-Thread availability is answered only for the machine that owns the thread's environment. `bb pool exec -- <codex|claude> ...` runs scheduled or supervised work through the pool, with per-run accounting in [attempt receipts](RECEIPTS.md); the skills carry the detail.
+Thread availability is local to its environment's machine. `bb pool exec -- <codex|claude> ...` runs scheduled/supervised pooled work with [attempt receipts](RECEIPTS.md); see the skills.
 
-`bb pool account add|login|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, and `bb pool bypass <thread-id>`. Every command takes `--json` and `--help`; `bb pool --help` lists the commands and `bb pool <command> --help` prints its arguments, options, and rules.
+`bb pool account add|login|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, and `bb pool bypass <thread-id>`. Commands accept `--json` and `--help`; `bb pool --help` lists them.
