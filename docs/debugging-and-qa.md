@@ -1017,6 +1017,15 @@ applied chunk.
    `Thread timeline build blocked the event loop` and its stage timings.
    `inFlightWorkAtObservation` can name an unrelated long poll; compare
    `longestSynchronousWork` and its wall/CPU times with the profile instead.
+   `inFlightWorkAtObservationAttribution: "context-only"` marks these labels as
+   context, including long-lived services; their presence alone is not causal
+   evidence. `stallGcCandidate` is true when the longest GC pause is major and
+   covers at least 80% of `maxDelayMs`, or total GC time covers at least 80%
+   with one pause covering at least 40%. The single-pause minimum prevents
+   many tiny collections across the sample window from explaining a short
+   stall. These ratios deliberately replace the previous 50 ms resolution
+   slack. GC elsewhere in the window may contribute to the total, so this
+   indicates plausibility; use the profile to establish the cause.
    Measured synchronous work includes daemon WebSocket messages, timeline
    builds, sweep steps, every transaction on bb.db (`db:transaction <mode>:`
    followed by the first write statement, or the first statement when it only
