@@ -84,6 +84,52 @@ unconditional, idempotent pin/unpin behavior.
   as `$env:NAME`, separate commands with `;`, and continue a line with a
   backtick.
 
+## Orchestrating BB workers
+
+Spawn worker threads only when the user explicitly requests BB orchestration
+or explicitly requests BB child-session delegation. Generic delegation alone
+authorizes neither. Preserve all external permission, review, and publication
+gates. Orchestration authorization does not authorize permission bypasses,
+merging into a protected main branch, pushing, or publishing. Do not use
+`--permission-mode full` or provider bypass flags to bypass these gates.
+
+Do not substitute provider-native subagents, such as Claude Code Task agents
+or Codex subagents. These provider-native subagents can use manually-created
+worktrees, but do not create BB-managed child sessions, worktrees, or parent
+notifications. For explicitly authorized BB orchestration or BB child-session delegation, use
+`bb thread spawn` instead.
+
+1. Write each worker brief to a file: objective, constraints, files in scope,
+   validation to run, and what to report back.
+2. Spawn each worker as a child in its own managed worktree:
+
+   ```sh
+   bb thread spawn --project "$BB_PROJECT_ID" --parent-self \
+     --new-environment worktree --parent-notifications auto \
+     --prompt-file <worker-brief> --json
+   ```
+
+3. Verify parentage and workspace before relying on a worker:
+   `bb thread show <id> --json` must report `thread.parentThreadId` equal to
+   `$BB_THREAD_ID`, and `environment.path` and `environment.branchName` must
+   name the new worktree, not your own checkout.
+4. Stay in your turn and block with `bb thread wait <id> --terminal` for each
+   worker until all of them finish. A wait timeout does not mean completion:
+   inspect state and repeat the wait while the worker is still running.
+   Do not end your turn expecting a wake to resume you.
+5. Stop on actual errors (from the command or worker), inspect
+   `bb thread show <id> --json` and `bb thread log <id>`, and report the
+   failure rather than proceeding to integration.
+6. Integrate worker branches only when the original task authorizes code
+   changes and you have validated successful worker output as suitable for
+   that task. Otherwise, collect and report results without integrating.
+   Run relevant tests after authorized integration. Report the results in
+   your final response.
+
+`--parent-notifications auto` reports each finished turn to the parent. Use
+`stuck` or `off` only when the brief tells the worker to send its results with
+`bb thread tell`; see `bb guide threads`.
+
 ## Working with threads
 
 - Give each task one clear owner. Spawn independent tasks separately.
