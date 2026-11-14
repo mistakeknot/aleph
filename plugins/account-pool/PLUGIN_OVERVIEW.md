@@ -5,7 +5,7 @@ Budget Claude Code and Codex accounts with a local hub, priorities and quota thr
 - Add accounts by browser/device sign-in or Anthropic API key. Each keeps a login; **Sign in again** renews it in place.
 - Accounts run in priority order, ties by addition order. New conversations stay on the current fallback after earlier accounts recover. Existing conversations keep their account until refused.
 - Reorder accounts in settings (Space: pick up/drop; arrows: move; Escape: cancel), or `bb pool account reorder <claude|codex> <id>...`.
-- Limits in settings and `bb pool status`.
+- Account/model limits in settings and `bb pool status`.
 - A routing switch per provider and a bypass per thread, so one thread can go straight to its own credentials.
 - Header burn: pooled weekly-window share used in the last hour per provider, including outside-pool OAuth usage. Shows `—` until two readings; hover for five-hour equivalent and account shares.
 
