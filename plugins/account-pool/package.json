@@ -31,6 +31,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "undici": "^7.30.2",
+    "which-command": "0.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@
 
 import { experimental_selectedSkillMentions as selectedSkillMentions } from "@get-bb/plugin-sdk/provider-bridge";
 import { ClaudeContextUsageCollector } from "./context-usage.js";
+import { isolateClaudePoolTools } from "./claude-pool-tools.js";
 import { readIsolatedClaudeContextUsage } from "./context-usage-probe.js";
 
 import {
@@ -1806,7 +1807,7 @@ function buildSessionEnv(
     CLAUDE_CODE_ENTRYPOINT: "cli",
   };
   delete sessionEnv.CLAUDE_AGENT_SDK_CLIENT_APP;
-  return sessionEnv;
+  return isolateClaudePoolTools(sessionEnv);
 }
 
 const sessionConfigEnvVarsSchema = z.record(z.string(), z.string());

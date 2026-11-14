@@ -175,52 +175,90 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   output.restore();
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 
-it("passes the canonical protocol suite against the scripted claude session", async () => {
-  const report = await runBridgeConformance({
-    transport: { send: handleLine, takeMessages: output.takeMessages },
-    providerId: "claude-code",
-    session: {
-      cwd: workspaceDir,
-      promptInput: [{ type: "text", text: "say hello", mentions: [] }],
-      zeroWorkPromptInput: [
-        { type: "text", text: ZERO_WORK_PROMPT_TEXT, mentions: [] },
-      ],
-    },
-    timeoutMs: 10_000,
-  });
+it.each([false, ...(process.platform === "win32" ? [] : [true])])(
+  "passes the canonical protocol suite with pooled=%s",
+  async (pooled) => {
+    vi.stubEnv(
+      "ANTHROPIC_BASE_URL",
+      pooled
+        ? "https://example.test/api/v1/plugins/account-pool/http"
+        : undefined,
+    );
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", pooled ? "synthetic-secret" : undefined);
+    vi.stubEnv(
+      "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+      pooled ? "1" : undefined,
+    );
+    vi.stubEnv("CLAUDE_CODE_SHELL_PREFIX", undefined);
+    const report = await runBridgeConformance({
+      transport: { send: handleLine, takeMessages: output.takeMessages },
+      providerId: "claude-code",
+      session: {
+        cwd: workspaceDir,
+        promptInput: [{ type: "text", text: "say hello", mentions: [] }],
+        zeroWorkPromptInput: [
+          { type: "text", text: ZERO_WORK_PROMPT_TEXT, mentions: [] },
+        ],
+      },
+      timeoutMs: 10_000,
+    });
 
-  console.info(
-    `claude-code bridge conformance:\n${formatConformanceReport(report)}`,
-  );
+    console.info(
+      `claude-code bridge conformance:\n${formatConformanceReport(report)}`,
+    );
 
-  const statusById = Object.fromEntries(
-    report.results.map((result) => [result.id, result.status]),
-  );
+    const statusById = Object.fromEntries(
+      report.results.map((result) => [result.id, result.status]),
+    );
 
-  expect(statusById).toMatchObject({
-    "rpc/unknown-method": "pass",
-    "rpc/invalid-params": "pass",
-    "rpc/non-json-ignored": "pass",
-    "rpc/response-not-request": "pass",
-    "handshake/initialize": "pass",
-    "skills/configure-declared": "pass",
-    "commands/list-declared": "pass",
-    "session/start-identity": "pass",
-    "session/start-identity-announced": "pass",
-    "turn/lifecycle": "pass",
-    "events/schema-valid": "pass",
-    "item/opens-before-delta": "pass",
-    "stop/release-not-interrupted": "pass",
-    "session/resume-identity": "pass",
-    "session/resume-id-uniqueness": "pass",
-    "session/fork-identity": "pass",
-    "session/fork-identity-announced": "pass",
-    "turn/settles-without-activity": "pass",
-  });
+    expect(statusById).toMatchObject({
+      "rpc/unknown-method": "pass",
+      "rpc/invalid-params": "pass",
+      "rpc/non-json-ignored": "pass",
+      "rpc/response-not-request": "pass",
+      "handshake/initialize": "pass",
+      "skills/configure-declared": "pass",
+      "commands/list-declared": "pass",
+      "session/start-identity": "pass",
+      "session/start-identity-announced": "pass",
+      "turn/lifecycle": "pass",
+      "events/schema-valid": "pass",
+      "item/opens-before-delta": "pass",
+      "stop/release-not-interrupted": "pass",
+      "session/resume-identity": "pass",
+      "session/resume-id-uniqueness": "pass",
+      "session/fork-identity": "pass",
+      "session/fork-identity-announced": "pass",
+      "turn/settles-without-activity": "pass",
+    });
 
-  expect(report.passed).toBe(true);
-}, 60_000);
+    expect(report.passed).toBe(true);
+    expect(queryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          env: expect.objectContaining(
+            pooled
+              ? {
+                  ANTHROPIC_AUTH_TOKEN: "synthetic-secret",
+                  ANTHROPIC_BASE_URL:
+                    "https://example.test/api/v1/plugins/account-pool/http",
+                  CLAUDE_CODE_SHELL_PREFIX: expect.any(String),
+                }
+              : {},
+          ),
+        }),
+      }),
+    );
+    if (!pooled) {
+      for (const [call] of queryMock.mock.calls) {
+        expect(call.options.env).not.toHaveProperty("CLAUDE_CODE_SHELL_PREFIX");
+      }
+    }
+  },
+  60_000,
+);
