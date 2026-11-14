@@ -54,7 +54,8 @@ export function startEventLoopStallMonitor(
             stallGcCandidate:
               (gc.gcMaxKind === "major" &&
                 gc.gcMaxDurationMs >= 0.8 * stall.maxDelayMs) ||
-              gc.gcDurationMs >= 0.8 * stall.maxDelayMs,
+              (gc.gcDurationMs >= 0.8 * stall.maxDelayMs &&
+                gc.gcMaxDurationMs >= 0.4 * stall.maxDelayMs),
             heap: heapSummary(),
           },
           "Event loop stalled",

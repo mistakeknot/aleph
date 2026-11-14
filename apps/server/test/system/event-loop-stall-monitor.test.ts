@@ -390,12 +390,15 @@ describe("event loop stall monitor", () => {
     [5_000, 20, 100, "minor", false],
     [5_000, 2_000, 4_000, "minor", true],
     [5_000, 0, 0, null, false],
+    [120, 3, 100, "minor", false],
+    [500, 10, 450, "minor", false],
   ] as const)(
     "classifies delay %i with max GC %i and total GC %i (%s) as %s",
     (delay, maximum, total, kind, expected) => {
       const logger = { info: vi.fn() };
       const monitor = startEventLoopStallMonitor({
         logger,
+        thresholdMs: 100,
         gcWindow: fakeGcWindow({
           gcCount: total === 0 ? 0 : 2,
           gcDurationMs: total,
