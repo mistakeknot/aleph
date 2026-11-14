@@ -5,12 +5,14 @@ import subprocess
 import sys
 import threading
 import tempfile
+from pathlib import Path
 
 claude, port, wrapper = sys.argv[1:]
 results = []
 parent_authenticated = []
 names = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"]
-command = "python3 -c 'import os,json; print(json.dumps([k in os.environ for k in " + json.dumps(names) + "]))'"
+presence_command = "python3 -c 'import os,json; print(json.dumps([k in os.environ for k in " + json.dumps(names) + "]))'"
+command = "function tool_probe() { [[ 1 == 1 ]] && \\builtin test 1 = 1; }; tool_probe && snapshot_probe && " + presence_command
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -42,18 +44,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 server = http.server.HTTPServer(("127.0.0.1", int(port)), Handler)
 workspace = tempfile.TemporaryDirectory(prefix="claude-tool-env-")
+home = Path(workspace.name) / "home"
+home.mkdir()
+(home / ".bash_profile").write_text("snapshot_probe() { :; }\nexport -f snapshot_probe\n")
+hook_output = Path(workspace.name) / "hook-presence.json"
+settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "[[ 1 == 1 ]] && " + presence_command + " > '" + str(hook_output) + "'"}]}]}}
 threading.Thread(target=server.serve_forever, daemon=True).start()
 env = {k: v for k, v in os.environ.items() if k in ["PATH", "HOME", "LANG", "TMPDIR", "CLAUDE_CONFIG_DIR"]}
 env.update(ANTHROPIC_BASE_URL="http://127.0.0.1:" + port, ANTHROPIC_AUTH_TOKEN="synthetic-probe", CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST="1", CLAUDE_CODE_SUBPROCESS_ENV_SCRUB="1")
+env.update(HOME=str(home), SHELL="/bin/bash", CLAUDE_CODE_SHELL="/bin/bash")
 if wrapper:
     env["CLAUDE_CODE_SHELL_PREFIX"] = wrapper
 try:
-    child = subprocess.run([claude, "-p", "Run the Bash tool once", "--model", "claude-haiku-5-5", "--allowedTools", "Bash", "--tools", "Bash", "--strict-mcp-config", "--setting-sources", ""], env=env, cwd=workspace.name, capture_output=True, text=True, timeout=45)
+    child = subprocess.run([claude, "-p", "Run the Bash tool once", "--model", "claude-haiku-5-5", "--allowedTools", "Bash", "--tools", "Bash", "--strict-mcp-config", "--setting-sources", "", "--settings", json.dumps(settings)], env=env, cwd=workspace.name, capture_output=True, text=True, timeout=45)
     assert child.returncode == 0, "Claude fixture failed; raw output withheld"
     assert results, "Claude did not invoke Bash"
     assert all(not r.get("is_error") for r in results), "Bash fixture failed; raw output withheld"
     observed = [json.loads(r["content"]) for r in results]
     assert all(v == [False, False, False] for v in observed), "Tool retained routing variables: " + json.dumps(observed)
+    assert json.loads(hook_output.read_text()) == [False, False, False], "Shell hook retained routing"
     assert len(parent_authenticated) >= 2 and all(parent_authenticated), "Parent did not stay on authenticated fixture route"
     print("actual Claude Bash environment clean; parent route authenticated")
 finally:

@@ -19,7 +19,7 @@ The pool owns its upstream connections over HTTP/1.1, honors proxy environment v
 
 ## Nested bb servers
 
-On Linux and macOS, pooled Claude launches use a shell wrapper to remove the pool URL, pool token and managed-provider flag from shell tool subprocesses. The parent Claude process stays pooled. Nested Claude runs from those tools use the machine's own Claude login, outside pool accounting; that login must be available to the child. Existing shell wrappers run after routing is removed. PowerShell and exec-form hooks do not use Claude's shell prefix. Windows routing is unchanged. A scoped pooled child credential is tracked separately in mk-gzfpf.1.
+On Linux and macOS, pooled Claude launches use a shell wrapper to remove the pool URL, pool token and managed-provider flag from shell tool subprocesses. The parent Claude process stays pooled. Nested Claude runs from those tools use the machine's own Claude login, outside pool accounting; that login must be available to the child. Existing shell wrappers run after routing is removed; otherwise the wrapper resolves Bash or zsh using Claude's shell overrides and search order. Claude's shell prefix also covers shell-form hooks and stdio MCP startup. PowerShell and exec-form hooks, LSP servers and plugin monitors do not use that boundary and may retain routing. Windows routing is unchanged. A scoped pooled child credential is tracked separately in mk-gzfpf.1.
 
 A bb server in an opted-in parent thread detects the parent's pooler and enables this plugin. Opt in with `bb pool config set nestedLaunchThreadIds '["thr_example"]'`; `'[]'` (default) opts all out. Mode, in settings or `bb pool parent`:
 
