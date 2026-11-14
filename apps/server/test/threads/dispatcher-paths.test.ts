@@ -1,3 +1,5 @@
+import { deliverDetachedToolResult } from "../../src/services/plugins/detached-tool-result-delivery.js";
+import { queueParentSystemMessage } from "../../src/services/threads/parent-system-messages.js";
 import {
   getQueuedThreadMessage,
   deleteQueuedThreadMessage,
@@ -803,5 +805,121 @@ it.each(["idle", "active"] as const)(
         });
       }
     });
+  },
+);
+
+it.each([
+  "message",
+  "timer",
+  "workflow",
+  "review",
+  "merge",
+  "interaction",
+  "retry",
+  undefined,
+] as const)(
+  "preserves producer %s through queue admission, polling and dispatch",
+  async (wakeCause) => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedRunnableThread(harness, {
+        hostId: "producer-dispatch",
+        status: "idle",
+      });
+      const sendAt = Date.now() + 60_000;
+      const wakeRef = "operation-1";
+      await acceptThreadSendRequest(harness.deps, {
+        thread,
+        payload: {
+          input: textInput("Continue"),
+          mode: "auto",
+          sendAt,
+          wakeCause,
+          wakeRef,
+        },
+      });
+      expect(queuedRows(harness, thread.id)[0]).toMatchObject({
+        wakeCause: wakeCause ?? "unknown",
+        wakeRef,
+      });
+      const before = turnRequests(harness, thread.id);
+      await runQueuedMessageDispatch(harness.deps, {
+        kind: "time-reached",
+        now: sendAt - 1,
+      });
+      expect(turnRequests(harness, thread.id)).toEqual(before);
+      await runQueuedMessageDispatch(harness.deps, {
+        kind: "time-reached",
+        now: sendAt + 1,
+      });
+      expect(turnRequests(harness, thread.id).at(-1)).toMatchObject({
+        wakeCause: wakeCause ?? "unknown",
+        wakeRef,
+      });
+      const after = turnRequests(harness, thread.id);
+      await runQueuedMessageDispatch(harness.deps, {
+        kind: "time-reached",
+        now: sendAt + 2,
+      });
+      expect(turnRequests(harness, thread.id)).toEqual(after);
+    });
+  },
+);
+
+it.each([
+  ["tool-result-delivered", "interaction"],
+  ["environment-directory-updated", "message"],
+  ["unlabeled", "unknown"],
+] as const)(
+  "tags typed %s notices through dispatch",
+  async (systemMessageKind, wakeCause) => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedRunnableThread(harness, {
+        hostId: "typed-notice",
+        status: "idle",
+      });
+      await queueParentSystemMessage(harness.deps, {
+        parentThreadId: thread.id,
+        input: textInput("Continue"),
+        systemMessageKind,
+        systemMessageSubject: null,
+        wakeRef: "event-1",
+      });
+      expect(turnRequests(harness, thread.id).at(-1)).toMatchObject({
+        wakeCause,
+        wakeRef: "event-1",
+      });
+    });
+  },
+);
+
+it.each(["call-short", "x".repeat(200), "x".repeat(201), "call-".repeat(100)])(
+  "delivers detached results with bounded stable provider references (%#)",
+  async (callId) => {
+    const refs: (string | null)[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await withTestHarness(async (harness) => {
+        const { thread } = seedRunnableThread(harness, {
+          hostId: "bounded-ref",
+          status: "idle",
+        });
+        await deliverDetachedToolResult(harness.deps, {
+          threadId: thread.id,
+          wakeRef: callId,
+          toolName: "test-tool",
+          presentation: null,
+          response: {
+            success: true,
+            contentItems: [{ type: "inputText", text: "Complete" }],
+          },
+        });
+        const request = turnRequests(harness, thread.id).at(-1)!;
+        expect(request.wakeCause).toBe("interaction");
+        expect(request.wakeRef).toBeTypeOf("string");
+        expect(request.wakeRef!.length).toBeLessThanOrEqual(200);
+        if (callId.length <= 200) expect(request.wakeRef).toBe(callId);
+        refs.push(request.wakeRef);
+      });
+    }
+    expect(refs[0]).toBe(refs[1]);
   },
 );

@@ -950,6 +950,8 @@ export function createWorkflowService(
         throwIfCancelled(signal);
         spawningCalls.add(call.id);
         const child = await bb.sdk.threads.spawn({
+          wakeCause: "workflow",
+          wakeRef: call.id,
           lifecycleOwnerThreadId: run.originThreadId,
           pluginMetadata: {
             workflowWorker: 1,
@@ -1129,6 +1131,8 @@ export function createWorkflowService(
 
       try {
         await bb.sdk.threads.send({
+          wakeCause: "workflow",
+          wakeRef: call.id,
           threadId,
           mode: "auto",
           input: [
@@ -1301,6 +1305,8 @@ export function createWorkflowService(
         return;
       }
       await bb.sdk.threads.send({
+        wakeCause: "message",
+        wakeRef: run.id,
         threadId: latest.originThreadId,
         mode: "steer-if-active",
         input: [

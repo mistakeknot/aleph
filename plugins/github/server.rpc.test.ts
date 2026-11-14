@@ -207,7 +207,7 @@ afterEach(() => {
 async function loadPlugin(extraRepos = "acme/widgets") {
   const host = createFakePluginHost({
     pluginId: "github",
-    settings: { extraRepos },
+    settings: { extraRepos, defaultProject: "project-test" },
   });
   await plugin(host.bb);
   return host;
@@ -255,6 +255,19 @@ describe("github plugin RPC behavior", () => {
         entry.message.includes("extraRepos"),
       ),
     ).toEqual([]);
+  });
+
+  it.each([
+    ["startWork", "message"],
+    ["startReview", "review"],
+  ])("tags %s requests", async (method, wakeCause) => {
+    const { harness } = await loadPlugin();
+    harness.sdk.stub("threads.spawn", async () => ({ id: "thread-result" }));
+    await harness.callRpc(method, { repo: "acme/widgets", number: 7 });
+    expect(harness.sdk.callsTo("threads.spawn")[0]?.[0]).toMatchObject({
+      wakeCause,
+      wakeRef: expect.any(String),
+    });
   });
 
   it("rejects malformed repositories as text and JSON and lists its commands in help", async () => {

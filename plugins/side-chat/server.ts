@@ -108,6 +108,8 @@ export default async function plugin(bb: BbPluginApi) {
     async createSideChat({ sourceThreadId, sourceSeqEnd, anchorText }) {
       const seedText = resolveReplySeedText(anchorText);
       const forkArgs = {
+        wakeCause: "message" as const,
+        wakeRef: crypto.randomUUID(),
         lifecycleOwnerThreadId: sourceThreadId,
         sourceThreadId,
         visibility: "hidden" as const,

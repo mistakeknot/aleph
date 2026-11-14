@@ -232,6 +232,8 @@ function SideChatPanel({ params }: ExperimentalThreadActionTabProps) {
       if (text.length === 0) return;
       try {
         await sdk.threads.send({
+          wakeCause: "message",
+          wakeRef: crypto.randomUUID(),
           threadId: sourceThreadId,
           mode: "queue-if-active",
           input: [{ type: "text", text, mentions: [] }],

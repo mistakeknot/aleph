@@ -64,6 +64,8 @@ function seedParentFixture(
 }
 
 interface StampedSystemMessage {
+  wakeRef: string | null;
+  wakeCause: string;
   systemMessageKind: SystemMessageKind;
   systemMessageSubject: SystemMessageSubject | null;
 }
@@ -89,6 +91,8 @@ async function waitForStampedSystemMessage(
       const data = turnRequestEventDataSchema.parse(JSON.parse(row.data));
       if (data.initiator === "system") {
         return {
+          wakeRef: data.wakeRef,
+          wakeCause: data.wakeCause,
           systemMessageKind: data.systemMessageKind ?? "unlabeled",
           systemMessageSubject: data.systemMessageSubject ?? null,
         };
@@ -131,6 +135,7 @@ describe("Family B emit-site discriminator stamping", () => {
           harness,
           fixture.parentThreadId,
         );
+        expect(stamped.wakeCause).toBe("message");
         expect(stamped.systemMessageKind).toBe(expectedKind);
         expect(stamped.systemMessageSubject).toEqual({
           kind: "thread",
@@ -173,6 +178,7 @@ describe("Family B emit-site discriminator stamping", () => {
         harness,
         fixture.parentThreadId,
       );
+      expect(stamped.wakeCause).toBe("message");
       expect(stamped.systemMessageKind).toBe("child-outcome-batch");
       expect(stamped.systemMessageSubject).toEqual({
         kind: "thread-batch",
@@ -204,6 +210,7 @@ describe("Family B emit-site discriminator stamping", () => {
         harness,
         fixture.parentThreadId,
       );
+      expect(stamped.wakeCause).toBe("message");
       expect(stamped.systemMessageKind).toBe("child-needs-attention");
       expect(stamped.systemMessageSubject).toEqual({
         kind: "thread",
@@ -231,6 +238,7 @@ describe("Family B emit-site discriminator stamping", () => {
         harness,
         fixture.parentThreadId,
       );
+      expect(stamped.wakeCause).toBe("message");
       expect(stamped.systemMessageKind).toBe("ownership-assigned");
       expect(stamped.systemMessageSubject).toEqual({
         kind: "thread",
@@ -258,6 +266,7 @@ describe("Family B emit-site discriminator stamping", () => {
         harness,
         fixture.parentThreadId,
       );
+      expect(stamped.wakeCause).toBe("message");
       expect(stamped.systemMessageKind).toBe("ownership-removed");
       expect(stamped.systemMessageSubject).toEqual({
         kind: "thread",
@@ -267,3 +276,35 @@ describe("Family B emit-site discriminator stamping", () => {
     });
   });
 });
+
+it.each(["turn-short", "turn-".repeat(100)])(
+  "delivers child notices with a bounded stable turn reference (%#)",
+  async (turnId) => {
+    const refs: (string | null)[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await withChildThreadNotificationClock(async (harness) => {
+        const fixture = seedParentFixture(harness, "bounded-child-ref");
+        const child = seedThread(harness.deps, {
+          projectId: fixture.projectId,
+          title: "Worker child",
+          parentThreadId: fixture.parentThreadId,
+        });
+        await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+          childThread: child,
+          parentThreadId: fixture.parentThreadId,
+          turnId,
+          turnStatus: "failed",
+        });
+        const stamped = await waitForStampedSystemMessage(
+          harness,
+          fixture.parentThreadId,
+        );
+        expect(stamped.wakeCause).toBe("message");
+        expect(stamped.wakeRef!.length).toBeLessThanOrEqual(200);
+        if (turnId.length <= 200) expect(stamped.wakeRef).toBe(turnId);
+        refs.push(stamped.wakeRef);
+      });
+    }
+    expect(refs[0]).toBe(refs[1]);
+  },
+);

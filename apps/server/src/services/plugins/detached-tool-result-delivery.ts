@@ -9,6 +9,7 @@ import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { queueParentSystemMessage } from "../threads/parent-system-messages.js";
 
 interface DeliverDetachedToolResultArgs {
+  wakeRef?: string;
   threadId: string;
   toolName: string;
   presentation: PluginRowPresentation | null;
@@ -68,6 +69,7 @@ export async function deliverDetachedToolResult(
       response: args.response,
     }),
     parentThreadId: thread.id,
+    wakeRef: args.wakeRef,
     systemMessageKind: "tool-result-delivered",
     systemMessageSubject: buildDetachedToolResultSubject({
       toolName: args.toolName,

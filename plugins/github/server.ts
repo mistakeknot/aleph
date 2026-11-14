@@ -1007,6 +1007,8 @@ export default async function plugin(bb: BbPluginApi) {
               "changes or post to GitHub unless asked.",
           ].join("\n");
     const thread = await bb.sdk.threads.spawn({
+      wakeCause: kind === "pr" ? "review" : "message",
+      wakeRef: crypto.randomUUID(),
       projectId,
       environment: { type: "project-default" },
       title: `${ref}: ${title}`.slice(0, 120),

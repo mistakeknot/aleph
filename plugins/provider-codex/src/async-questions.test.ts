@@ -77,6 +77,8 @@ describe("Codex async questions", () => {
       expect(host.harness.sdk.callsTo("threads.send")).toEqual([
         [
           {
+            wakeCause: "interaction",
+            wakeRef: "call-5",
             threadId: THREAD_ID,
             mode: "auto",
             input: [
@@ -152,3 +154,32 @@ describe("Codex async questions", () => {
     expect(host.harness.sdk.callsTo("threads.events.list")).toEqual([]);
   });
 });
+
+it.each(["call-short", "x".repeat(200), "x".repeat(201), "call-".repeat(100)])(
+  "answers with a bounded stable item reference (%#)",
+  async (itemId) => {
+    const refs: string[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const row = questionRow(5);
+      row.data.payload.itemId = itemId;
+      const host = createHost([row]);
+      await notify(host);
+      await vi.waitFor(() =>
+        expect(host.harness.pendingInteractions).toHaveLength(1),
+      );
+      host.harness.submitInteraction(host.harness.pendingInteractions[0]!.id, {
+        answers: { "question-1": { selected: ["option-2"] } },
+      });
+      await vi.waitFor(() =>
+        expect(host.harness.sdk.callsTo("threads.send")).toHaveLength(1),
+      );
+      const request = host.harness.sdk.callsTo("threads.send")[0]![0] as {
+        wakeRef: string;
+      };
+      expect(request.wakeRef.length).toBeLessThanOrEqual(200);
+      if (itemId.length <= 200) expect(request.wakeRef).toBe(itemId);
+      refs.push(request.wakeRef);
+    }
+    expect(refs[0]).toBe(refs[1]);
+  },
+);
