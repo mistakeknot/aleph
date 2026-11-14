@@ -28,6 +28,8 @@ A bb server in an opted-in parent thread detects the parent's pooler and enables
 
 ## Requirements
 
+The shell prefix uses Claude's wrapper-enabled command and hook paths, which can differ from an unwrapped launch in job handling, zsh setup and hook validation. It requires Bash or zsh on the host. The two plugin bundles carry identical helper copies, checked by a regression test, so they do not depend on private workspace packages.
+
 Accounts you own and are permitted to use this way.
 
 This plugin is experimental. Routing, storage, and the CLI can change.

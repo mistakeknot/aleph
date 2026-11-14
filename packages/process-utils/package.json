@@ -3,11 +3,6 @@
   "version": "0.0.1",
   "type": "module",
   "exports": {
-    "./claude-pool-tools": {
-      "source": "./src/claude-pool-tools.ts",
-      "types": "./src/claude-pool-tools.ts",
-      "default": "./src/claude-pool-tools.ts"
-    },
     ".": {
       "source": "./src/index.ts",
       "types": "./src/index.ts",

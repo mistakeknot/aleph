@@ -2,7 +2,7 @@
 
 import { experimental_selectedSkillMentions as selectedSkillMentions } from "@get-bb/plugin-sdk/provider-bridge";
 import { ClaudeContextUsageCollector } from "./context-usage.js";
-import { isolateClaudePoolTools } from "@bb/process-utils/claude-pool-tools";
+import { isolateClaudePoolTools } from "./claude-pool-tools.js";
 import { readIsolatedClaudeContextUsage } from "./context-usage-probe.js";
 
 import {

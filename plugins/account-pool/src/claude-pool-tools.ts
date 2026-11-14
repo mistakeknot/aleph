@@ -1,4 +1,10 @@
-import { lstatSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { whichCommandSync } from "which-command";
@@ -64,8 +70,10 @@ export function isolateClaudePoolTools(
   let wrapper = wrappers.get(key);
   if (wrapper === undefined || !reusable(wrapper, content)) {
     const directory = mkdtempSync(join(tmpdir(), "bb-claude-pool-tools-"));
+    chmodSync(directory, 0o700);
     wrapper = join(directory, "shell");
     writeFileSync(wrapper, content, { mode: 0o500 });
+    chmodSync(wrapper, 0o500);
     wrappers.set(key, wrapper);
   }
   return { ...env, CLAUDE_CODE_SHELL_PREFIX: wrapper };

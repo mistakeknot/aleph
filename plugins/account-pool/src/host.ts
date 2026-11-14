@@ -1,7 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { homedir } from "node:os";
 import path from "node:path";
-import { isolateClaudePoolTools } from "@bb/process-utils/claude-pool-tools";
+import { isolateClaudePoolTools } from "./claude-pool-tools.js";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
 import { parsePoolExecArgs, poolExecArgsRefusal } from "./exec-args.js";

@@ -26,12 +26,12 @@
     "prepare:bundled": "bb-plugin-build prepare-bundled"
   },
   "dependencies": {
-    "@bb/process-utils": "workspace:*",
     "@bb/shared-ui": "workspace:*",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "undici": "^7.30.2",
+    "which-command": "0.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

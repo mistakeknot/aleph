@@ -1,13 +1,59 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isolateClaudePoolTools } from "../src/claude-pool-tools.js";
+import { isolateClaudePoolTools } from "./claude-pool-tools.js";
 
 describe.skipIf(process.platform === "win32")(
   "Claude pool tool routing",
   () => {
+    it("keeps the independently bundled plugin helpers identical", () => {
+      expect(
+        readFileSync(
+          new URL("./claude-pool-tools.ts", import.meta.url),
+          "utf8",
+        ),
+      ).toBe(
+        readFileSync(
+          new URL(
+            "../../provider-claude-code/src/bridge/claude-pool-tools.ts",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      );
+    });
+
+    it("creates an executable wrapper under a restrictive umask", () => {
+      const previous = process.umask(0o177);
+      try {
+        const env = isolateClaudePoolTools({
+          ANTHROPIC_BASE_URL:
+            "https://example.test/api/v1/plugins/account-pool/http",
+          ANTHROPIC_AUTH_TOKEN: "synthetic-secret",
+          CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
+          CLAUDE_CODE_SHELL_PREFIX: "/bin/bash -c",
+        });
+        expect(statSync(env.CLAUDE_CODE_SHELL_PREFIX!).mode & 0o777).toBe(
+          0o500,
+        );
+        expect(
+          execFileSync(env.CLAUDE_CODE_SHELL_PREFIX!, ["printf ok"], {
+            env,
+            encoding: "utf8",
+          }),
+        ).toBe("ok");
+      } finally {
+        process.umask(previous);
+      }
+    });
     it.skipIf(!process.env.BB_TEST_CLAUDE_EXECUTABLE)(
       "isolates an actual Claude Bash tool while keeping the parent authenticated",
       () => {
