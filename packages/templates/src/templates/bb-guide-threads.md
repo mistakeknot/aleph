@@ -132,13 +132,16 @@ Spawning:
   Worktree, and Personal workspace.
 
 Orchestrating workers:
-  Spawn worker threads only when the user explicitly asked for BB
-  orchestration. That covers creating, waiting on, and integrating workers for
-  the requested task; it does not authorize --permission-mode full, provider
-  permission bypasses, merging into a protected main branch, pushing, or
-  publishing. Provider-native subagents (Claude Code Task agents, Codex
-  subagents) run inside the current provider session and do not create BB
-  child sessions, managed worktrees, or parent notifications.
+  Spawn worker threads only when the user explicitly requests BB orchestration
+  or explicitly requests BB child-session delegation. Generic delegation alone
+  authorizes neither. Preserve all external permission, review, and publication
+  gates. Orchestration authorization does not authorize permission bypasses,
+  merging into a protected main branch, pushing, or publishing. Do not use
+  --permission-mode full or provider bypass flags to bypass these gates.
+  Do not substitute provider-native subagents (Claude Code Task agents, Codex
+  subagents) for BB workers: provider-native subagents can use manually-created
+  worktrees, but do not create BB-managed child sessions, worktrees, or parent
+  notifications.
 
     bb thread spawn --project "$BB_PROJECT_ID" --parent-self \
       --new-environment worktree --parent-notifications auto \
@@ -147,10 +150,18 @@ Orchestrating workers:
   Confirm with `bb thread show <id> --json` that thread.parentThreadId is the
   current thread and that environment.path and environment.branchName name the
   new worktree. Stay in the lead turn and block with
-  `bb thread wait <id> --terminal` until every worker finishes; read
-  `bb thread log <id>` for any worker in error, then integrate the branches and
-  run tests before the final response. Under stuck or off, the brief must tell
-  the worker to send results with `bb thread tell`.
+  `bb thread wait <id> --terminal` until every worker finishes.
+  A wait timeout does not mean completion: inspect state and repeat the wait
+  while the worker is still running. Do not end your turn expecting a wake.
+  Stop on actual errors (from the command or worker), inspect
+  `bb thread show <id> --json` and `bb thread log <id>`, and report the failure
+  rather than proceeding to integration.
+  Integrate worker branches only when the original task authorizes code changes
+  and you have validated successful worker output as suitable for that task.
+  Otherwise, collect and report results without integrating.
+  Run relevant tests after authorized integration. Report the results in the
+  final response. Under stuck or off, the brief must tell the worker to send
+  results with `bb thread tell`.
 
 Handoff:
   The app's Handoff to new thread (in the follow-up model picker) starts a new

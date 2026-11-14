@@ -86,16 +86,17 @@ unconditional, idempotent pin/unpin behavior.
 
 ## Orchestrating BB workers
 
-Spawn worker threads only when the user has explicitly asked for BB
-orchestration or delegation. That authorization covers creating, waiting on,
-and integrating workers for the requested task. It does not authorize
-bypassing permissions (`--permission-mode full` or provider bypass flags),
-merging into a protected main branch, pushing, or publishing.
+Spawn worker threads only when the user explicitly requests BB orchestration
+or explicitly requests BB child-session delegation. Generic delegation alone
+authorizes neither. Preserve all external permission, review, and publication
+gates. Orchestration authorization does not authorize permission bypasses,
+merging into a protected main branch, pushing, or publishing. Do not use
+`--permission-mode full` or provider bypass flags to bypass these gates.
 
 Do not substitute provider-native subagents, such as Claude Code Task agents
-or Codex subagents. They are a separate provider mechanism. They run inside your own
-session and do not create BB child sessions, managed worktrees, or parent
-notifications. When the user asks for BB orchestration, delegate through
+or Codex subagents. These provider-native subagents can use manually-created
+worktrees, but do not create BB-managed child sessions, worktrees, or parent
+notifications. For explicitly authorized BB orchestration or BB child-session delegation, use
 `bb thread spawn` instead.
 
 1. Write each worker brief to a file: objective, constraints, files in scope,
@@ -113,12 +114,17 @@ notifications. When the user asks for BB orchestration, delegate through
    `$BB_THREAD_ID`, and `environment.path` and `environment.branchName` must
    name the new worktree, not your own checkout.
 4. Stay in your turn and block with `bb thread wait <id> --terminal` for each
-   worker until all of them finish. Do not end your turn expecting a wake to
-   resume you.
-5. For a worker that ends in `error`, read `bb thread show <id> --json` and
-   `bb thread log <id>` before retrying or reporting it.
-6. Integrate the workers' branches into your environment, run the relevant
-   tests, and only then write your final response.
+   worker until all of them finish. A wait timeout does not mean completion:
+   inspect state and repeat the wait while the worker is still running.
+   Do not end your turn expecting a wake to resume you.
+5. Stop on actual errors (from the command or worker), inspect
+   `bb thread show <id> --json` and `bb thread log <id>`, and report the
+   failure rather than proceeding to integration.
+6. Integrate worker branches only when the original task authorizes code
+   changes and you have validated successful worker output as suitable for
+   that task. Otherwise, collect and report results without integrating.
+   Run relevant tests after authorized integration. Report the results in
+   your final response.
 
 `--parent-notifications auto` reports each finished turn to the parent. Use
 `stuck` or `off` only when the brief tells the worker to send its results with
