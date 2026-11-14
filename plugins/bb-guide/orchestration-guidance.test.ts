@@ -6,12 +6,18 @@ const surfaces = [
   { name: "introduction", text: introduction },
   {
     name: "skill",
-    text: readFileSync(new URL("./skills/bb-cli/SKILL.md", import.meta.url), "utf8"),
+    text: readFileSync(
+      new URL("./skills/bb-cli/SKILL.md", import.meta.url),
+      "utf8",
+    ),
   },
   {
     name: "template",
     text: readFileSync(
-      new URL("../../packages/templates/src/templates/bb-guide-threads.md", import.meta.url),
+      new URL(
+        "../../packages/templates/src/templates/bb-guide-threads.md",
+        import.meta.url,
+      ),
       "utf8",
     ),
   },
@@ -40,13 +46,17 @@ describe.each(surfaces)("$name orchestration guidance", ({ text: source }) => {
     expect(text).toContain(
       "Integrate worker branches only when the original task authorizes code changes and you have validated successful worker output as suitable for that task.",
     );
-    expect(text).toContain("Otherwise, collect and report results without integrating.");
+    expect(text).toContain(
+      "Otherwise, collect and report results without integrating.",
+    );
     expect(text).toContain("Run relevant tests after authorized integration.");
     expect(text).not.toMatch(/(?:then integrate|and integrating workers)/);
   });
 
   it("preserves external permission, review, and publication gates", () => {
-    expect(text).toContain("Preserve all external permission, review, and publication gates.");
+    expect(text).toContain(
+      "Preserve all external permission, review, and publication gates.",
+    );
     expect(text).toContain(
       "Orchestration authorization does not authorize permission bypasses, merging into a protected main branch, pushing, or publishing.",
     );
