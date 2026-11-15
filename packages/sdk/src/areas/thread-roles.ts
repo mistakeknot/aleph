@@ -56,11 +56,11 @@ export interface ExperimentalThreadRolesArea {
 export function createThreadRolesArea({
   transport,
 }: CreateSdkAreaArgs): ExperimentalThreadRolesArea {
-  const roles = transport.api.v1["thread-roles"];
+  const roles = () => transport.api.v1["thread-roles"];
   return {
     async get(input) {
       const body = await transport.readJson(
-        roles[":role"].$get(
+        roles()[":role"].$get(
           { param: { role: input.role } },
           ...signalRequestArgs(input.signal),
         ),
@@ -69,25 +69,25 @@ export function createThreadRolesArea({
     },
     async list(input) {
       const body = await transport.readJson(
-        roles.$get({}, ...signalRequestArgs(input?.signal)),
+        roles().$get({}, ...signalRequestArgs(input?.signal)),
       );
       return threadRoleListResponseSchema.parse(body);
     },
     async claim({ role, ...json }) {
       const body = await transport.readJson(
-        roles[":role"].claim.$post({ param: { role }, json }),
+        roles()[":role"].claim.$post({ param: { role }, json }),
       );
       return threadRoleStateSchema.parse(body);
     },
     async transfer({ role, ...json }) {
       const body = await transport.readJson(
-        roles[":role"].transfer.$post({ param: { role }, json }),
+        roles()[":role"].transfer.$post({ param: { role }, json }),
       );
       return threadRoleStateSchema.parse(body);
     },
     async release({ role, ...json }) {
       const body = await transport.readJson(
-        roles[":role"].release.$post({ param: { role }, json }),
+        roles()[":role"].release.$post({ param: { role }, json }),
       );
       return threadRoleStateSchema.parse(body);
     },
