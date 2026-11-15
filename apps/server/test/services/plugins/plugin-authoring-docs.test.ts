@@ -104,8 +104,6 @@ function loadSdkTypes() {
   }
 
   function members(type: ts.Type): ts.Symbol[] {
-    // A primitive has no fields of its own; its apparent members (the String
-    // methods of a `query: string` parameter) are not part of the API.
     return parts(type)
       .filter((part) => (part.flags & PRIMITIVE_TYPE_FLAGS) === 0)
       .flatMap((part) => checker.getPropertiesOfType(part))
