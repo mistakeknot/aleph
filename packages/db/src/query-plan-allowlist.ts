@@ -75,6 +75,10 @@ export const QUERY_PLAN_ALLOWLIST: readonly QueryPlanAllowlistEntry[] = [
     "Aleph wake-outcome candidate read: the earlier-event checks search by thread, type and sequence with turn_id only as a filter, so cost grows with thread history; accepted for the upstream sync, rewrite tracked in bead mk-8lcd6.130",
   ),
   boundedCorrelatedEvents(
+    "packages/db/src/data/event-cold-tier.ts#readColdEligibilityFacts",
+    "Aleph cold-tier eligibility check of one archived thread: the unexpired-output probe walks that thread's events and looks each up in retained_event_outputs by primary key, so it is linear in that thread's event count; measured 0.7 ms at 4,374 events, 1.5 ms at 17,176 and 13.4 ms at 68,377. It runs once per cold-tier move or skip check, and a move already reads and rewrites every event of the thread",
+  ),
+  boundedCorrelatedEvents(
     `${EVENTS}#queryBatch`,
     "ORDER BY sequence DESC LIMIT 1 reads one index entry per requested thread",
   ),

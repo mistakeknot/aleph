@@ -309,6 +309,14 @@ with
 `BB_QUERY_PLAN_REPORT=<file> pnpm exec turbo run test --filter=@bb/db --filter=@bb/server`
 followed by `pnpm --filter @bb/db check:query-plan-report <file>`.
 
+In Aleph the GitHub Actions workflows do not run (its independent CI registry has no
+Actions opt-in), so the `Query Plan Audit` workflow and the
+`Query functions run in tests` job above do not run here. The plan rules and
+allowlist still apply in every `@bb/db` and `@bb/server` test, and the report
+commands above work by hand. `check:query-costs` ships with the sync but exits
+non-zero until Aleph's own exported query functions have cost cases (bead
+mk-8lcd6.131).
+
 Plans cannot show what a query costs once data grows, so the workflow's cost
 job runs `pnpm exec turbo run check:query-costs --filter=@bb/db`. It builds
 worlds through the real write paths and compares them along two axes:
