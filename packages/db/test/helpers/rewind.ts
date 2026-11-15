@@ -181,6 +181,10 @@ export function dropQueueWakeColumns(db: DbConnection): void {
   }
 }
 
+export function dropThreadRolesTable(db: DbConnection): void {
+  db.$client.exec("DROP TABLE IF EXISTS thread_roles");
+}
+
 export function dropPluginFailureLabelColumns(db: DbConnection): void {
   for (const [table, column] of [
     ["plugins", "last_failure_label"],

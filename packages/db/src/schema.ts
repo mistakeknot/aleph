@@ -19,6 +19,7 @@ import { startedOnBehalfOfInitiatorValues } from "@bb/domain/started-on-behalf-o
 import { threadCreateOriginValues } from "@bb/domain/thread-create-origin";
 import { threadOriginKindValues } from "@bb/domain/thread-origin-kind";
 import { threadParentNotificationsValues } from "@bb/domain/thread-parent-notifications";
+import { threadRoleUpdatedByKindValues } from "@bb/domain/thread-role";
 import { threadVisibilityValues } from "@bb/domain/thread-visibility";
 import type {
   EnvironmentProviderSelection,
@@ -1314,6 +1315,46 @@ export const threadRedirects = sqliteTable("thread_redirects", {
     .notNull()
     .references(() => transferOperations.id, { onDelete: "restrict" }),
 });
+
+export const threadRoles = sqliteTable(
+  "thread_roles",
+  {
+    role: text("role").primaryKey(),
+    threadId: text("thread_id").references(() => threads.id, {
+      onDelete: "set null",
+    }),
+    generation: integer("generation").notNull(),
+    since: integer("since").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    updatedByKind: text("updated_by_kind", {
+      enum: threadRoleUpdatedByKindValues,
+    }).notNull(),
+    updatedByThreadId: text("updated_by_thread_id"),
+  },
+  (table) => [
+    index("thread_roles_thread_id_idx").on(table.threadId),
+    check(
+      "thread_roles_role_check",
+      sql`typeof(${table.role}) = 'text' AND length(${table.role}) >= 1 AND length(${table.role}) = length(CAST(${table.role} AS BLOB)) AND ${table.role} NOT GLOB '*[^a-z0-9-]*'`,
+    ),
+    check(
+      "thread_roles_generation_check",
+      sql`typeof(${table.generation}) = 'integer' AND ${table.generation} BETWEEN 1 AND 9007199254740991`,
+    ),
+    check(
+      "thread_roles_thread_id_check",
+      sql`${table.threadId} IS NULL OR typeof(${table.threadId}) = 'text'`,
+    ),
+    check(
+      "thread_roles_times_check",
+      sql`typeof(${table.since}) = 'integer' AND typeof(${table.updatedAt}) = 'integer'`,
+    ),
+    check(
+      "thread_roles_updated_by_kind_check",
+      sql`${table.updatedByKind} IN ('cli','api','app','system')`,
+    ),
+  ],
+);
 
 export const hostDaemonSessions = sqliteTable(
   "host_daemon_sessions",

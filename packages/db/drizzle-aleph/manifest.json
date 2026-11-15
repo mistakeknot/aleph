@@ -94,6 +94,12 @@
       "file": "A0015_queue_wake_cause.sql",
       "after": "0156_plugin_failure_labels",
       "when": 1794340346215
+    },
+    {
+      "id": "A0016",
+      "file": "A0016_thread_roles.sql",
+      "after": "A0015",
+      "when": 1794340346216
     }
   ]
 }

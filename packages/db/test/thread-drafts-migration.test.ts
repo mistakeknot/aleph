@@ -19,6 +19,7 @@ import {
   dropQueuedMessageDeliveryColumns,
   dropPluginFailureLabelColumns,
   dropQueueWakeColumns,
+  dropThreadRolesTable,
   dropThreadStatusChangedAtColumn,
   dropQueuedMessageEditHeldUntilColumn,
   rewindThreadPruningWork,
@@ -131,6 +132,7 @@ it.each([false, true])(
       dropThreadStatusChangedAtColumn(db);
       dropPluginFailureLabelColumns(db);
       dropQueueWakeColumns(db);
+      dropThreadRolesTable(db);
       migrate(db);
       migrate(db);
 

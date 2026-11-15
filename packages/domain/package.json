@@ -44,6 +44,11 @@
       "types": "./src/thread-parent-notifications.ts",
       "default": "./src/thread-parent-notifications.ts"
     },
+    "./thread-role": {
+      "source": "./src/thread-role.ts",
+      "types": "./src/thread-role.ts",
+      "default": "./src/thread-role.ts"
+    },
     "./thread-visibility": {
       "source": "./src/thread-visibility.ts",
       "types": "./src/thread-visibility.ts",

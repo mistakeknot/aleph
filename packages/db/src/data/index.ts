@@ -691,3 +691,22 @@ export type {
   StoredAlephInstallRequest,
   StoredAlephInstallRequestState,
 } from "./aleph-install-requests.js";
+
+export {
+  ThreadRoleError,
+  claimThreadRole,
+  getThreadRole,
+  listThreadRoles,
+  releaseRolesForDeletedThreads,
+  releaseThreadRole,
+  transferThreadRole,
+} from "./thread-roles.js";
+export type {
+  ClaimThreadRoleArgs,
+  ReleaseRolesForDeletedThreadsResult,
+  ReleaseThreadRoleArgs,
+  ThreadRoleActor,
+  ThreadRoleErrorCode,
+  ThreadRoleState,
+  TransferThreadRoleArgs,
+} from "./thread-roles.js";
