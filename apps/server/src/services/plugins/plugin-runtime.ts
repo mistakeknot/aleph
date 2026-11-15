@@ -961,8 +961,6 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       }
       return { ok: false, error: message, cause: error };
     } finally {
-      // stopping aborts before released, so a still-running execution has
-      // already seen the lifetime abort by the time it is released.
       linked?.dispose();
       if (releaseCaller !== undefined) {
         released.removeEventListener("abort", releaseCaller);
