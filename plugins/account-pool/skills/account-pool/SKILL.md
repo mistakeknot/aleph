@@ -115,16 +115,18 @@ bb pool exec --prompt-file "$PWD/review-prompt.txt" -- claude \
 
 Every security control in this example is required. The host builds the final
 security argv from its fixed profile. `--allowedTools`, caller system prompts,
-JSON schemas and max-turn overrides are refused in this profile. Optional model,
-bounded effort and one canonical add-dir retain the existing rules. Stage plans
-and review packets beneath cwd. Input-format overrides, partial-message and
+JSON schemas and max-turn overrides are refused in this profile. Optional model
+and bounded effort retain the existing rules. Restricted reviews refuse add-dir
+and positional prompts, and require prompt-file as the only input source. Stage
+everything the seat reads beneath cwd. Input-format overrides, partial-message and
 session-ID flags remain refused; budgeted usage-wrapper execution is separate.
 
 The restricted profile qualifies exactly Claude Code 2.1.325 on Linux with the
 required capabilities and isolation dependencies. Legacy tool-capable seats
 retain their 2.1.323 qualification. Restricted model-visible tools are confined
 to their working directories and cannot read process/device files; the host
-checks the child's cwd identity before supplying the prompt. Provider credentials
+pins the validated cwd by descriptor and uses it for spawn and file access, then
+checks the child's identity before supplying the prompt. Provider credentials
 remain in the authenticated executable's environment and are scrubbed from tool
 shells. This safety claim applies to the restricted profile. Existing broader
 execution profiles retain their behavior and trust boundary.

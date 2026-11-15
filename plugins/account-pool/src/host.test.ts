@@ -51,6 +51,7 @@ describe("Account Pooler host exec", () => {
     const result = await harness.experimental_call("run", {
       provider: "claude",
       args: [...RESTRICTED_CLAUDE_CONTROLS, "-p"],
+      promptPath: path.join(process.cwd(), "package.json"),
       cwd: process.cwd(),
       workspacePath: process.cwd(),
       stdinDir: null,
@@ -82,6 +83,7 @@ describe("Account Pooler host exec", () => {
       args: [...RESTRICTED_CLAUDE_CONTROLS]
         .reverse()
         .concat(["--model=review-model", "-p"]),
+      promptPath: path.join(process.cwd(), "package.json"),
       cwd: process.cwd(),
       workspacePath: process.cwd(),
       stdinDir: null,
@@ -116,6 +118,7 @@ describe("Account Pooler host exec", () => {
     const result = await harness.experimental_call("run", {
       provider: "claude",
       args: [...RESTRICTED_CLAUDE_CONTROLS, "-p"],
+      promptPath: path.join(process.cwd(), "package.json"),
       cwd: process.cwd(),
       workspacePath: process.cwd(),
       stdinDir: null,

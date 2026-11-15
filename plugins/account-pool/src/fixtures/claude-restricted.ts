@@ -485,7 +485,6 @@ try {
     provider: "claude",
     args: [
       ...RESTRICTED_CLAUDE_CONTROLS,
-      ...(diagnostic ? [] : [`--add-dir=${path.join(cwd, "plan")}`]),
       "--model=claude-haiku-5-5",
       "--output-format=stream-json",
       "--verbose",

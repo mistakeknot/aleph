@@ -174,8 +174,12 @@ rule cannot override directory confinement. Duplicate security options, incomple
 profiles, write/shell tools and restricted values outside the profile are refused.
 The Linux host qualifies this profile against exactly Claude Code 2.1.325,
 including its advertised restricted capabilities; the existing legacy qualifier
-continues to require 2.1.323. Before prompt delivery the host verifies that the
-spawned child's cwd has the device/inode identity validated before launch.
+continues to require 2.1.323. Restricted reviews require prompt-file exclusively;
+positional prompts, private stdin sources and add-dir grants are refused. The
+host opens the validated cwd with directory/nofollow flags, checks the descriptor
+path and workspace containment, and takes its device/inode identity from fstat.
+Spawn and prompt/output file access use that pinned directory. Before supplying
+the prompt the host checks the child's cwd identity and the pinned path again.
 Synthetic runtime checks cover process/device files, credential-directory
 symlinks, hostile instruction imports and directory replacements. This profile's
 model-visible tool boundary does not change the broader legacy profiles.

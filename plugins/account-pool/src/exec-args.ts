@@ -77,6 +77,7 @@ export function parsePoolExecArgs(
   const terminator = options.indexOf("--");
   const flags = terminator < 0 ? options : options.slice(0, terminator);
   if (provider === "claude" && flags.includes("--restricted")) {
+    if (terminator >= 0) return null;
     const keys = flags.map((option) =>
       option === "-p" ? "--print" : option.split("=")[0],
     );
@@ -90,6 +91,7 @@ export function parsePoolExecArgs(
           "--system-prompt",
           "--json-schema",
           "--max-turns",
+          "--add-dir",
         ].includes(key ?? ""),
       )
     )

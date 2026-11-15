@@ -36,11 +36,8 @@ describe("coupled restricted Claude profile", () => {
         : [option.slice(0, equals), option.slice(equals + 1)];
     });
     expect(parsePoolExecArgs("claude", split)).toEqual(expected);
-    expect(parsePoolExecArgs("claude", ["review", ...expected])).toEqual([
-      ...expected,
-      "--",
-      "review",
-    ]);
+    expect(parsePoolExecArgs("claude", ["review", ...expected])).toBeNull();
+    expect(parsePoolExecArgs("claude", [...expected, "-"])).toBeNull();
   });
 
   it.each(controls)("refuses missing control %s", (control) => {
@@ -91,6 +88,7 @@ describe("coupled restricted Claude profile", () => {
     "--tools=read,glob,grep",
     "--tools=Read, Glob, Grep",
     "--tools=Read,Glob,Grep,Bash",
+    "--add-dir=/workspace/plan",
     "--effort=ultra",
     "--model=",
     "--output-format=bad",

@@ -16,6 +16,7 @@ import {
   createExecOutput,
   readExecPrompt,
   validateExecDirectory,
+  pinExecDirectory,
 } from "./exec-files.js";
 
 const OUTPUT_LIMIT_BYTES = 900_000;
@@ -92,7 +93,7 @@ function codexArgs(args: readonly string[], baseUrl: string): string[] {
 }
 
 export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
-  const active = new Set<PoolExecChild>();
+  const active = new Map<PoolExecChild, () => void>();
   const defaultInputDir = path.resolve(
     deps.env.HOME || homedir(),
     ".local/state/bb-account-pool/exec-input",
@@ -146,27 +147,47 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           };
         }
         let cwd: string;
-        let cwdIdentity: Awaited<ReturnType<typeof stat>> | undefined;
+        let pinned: Awaited<ReturnType<typeof pinExecDirectory>> | undefined;
         let output: Awaited<ReturnType<typeof createExecOutput>> | undefined;
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
         try {
           if (input.workspacePath === null)
             throw new Error("Missing server-owned environment workspace");
-          cwd = await validateExecDirectory(
-            input.cwd,
-            permittedArgs,
-            deps.env,
-            input.workspacePath,
-          );
-          if (restricted) cwdIdentity = await stat(cwd);
+          if (
+            restricted &&
+            (input.promptPath === null || input.stdinPath !== null)
+          )
+            throw new Error(
+              "Restricted review requires --prompt-file as its only prompt source",
+            );
+          if (restricted) {
+            pinned = await pinExecDirectory(
+              input.cwd,
+              deps.env,
+              input.workspacePath,
+            );
+            cwd = pinned.cwd;
+          } else
+            cwd = await validateExecDirectory(
+              input.cwd,
+              permittedArgs,
+              deps.env,
+              input.workspacePath,
+            );
           if (input.promptPath !== null) {
             if (input.stdinPath !== null)
               throw new Error("Choose only one stdin source");
-            stdin = await readExecPrompt(cwd, input.promptPath);
+            stdin = await readExecPrompt(cwd, input.promptPath, pinned?.fd);
           }
           if (input.outputPath !== null)
-            output = await createExecOutput(cwd, input.outputPath, input.token);
+            output = await createExecOutput(
+              cwd,
+              input.outputPath,
+              input.token,
+              pinned?.fd,
+            );
         } catch (error) {
+          pinned?.close();
           return {
             started: false,
             providerPinned: false,
@@ -184,6 +205,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             );
           } catch (error) {
             output?.close();
+            pinned?.close();
             return {
               started: false,
               providerPinned: false,
@@ -250,13 +272,14 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           let child: PoolExecChild;
           try {
             child = deps.spawn(input.provider, args, {
-              cwd,
+              cwd: pinned?.reference ?? cwd,
               env:
                 input.provider === "claude" ? isolateClaudePoolTools(env) : env,
               stdio: ["pipe", "pipe", "pipe"],
             });
           } catch (error) {
             output?.close();
+            pinned?.close();
             resolve({
               started: false,
               providerPinned: false,
@@ -267,7 +290,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             return;
           }
 
-          active.add(child);
+          active.set(child, () => pinned?.close());
           let started = false;
           let settled = false;
           let outputBytes = 0;
@@ -288,6 +311,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           const finishOutput = () => {
             clearTimeout(timer);
             clearTimeout(forceTimer);
+            pinned?.close();
             try {
               output?.close();
             } catch {
@@ -333,12 +357,13 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             if (restricted) {
               void (async () => {
                 try {
-                  if (!child.pid || !cwdIdentity)
+                  if (!child.pid || !pinned || !pinned.isCurrent())
                     throw new Error("Missing child cwd identity");
                   const actual = await stat(`/proc/${child.pid}/cwd`);
                   if (
-                    actual.dev !== cwdIdentity.dev ||
-                    actual.ino !== cwdIdentity.ino
+                    actual.dev !== pinned.identity.dev ||
+                    actual.ino !== pinned.identity.ino ||
+                    !pinned.isCurrent()
                   )
                     throw new Error("Changed child cwd identity");
                   if (!settled && !context.signal.aborted && !timedOut)
@@ -399,7 +424,10 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
       },
     },
     dispose() {
-      for (const child of active) child.kill("SIGTERM");
+      for (const [child, close] of active) {
+        child.kill("SIGTERM");
+        close();
+      }
       active.clear();
     },
   });
