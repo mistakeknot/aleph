@@ -590,6 +590,7 @@ plugin-surface	M	plugins/bb-guide/skills/bb-plugin-authoring/references/backend-
 plugin-surface	A	plugins/bb-guide/skills/bb-plugin-authoring/references/frontend-app-header-status.md
 plugin-surface	M	plugins/bb-guide/skills/bb-plugin-authoring/references/frontend-core-slots.md
 plugin-surface	M	plugins/bb-guide/skills/bb-plugin-authoring/references/frontend-registration.md
+plugin-surface	M	plugins/bb-guide/skills/bb-plugin-authoring/references/providers.md
 plugin-surface	M	plugins/plugin-api-docs/src/first-party-plugins.json
 plugin-surface	M	plugins/plugin-api-docs/src/surfaces.ts
 plugin-surface	M	plugins/plugin-api-docs/src/wireframes.tsx
