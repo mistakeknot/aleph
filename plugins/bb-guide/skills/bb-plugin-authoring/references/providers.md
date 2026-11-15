@@ -227,7 +227,12 @@ and environment setup, installation and version checks, tool presentation,
 bounded output, and recording. Launch the provider CLI by name with
 `experimental_spawnPortableProcess` (it resolves `PATH`/`PATHEXT` and npm
 `.cmd` shims on Windows) and end it with `experimental_killPortableProcess`
-(it terminates the whole process tree on Windows). Read
+(it terminates the whole process tree on Windows). Right after spawning an
+agent process, call `experimental_placeProviderChildInThreadScope(child, { threadId })`:
+when agent isolation is on it moves that process into its thread's systemd scope,
+and otherwise does nothing. `experimental_isAgentCgroupIsolationRequested()`
+reports whether isolation is requested; a bridge whose SDK spawns the CLI itself
+takes that spawn over only when it is true. Read
 `provider-bridge-api-index.md` for every symbol, then read the installed
 declaration for its exact signature.
 
