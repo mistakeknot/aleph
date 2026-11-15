@@ -14,6 +14,14 @@ export const JSON_SHAPE_BY_COMMAND_PATH: Readonly<Record<string, string>> = {
     "the created thread: {id, status, title, projectId, environmentId, ...}",
   "thread wait": "{threadId, matched: true, target}",
   "thread search": "{active: {total, results}, archived: {total, results}}",
+  "thread role get":
+    "{role, threadId, title, archived, generation, since}    (exit 3 with the same body when threadId is null: nobody holds the role; archived holders are still returned)",
+  "thread role list":
+    "{roles: [{role, threadId, title, archived, generation, since}]}    (wrapped in .roles; threadId, title, archived are null for a role nobody holds)",
+  "thread role transfer":
+    "{role, threadId, title, archived, generation, since}    (the role after the change; fails with a 409 error carrying error.details.current when the generation moved)",
+  "thread role release":
+    "{role, threadId: null, title: null, archived: null, generation, since}    (the role after the release; fails with a 409 error carrying error.details.current when the generation moved)",
   "prompt-history list":
     "{entries: [{id, createdAt, input, projectId, threadId, scope}], nextCursor: string | null}",
   "window list":

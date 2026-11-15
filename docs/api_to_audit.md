@@ -4374,6 +4374,12 @@ skipped. The same route backs `bb prompt-history list`.
 
 Before stabilization, audit whether `limit` should be a number, whether the cursor format needs versioning, whether project or thread filters belong on this call rather than on `projects.promptHistory` and `threads.promptHistory`, and whether skipped rows should fill the page.
 
+## Thread roles (`bb.sdk.experimental_threadRoles`)
+
+`get({ role })` and `list()` return `{ role, threadId, title, archived, generation, since }` per role; an unheld role has `threadId`, `title` and `archived` set to null and keeps its current `generation`. `claim({ role, threadId })` takes a role that has no holder. `transfer({ role, toThreadId, expectGeneration })` and `release({ role, expectGeneration })` are compare-and-swap on the generation and fail with a 409 whose `details.current` is the current state. Plugin RPC callers get 403 on `claim`, `transfer` and `release`. The same routes back `bb thread role` and `bb thread update --role`.
+
+Before stabilization, audit whether plugins should be able to mutate roles at all, whether the caller thread header (self-asserted, audit only) needs to be authenticated, whether `list` needs a role-name filter, and whether the area belongs under `threads`.
+
 ## `experimental_placeProviderChildInThreadScope` and `experimental_isAgentCgroupIsolationRequested`
 
 `@get-bb/plugin-sdk/provider-bridge` exports

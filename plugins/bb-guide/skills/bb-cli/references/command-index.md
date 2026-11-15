@@ -207,6 +207,11 @@ Use `--selected-model <model-id>` to discover its reasoning choices and include 
 - `bb thread restore-environment`
 - `bb thread pin`
 - `bb thread unpin`
+- `bb thread role`
+- `bb thread role get`
+- `bb thread role list`
+- `bb thread role transfer`
+- `bb thread role release`
 - `bb thread regenerate-title`
 - `bb thread delete`
 - `bb thread edit-message`

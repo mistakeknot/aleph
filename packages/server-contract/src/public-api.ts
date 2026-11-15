@@ -100,6 +100,7 @@ import type {
   PathId,
   PathNonce,
   PathProjectId,
+  PathRole,
   PathIdAndFilePath,
   PathIdAndJobId,
   PathIdHostAndFilePath,
@@ -499,6 +500,16 @@ import {
   type ReportWindowResponse,
   type WindowsResponse,
 } from "./api/windows.js";
+import {
+  claimThreadRoleRequestSchema,
+  releaseThreadRoleRequestSchema,
+  transferThreadRoleRequestSchema,
+  type ClaimThreadRoleRequest,
+  type ReleaseThreadRoleRequest,
+  type ThreadRoleListResponse,
+  type ThreadRoleStateResponse,
+  type TransferThreadRoleRequest,
+} from "./api/thread-roles.js";
 import type { ApiError } from "./errors.js";
 
 type PathProjectSourceId = { param: { id: string; sourceId: string } };
@@ -1343,6 +1354,69 @@ export const publicApiRoutes = {
       method: "post",
       request: noRequest<PathId>(),
       response: jsonResponse<EnvironmentArchiveThreadsResponse>(),
+    }),
+  },
+
+  threadRoles: {
+    get: defineRoute({
+      path: "/thread-roles/:role",
+      method: "get",
+      request: noRequest<PathRole>(),
+      response: [
+        jsonResponse<ThreadRoleStateResponse>(),
+        jsonResponse<ApiError, 400>({ status: 400 }),
+      ],
+    }),
+    list: defineRoute({
+      path: "/thread-roles",
+      method: "get",
+      request: noRequest<EmptyInput>(),
+      response: jsonResponse<ThreadRoleListResponse>(),
+    }),
+    claim: defineRoute({
+      path: "/thread-roles/:role/claim",
+      method: "post",
+      request: jsonRequest<PathRole, ClaimThreadRoleRequest>(
+        claimThreadRoleRequestSchema,
+      ),
+      response: [
+        jsonResponse<ThreadRoleStateResponse>(),
+        jsonResponse<ApiError, 400>({ status: 400 }),
+        jsonResponse<ApiError, 403>({ status: 403 }),
+        jsonResponse<ApiError>({ status: 404 }),
+        jsonResponse<ApiError>({ status: 409 }),
+        jsonResponse<ApiError, 503>({ status: 503 }),
+      ],
+    }),
+    transfer: defineRoute({
+      path: "/thread-roles/:role/transfer",
+      method: "post",
+      request: jsonRequest<PathRole, TransferThreadRoleRequest>(
+        transferThreadRoleRequestSchema,
+      ),
+      response: [
+        jsonResponse<ThreadRoleStateResponse>(),
+        jsonResponse<ApiError, 400>({ status: 400 }),
+        jsonResponse<ApiError, 403>({ status: 403 }),
+        jsonResponse<ApiError>({ status: 404 }),
+        jsonResponse<ApiError>({ status: 409 }),
+        jsonResponse<ApiError, 503>({ status: 503 }),
+      ],
+    }),
+    release: defineRoute({
+      path: "/thread-roles/:role/release",
+      method: "post",
+      request: jsonRequest<PathRole, ReleaseThreadRoleRequest>(
+        releaseThreadRoleRequestSchema,
+      ),
+      response: [
+        jsonResponse<ThreadRoleStateResponse>(),
+        jsonResponse<ApiError, 400>({ status: 400 }),
+        jsonResponse<ApiError, 403>({ status: 403 }),
+        jsonResponse<ApiError>({ status: 404 }),
+        jsonResponse<ApiError>({ status: 409 }),
+        jsonResponse<ApiError, 503>({ status: 503 }),
+      ],
     }),
   },
 

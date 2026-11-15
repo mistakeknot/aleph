@@ -53,6 +53,7 @@ Ownership:
   bb thread update [id]                    Update thread metadata
     --self                                 Target current thread
     --title <title>                        Set title
+    --role <role>                          Claim a role nobody holds (alone; see bb guide threads)
     --parent-thread <id>                   Assign to a parent thread
     --clear-parent-thread                  Remove parent assignment
     --section <id>                         Move into a section

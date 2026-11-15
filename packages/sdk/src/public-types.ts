@@ -27,6 +27,7 @@ export type * from "./areas/guide.js";
 export type * from "./areas/hosts.js";
 export type * from "./areas/plugins.js";
 export type * from "./areas/prompt-history.js";
+export type * from "./areas/thread-roles.js";
 export type * from "./areas/projects.js";
 export type * from "./areas/providers.js";
 export type * from "./areas/status.js";

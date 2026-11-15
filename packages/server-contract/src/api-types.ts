@@ -2,6 +2,7 @@ export * from "./api/shared.js";
 export * from "./api/projects.js";
 export * from "./api/prompt-history.js";
 export * from "./api/skills.js";
+export * from "./api/thread-roles.js";
 export * from "./api/environments.js";
 export * from "./api/files.js";
 export * from "./api/hosts.js";
