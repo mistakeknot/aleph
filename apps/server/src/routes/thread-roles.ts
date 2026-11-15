@@ -27,11 +27,7 @@ import type { PluginService } from "../services/plugins/plugin-service.js";
 
 function requireRoleName(role: string): string {
   if (!threadRoleNameSchema.safeParse(role).success) {
-    throw new ApiError(
-      400,
-      "invalid_role_name",
-      "Role names match [a-z0-9-]+",
-    );
+    throw new ApiError(400, "invalid_role_name", "Role names match [a-z0-9-]+");
   }
   return role;
 }
@@ -149,7 +145,7 @@ export function registerThreadRoleRoutes(
   post(routes.claim, (context, payload) => {
     const role = requireRoleName(context.req.param("role"));
     const { actor, source } = mutationActor(context);
-    const before = getThreadRole(deps.db, role);
+    const before = runRoleOperation(() => getThreadRole(deps.db, role));
     const after = runRoleOperation(() =>
       claimThreadRole(deps.db, { ...actor, role, threadId: payload.threadId }),
     );
@@ -160,7 +156,7 @@ export function registerThreadRoleRoutes(
   post(routes.transfer, (context, payload) => {
     const role = requireRoleName(context.req.param("role"));
     const { actor, source } = mutationActor(context);
-    const before = getThreadRole(deps.db, role);
+    const before = runRoleOperation(() => getThreadRole(deps.db, role));
     const after = runRoleOperation(() =>
       transferThreadRole(deps.db, {
         ...actor,
@@ -176,7 +172,7 @@ export function registerThreadRoleRoutes(
   post(routes.release, (context, payload) => {
     const role = requireRoleName(context.req.param("role"));
     const { actor, source } = mutationActor(context);
-    const before = getThreadRole(deps.db, role);
+    const before = runRoleOperation(() => getThreadRole(deps.db, role));
     const after = runRoleOperation(() =>
       releaseThreadRole(deps.db, {
         ...actor,

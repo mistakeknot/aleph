@@ -17,7 +17,7 @@ interface QueuedResponse {
   status?: number;
 }
 
-const HOLDER_TITLE = "Masaq'  |\tmk　channel";
+const HOLDER_TITLE = "Masaq'  |\tops　channel";
 
 const HELD_STATE = {
   role: "ruler",
@@ -110,9 +110,7 @@ describe("@bb/sdk experimental_threadRoles", () => {
       expectGeneration: 5,
     });
 
-    expect(
-      queue.requests.map((r) => [r.method, r.url, r.bodyText]),
-    ).toEqual([
+    expect(queue.requests.map((r) => [r.method, r.url, r.bodyText])).toEqual([
       [
         "POST",
         "http://bb.test/api/v1/thread-roles/ruler/claim",

@@ -8,10 +8,7 @@ import { createHttpTransport } from "@bb/sdk/node";
 import { describe, expect, it, vi } from "vitest";
 import { readJson } from "../helpers/json.js";
 import { seedThreadFixture, seedThread } from "../helpers/seed.js";
-import {
-  withTestHarness,
-  type TestAppHarness,
-} from "../helpers/test-app.js";
+import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 const CLI_HEADERS = {
@@ -110,16 +107,21 @@ describe("public thread roles routes", () => {
         expectGeneration: transferredState.generation,
       });
       expect(released.status).toBe(200);
-      expect(threadRoleStateSchema.parse(await readJson(released))).toMatchObject(
-        { threadId: null, title: null, archived: null, generation: 3 },
-      );
+      expect(
+        threadRoleStateSchema.parse(await readJson(released)),
+      ).toMatchObject({
+        threadId: null,
+        title: null,
+        archived: null,
+        generation: 3,
+      });
 
       const listed = threadRoleListResponseSchema.parse(
         await readJson(await harness.app.request("/api/v1/thread-roles")),
       );
-      expect(listed.roles.map((r) => [r.role, r.threadId, r.generation])).toEqual(
-        [["ruler", null, 3]],
-      );
+      expect(
+        listed.roles.map((r) => [r.role, r.threadId, r.generation]),
+      ).toEqual([["ruler", null, 3]]);
     });
   });
 
@@ -130,9 +132,9 @@ describe("public thread roles routes", () => {
       archive(harness, first.id);
 
       const response = await harness.app.request("/api/v1/thread-roles/ruler");
-      expect(threadRoleStateSchema.parse(await readJson(response))).toMatchObject(
-        { threadId: first.id, archived: true, generation: 1 },
-      );
+      expect(
+        threadRoleStateSchema.parse(await readJson(response)),
+      ).toMatchObject({ threadId: first.id, archived: true, generation: 1 });
     });
   });
 
@@ -183,7 +185,8 @@ describe("public thread roles routes", () => {
       const archivedError = await readError(archivedTarget);
       expect(archivedError.code).toBe("thread_archived");
       expect(
-        threadRoleConflictDetailsSchema.safeParse(archivedError.details).success,
+        threadRoleConflictDetailsSchema.safeParse(archivedError.details)
+          .success,
       ).toBe(true);
     });
   });
@@ -247,9 +250,9 @@ describe("public thread roles routes", () => {
         headers,
       });
       expect(read.status).toBe(200);
-      expect(
-        threadRoleStateSchema.parse(await readJson(read)).generation,
-      ).toBe(1);
+      expect(threadRoleStateSchema.parse(await readJson(read)).generation).toBe(
+        1,
+      );
     });
   });
 
@@ -279,6 +282,41 @@ describe("public thread roles routes", () => {
       expect(body.retryable).toBe(true);
 
       harness.db.$client.exec("DROP TRIGGER thread_roles_busy");
+      const state = threadRoleStateSchema.parse(
+        await readJson(await harness.app.request("/api/v1/thread-roles/ruler")),
+      );
+      expect(state).toMatchObject({ threadId: first.id, generation: 1 });
+    });
+  });
+
+  it("maps a busy database during the preliminary read to a retryable 503", async () => {
+    await withTestHarness(async (harness) => {
+      const { first, second } = seedTwoThreads(harness, "Holder");
+      await post(harness, "/ruler/claim", { threadId: first.id });
+      harness.db.$client.function("fail_busy", () => {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      });
+      harness.db.$client.exec(
+        "CREATE TEMP VIEW thread_roles AS SELECT t.* FROM main.thread_roles t WHERE fail_busy() = 0",
+      );
+      try {
+        const bodies = [
+          ["/ruler/claim", { threadId: second.id }],
+          ["/ruler/transfer", { toThreadId: second.id, expectGeneration: 1 }],
+          ["/ruler/release", { expectGeneration: 1 }],
+        ] as const;
+        for (const [path, body] of bodies) {
+          const response = await post(harness, path, body);
+          expect(response.status).toBe(503);
+          expect(((await readError(response)) as { code: string }).code).toBe(
+            "database_busy",
+          );
+        }
+      } finally {
+        harness.db.$client.exec("DROP VIEW temp.thread_roles");
+      }
       const state = threadRoleStateSchema.parse(
         await readJson(await harness.app.request("/api/v1/thread-roles/ruler")),
       );
@@ -319,7 +357,7 @@ describe("public thread roles routes", () => {
 
   it("keeps whitespace in a holder title", async () => {
     await withTestHarness(async (harness) => {
-      const title = "Masaq'  |\tmk　channel";
+      const title = "Masaq'  |\tops　channel";
       const { first } = seedTwoThreads(harness, title);
       await post(harness, "/channel/claim", { threadId: first.id });
 
@@ -333,7 +371,7 @@ describe("public thread roles routes", () => {
   });
   it("reaches the SDK with the holder title and conflict details intact", async () => {
     await withTestHarness(async (harness) => {
-      const title = "Masaq'  |\tmk\u3000channel";
+      const title = "Masaq'  |\tops\u3000channel";
       const { first, second } = seedTwoThreads(harness, title);
       const sdk = createBbSdk({
         transport: createHttpTransport({
