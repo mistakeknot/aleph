@@ -110,6 +110,7 @@ import { runEventLoopWork } from "../system/event-loop-work.js";
 import { abortPluginToolCallsForPlugin } from "./plugin-tool-calls.js";
 import { buildCachedPluginServer } from "./plugin-server-cache.js";
 import { createPluginRpcCallerRegistry } from "./plugin-rpc-caller.js";
+import { linkAbortSignals } from "./linked-abort.js";
 
 const serverRuntimeDir = dirname(fileURLToPath(import.meta.url));
 const pluginSdkRuntimePath = join(serverRuntimeDir, "plugin-sdk-runtime.js");
@@ -909,10 +910,11 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     const lifetime = instance.stopping.signal.aborted
       ? released
       : instance.stopping.signal;
-    const signal =
+    const linked =
       callerSignal === undefined
-        ? lifetime
-        : AbortSignal.any([callerSignal, lifetime]);
+        ? undefined
+        : linkAbortSignals(callerSignal, lifetime);
+    const signal = linked === undefined ? lifetime : linked.signal;
     const stats = statsFor(id);
     const startedAt = performance.now();
     const execution = runEventLoopWork(`plugin:${id} ${label}`, () =>
@@ -959,6 +961,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       }
       return { ok: false, error: message, cause: error };
     } finally {
+      linked?.dispose();
       if (releaseCaller !== undefined) {
         released.removeEventListener("abort", releaseCaller);
       }
