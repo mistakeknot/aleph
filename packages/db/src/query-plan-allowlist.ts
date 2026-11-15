@@ -1,12 +1,21 @@
 import type { QueryPlanAllowlistEntry } from "./query-plan-guard.js";
 
 const EVENTS = "packages/db/src/data/events.ts";
+const QUEUED = "packages/db/src/data/queued-thread-messages.ts";
+const THREADS = "packages/db/src/data/threads.ts";
 
 function acceptedEventsIndex(
   caller: string,
   reason: string,
 ): QueryPlanAllowlistEntry {
   return { rule: "weaker-index", table: "events", caller, reason };
+}
+
+function boundedCorrelatedEvents(
+  caller: string,
+  reason: string,
+): QueryPlanAllowlistEntry {
+  return { rule: "correlated-subquery", table: "events", caller, reason };
 }
 
 export const QUERY_PLAN_ALLOWLIST: readonly QueryPlanAllowlistEntry[] = [
@@ -42,20 +51,12 @@ export const QUERY_PLAN_ALLOWLIST: readonly QueryPlanAllowlistEntry[] = [
     "The partial planSteps index avoids a multi-index OR and sort; measured 15.4 ms versus 122.3 ms for 1000 reads of a 100000-event fixture",
   ),
   acceptedEventsIndex(
-    `${EVENTS}#listCommandItemDataByItemIds`,
-    "Measured faster than the type index (12.6 ms vs 21.6 ms): item ids are selective and both types are common",
-  ),
-  acceptedEventsIndex(
     `${EVENTS}#isStoredTurnMainRunIdle`,
     "turn/mainRun/updated is rare per thread; measured 0.013 ms vs 0.012 ms",
   ),
   acceptedEventsIndex(
     `${EVENTS}#getStoredTurnRequestEventForTurn`,
     "turn/input/accepted is one per turn; measured 0.04 ms vs 0.01 ms",
-  ),
-  acceptedEventsIndex(
-    "apps/server/src/services/threads/thread-edit-message.ts#getTurnCompletion",
-    "turn/completed is one per turn, so the type index reads at most one row per turn",
   ),
   acceptedEventsIndex(
     `${EVENTS}#listStoredTurnCompletedRowsByTurnIds`,
@@ -68,6 +69,66 @@ export const QUERY_PLAN_ALLOWLIST: readonly QueryPlanAllowlistEntry[] = [
   acceptedEventsIndex(
     `${EVENTS}#wouldRemoveSharedProviderSessionClaim`,
     "the partial thread/identity index holds one row per provider session",
+  ),
+  boundedCorrelatedEvents(
+    "apps/server/src/services/threads/wake-turn-outcome.ts#<anonymous>",
+    "Aleph wake-outcome candidate read: the earlier-event checks search by thread, type and sequence with turn_id only as a filter, so cost grows with thread history; accepted for the upstream sync, rewrite tracked in bead mk-8lcd6.130",
+  ),
+  boundedCorrelatedEvents(
+    "packages/db/src/data/event-cold-tier.ts#readColdEligibilityFacts",
+    "Aleph cold-tier eligibility check of one archived thread: the unexpired-output probe walks that thread's events and looks each up in retained_event_outputs by primary key, so it is linear in that thread's event count; measured 0.7 ms at 4,374 events, 1.5 ms at 17,176 and 13.4 ms at 68,377. It runs once per cold-tier move or skip check, and a move already reads and rewrites every event of the thread",
+  ),
+  boundedCorrelatedEvents(
+    `${EVENTS}#queryBatch`,
+    "ORDER BY sequence DESC LIMIT 1 reads one index entry per requested thread",
+  ),
+  boundedCorrelatedEvents(
+    `${EVENTS}#listThreadTurnInterruptionEventStates`,
+    "The subquery supplies the outer search's sequence, so it runs once per thread; check:query-costs measures it",
+  ),
+  boundedCorrelatedEvents(
+    `${EVENTS}#listThreadIdsStoppedSinceLastTurnStart`,
+    "The subquery supplies the outer search's sequence, so it runs once per thread; check:query-costs measures it",
+  ),
+  boundedCorrelatedEvents(
+    `${EVENTS}#listThreadIdsWithLatestHostDaemonRestartInterruption`,
+    "MAX(sequence) on the unique thread/sequence index reads one entry, once per thread",
+  ),
+  boundedCorrelatedEvents(
+    `${QUEUED}#isThreadQueueAutoSendPaused`,
+    "Runs per manual stop; the later-request EXISTS seeks the first request after the stop and the NOT EXISTS ends at the first later turn start; check:query-costs measures it",
+  ),
+  boundedCorrelatedEvents(
+    `${QUEUED}#listIdleThreadsWithQueuedMessages`,
+    "Same manual-stop pause check as isThreadQueueAutoSendPaused, per idle thread with queued messages",
+  ),
+  boundedCorrelatedEvents(
+    `${QUEUED}#deleteQueuedRetriesForThreadEventSuffixInTransaction`,
+    "Runs per queued retry of the thread; the search is confined to the deleted suffix's sequence range",
+  ),
+  boundedCorrelatedEvents(
+    `${EVENTS}#findLatestUnresolvedClientTurnRequestIdAfterSequence`,
+    "Outer rows are requests after the last completed turn, and each search starts at its request's sequence; check:query-costs measures it",
+  ),
+  boundedCorrelatedEvents(
+    `${EVENTS}#getFirstParentedTimelineBoundarySequence`,
+    "Runs once per delegation span and reads only the requests inside it; check:query-costs measures it",
+  ),
+  boundedCorrelatedEvents(
+    `${EVENTS}#listLatestTurnFinalAgentMessageEventRows`,
+    "LIMIT keeps the outer rows to the newest replies, so each later-reply search covers only the newest turns; check:query-costs measures it",
+  ),
+  boundedCorrelatedEvents(
+    `${EVENTS}#getStoredConversationOutlineProjectionState`,
+    "LIMIT 1: the root-request search runs only for nested turns, and the first nested turn with a matching root ends the query; check:query-costs measures it",
+  ),
+  boundedCorrelatedEvents(
+    `${THREADS}#listTurnStartDeadlineCandidates`,
+    "Turn-start deadline sweep over active threads; reads each thread's turn/completed rows once per sweep, linear in turns",
+  ),
+  boundedCorrelatedEvents(
+    `${THREADS}#isThreadAwaitingTurnStartPastDeadline`,
+    "Rechecks one deadline candidate; reads its turn/completed rows once, linear in turns",
   ),
   {
     rule: "full-scan",

@@ -98,6 +98,7 @@ build-config	M	apps/host-daemon/tsconfig.json
 build-config	M	apps/server/package.json
 build-config	M	packages/config/package.json
 build-config	M	packages/config/src/app-update.ts
+build-config	M	packages/db/scripts/query-costs/hosts-environments-seed.ts
 build-config	M	packages/domain/package.json
 build-config	M	packages/logger/package.json
 build-config	M	packages/scripts/test/bump-version.test.mjs
@@ -1023,6 +1024,8 @@ themes	M	apps/app/vitest.config.ts
 themes	A	apps/app/vitest.pixel.config.ts
 themes	M	apps/server/test/system/appearance.test.ts
 themes	M	apps/server/test/system/custom-themes.test.ts
+themes	M	packages/db/scripts/query-costs/settings-maintenance-cases.ts
+themes	M	packages/db/scripts/query-costs/settings-maintenance-seed.ts
 themes	A	packages/domain/test/app-theme.test.ts
 themes	M	plugins/theme-preview/server.ts
 themes	M	tests/integration/fake/smoke/theme-resolve.test.ts
@@ -1140,6 +1143,7 @@ timeline-build-bound	M	apps/server/src/services/threads/thread-head-state.ts
 build-config	M	.github/workflows/ci.yml
 build-config	D	.github/workflows/query-plan-audit.yml
 timeline-build-bound	M	apps/server/test/services/threads/timeline-cache.test.ts
+timeline-build-bound	M	packages/db/scripts/query-costs/events-cases.ts
 build-config	M	apps/app/src/lib/plugin-frontend-reload.test.ts
 build-config	M	apps/server/src/services/system/query-plan-audit.ts
 worktree-saved-work	M	packages/environment-provider-host/src/git.ts
