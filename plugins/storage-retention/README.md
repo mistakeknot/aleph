@@ -78,7 +78,7 @@ Orphan, development, worktree, external-worktree, and archived-file bulk cleanup
 background jobs. `startCleanup` and `startClearArchivedFiles` start them; `host`
 and `hosts` report progress, with `maintenanceJobs` retaining a separate status per
 maintenance kind. `maintenance` remains the latest maintenance status. Individual
-thread/development cleanup uses `startEntryCleanup` and polls `entryCleanup` for
+thread/development cleanup uses `startEntryCleanup` and reads the `entryCleanups` array of the `hosts` response for
 queued/running/result status so waiting never holds a remote HTTP request open. The CLI offers `bb storage cleanup` for maintenance
 jobs and keeps synchronous cleanup commands for callers that need final totals.
 
