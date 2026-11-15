@@ -3,7 +3,6 @@ import {
   abortTransferOperation,
   retireQueuedThreadMessages,
   getThread,
-  listEvents,
   listQueuedThreadMessages,
   listQueuedThreadMessagesForApi,
   listRunningThreads,
@@ -51,6 +50,7 @@ import {
   seedTurnStarted,
 } from "../helpers/seed.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
+import { listEvents } from "@bb/db/testing";
 
 const WORKSPACE_PATH = "/tmp/dispatch-hooks-project";
 
