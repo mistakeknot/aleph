@@ -14,23 +14,6 @@ import { isolateClaudePoolTools } from "./claude-pool-tools.js";
 describe.skipIf(process.platform === "win32")(
   "Claude pool tool routing",
   () => {
-    it("keeps the independently bundled plugin helpers identical", () => {
-      expect(
-        readFileSync(
-          new URL("./claude-pool-tools.ts", import.meta.url),
-          "utf8",
-        ),
-      ).toBe(
-        readFileSync(
-          new URL(
-            "../../provider-claude-code/src/bridge/claude-pool-tools.ts",
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-      );
-    });
-
     it("creates an executable wrapper under a restrictive umask", () => {
       const previous = process.umask(0o177);
       try {

@@ -709,6 +709,8 @@
         "$TURBO_ROOT$/scripts/*.mjs",
         "$TURBO_ROOT$/turbo.json",
         "$TURBO_ROOT$/plugins/*/package.json",
+        "$TURBO_ROOT$/plugins/account-pool/src/claude-pool-tools.ts",
+        "$TURBO_ROOT$/plugins/provider-claude-code/src/bridge/claude-pool-tools.ts",
         "$TURBO_ROOT$/plugins/plugin-api-docs/src/first-party-plugins.json",
         "$TURBO_ROOT$/packages/bundled-plugins/package.json",
         "$TURBO_ROOT$/apps/server/src/services/plugins/builtin-registry.ts",
