@@ -944,6 +944,61 @@ it("bulk-removes worktrees unused for the chosen period in one confirmation, opt
   );
 });
 
+it("confirms and removes exactly the capped number of worktrees when more than 500 match", async () => {
+  const { slot, hosts, start } = fixture();
+  const day = 86_400_000;
+  const worktrees = Array.from({ length: 612 }, (_, index) => ({
+    projectId: "proj_test",
+    repositoryPath: "/fixture/repo",
+    path: `/fixture/worktrees/stale-${index}`,
+    branch: `stale-${index}`,
+    locked: false,
+    changedFileCount: index === 3 ? 2 : 0,
+    unsavedCommitCount: 0,
+    lastActivityAt: null,
+    sizeBytes: 1024,
+    threads: [],
+    lastUsedAt: Date.now() - 40 * day,
+    origin: "outsideBb" as const,
+  }));
+  hosts[0]!.report!.externalWorktrees = worktrees;
+  const page = within(slot.container);
+  fireEvent.click(
+    await page.findByRole("button", { name: "Remove worktrees" }),
+  );
+  let confirmation = await page.findByRole("region", {
+    name: "Confirm cleanup",
+  });
+  expect(confirmation.textContent).toContain("Remove 500 worktrees");
+  expect(confirmation.textContent).toContain(
+    "112 more worktrees match but aren’t included: at most 500 are removed at a time",
+  );
+  fireEvent.click(
+    within(confirmation).getByRole("button", { name: "Remove all 500" }),
+  );
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+  const calls = start.mock.calls as unknown as {
+    paths: string[];
+    force: boolean;
+  }[][];
+  const forced = calls[0]![0]!;
+  expect(forced.force).toBe(true);
+  expect(forced.paths).toHaveLength(500);
+  expect(forced.paths).toEqual(worktrees.slice(0, 500).map((w) => w.path));
+  fireEvent.click(page.getByRole("button", { name: "Remove worktrees" }));
+  confirmation = await page.findByRole("region", { name: "Confirm cleanup" });
+  fireEvent.click(
+    within(confirmation).getByRole("button", {
+      name: "Keep the 1 with changes",
+    }),
+  );
+  await waitFor(() => expect(start).toHaveBeenCalledTimes(2));
+  const safe = calls[1]![0]!;
+  expect(safe.force).toBe(false);
+  expect(safe.paths).toHaveLength(499);
+  expect(safe.paths).not.toContain("/fixture/worktrees/stale-3");
+});
+
 it("removes a whole development group from one confirmation", async () => {
   const { slot, hosts, remove } = fixture();
   const storage = hosts[0]!.report!.developerStorage!;

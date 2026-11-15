@@ -1794,15 +1794,18 @@ export function createStorage(
         interruptedCleanup(env) && env.path !== null ? [env.path] : [],
       );
       const changes = new Map<string, number>();
+      const inspected = new Map<string, string>();
       for (let offset = 0; offset < interruptedPaths.length; offset += 100) {
         const { checkouts } = await worker.call(
           "inspectCheckouts",
           { paths: interruptedPaths.slice(offset, offset + 100) },
           { hostId, signal: lifecycle.signal },
         );
-        for (const checkout of checkouts)
+        for (const checkout of checkouts) {
+          inspected.set(checkout.path, checkout.state);
           if (checkout.state === "changed")
             changes.set(checkout.path, checkout.changedFileCount);
+        }
       }
       let retriedCount = 0;
       const kept: { environmentId: string; message: string }[] = [];
@@ -1823,6 +1826,22 @@ export function createStorage(
             message: describeLeftoverCleanup(cleanup),
           });
           continue;
+        }
+        if (recover && env.path !== null && !includeUncommitted) {
+          const state = inspected.get(env.path);
+          if (state !== "clean" && state !== "missing") {
+            const cleanup = {
+              state: "failed" as const,
+              message:
+                "Kept because Git can’t check this folder for uncommitted work. Run bb storage retry-worktree-cleanup with --include-uncommitted to remove it once you have looked inside",
+            };
+            leftoverCleanups.set(env.id, cleanup);
+            kept.push({
+              environmentId: env.id,
+              message: describeLeftoverCleanup(cleanup),
+            });
+            continue;
+          }
         }
         try {
           await bb.sdk.environments.experimental_cleanup({

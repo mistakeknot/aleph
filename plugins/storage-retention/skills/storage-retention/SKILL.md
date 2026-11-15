@@ -98,15 +98,15 @@ snapshots; rescan to see external filesystem changes.
 Plugin RPC methods: `state(null)`, `preview({archiveAfterDays, deleteAfterDays, deleteStorageOnArchive, deleteDevDataOnCheckoutRemoval})`,
 and `configure({archiveAfterDays, deleteAfterDays, deleteStorageOnArchive, deleteDevDataOnCheckoutRemoval})`; use null for Never and booleans for storage cleanup (both default to false for older policies). Storage
 RPC methods are `hosts(null)`, `host({hostId})`, `scanHost({hostId})`,
-`removeOrphans({hostId})`, `retryWorktreeCleanup({hostId})`, and
-`clearThread({threadId})`, `clearArchivedFiles({hostId})` and `removeDevInstances({hostId, names: null})` for every missing instance or `removeDevInstances({hostId, names, stopRunning})` for chosen ones, `removeExternalWorktrees({hostId, paths: null})` or `removeExternalWorktrees({hostId, paths, force})`, and `startRemoveExternalWorktree({hostId, path, force})`. The plugin owns its host worker and scan database.
+`removeOrphans({hostId})`, `retryWorktreeCleanup({hostId, includeUncommitted})`, and
+`clearThread({threadId})`, `clearArchivedFiles({hostId})` and `removeDevInstances({hostId, names: null})` for every missing instance or `removeDevInstances({hostId, names, stopRunning})` for 1 to 500 chosen ones, `removeExternalWorktrees({hostId, paths: null})` for every scanned external worktree (never forced) or `removeExternalWorktrees({hostId, paths, force})` for 1 to 500 chosen paths, returning `{removedCount, removedBytes, skipped, failed}`, and `startRemoveExternalWorktree({hostId, path, force})`, returning `{state: "started"}` or `{state: "skipped", reasons}`. The 500-path limit is a request-size bound: the Remove worktrees page selects, confirms and removes at most 500 worktrees at a time and says how many more match, so run it again for the rest. The plugin owns its host worker and scan database.
 
 Cross-plugin protection is deferred. Pin automation target threads to keep them.
 Disabling the plugin stops scheduled retention and removes its storage actions. Core's idle orphan sweep remains independent.
 
 The page uses app toasts for setting saves, cleanup progress and results, and action failures; cleanup and row actions show no inline progress and lock no controls, so additional actions are queued with a loading toast instead of failing with a maintenance conflict. Running scans stay beside their controls. Completed cleanup messages are not retained inline or replayed on page open. Initial loading failures retain an inline retry action. Settings and unrelated machines remain usable during cleanup; report refreshes do not extend action locks.
 
-`bb storage cleanup --machine HOST_ID --kind orphans|development|worktrees|externalWorktrees --yes` starts a background job and returns immediately. RPC: `startCleanup({hostId, kind})`. Read `maintenance` in usage/host reports for queued, running, completed or failed status. Retry failures with the same command; remaining candidates are re-read. The page uses this for bulk orphan removal, missing-checkout development data, worktree retries and removing worktrees created outside BB. Existing synchronous commands remain available.
+`bb storage cleanup --machine HOST_ID --kind orphans|development|worktrees|externalWorktrees --yes` starts a background job and returns immediately. RPC: `startCleanup` takes `{hostId, kind: "orphans"}`, `{hostId, kind: "development"}`, `{hostId, kind: "worktrees", includeUncommitted}` or `{hostId, kind: "externalWorktrees", paths, force}` (`paths` is null for every scanned external worktree, or 1 to 500 paths) and returns null; it returns without starting a second job while one of the same kind is queued or running on that machine. CLI flags: `--include-uncommitted` (worktrees and externalWorktrees; for externalWorktrees it also removes locked worktrees and ones with commits on no branch), and `--unused-for DAYS` (externalWorktrees only: select worktrees not used for that many days from the last scan). Read `maintenance` in usage/host reports for queued, running, completed or failed status. Retry failures with the same command; remaining candidates are re-read. The page uses this for bulk orphan removal, missing-checkout development data, worktree retries and removing worktrees created outside BB. Existing synchronous commands remain available.
 
 Automatic archive cleanup and archived-file bulk eligibility respect the core 30-second undo grace, using the shared core grace constant. Undo/rearchive, pins and live status are rechecked before cleanup; bulk jobs re-read eligibility before each batch. Grace expiry is a time boundary, not an indication that environment teardown completed.
 
@@ -123,8 +123,8 @@ The in-memory queue is canceled on server shutdown or plugin reload.
 kind; `maintenance` remains the most recently updated kind for existing callers.
 Thread/development rows use `startEntryCleanup({kind: "thread", threadId})` or
 `startEntryCleanup({kind: "development", hostId, names, stopRunning})`, returning
-`{id}`. Poll `entryCleanup({id})` for `queued`, `running`, `failed` with `message`,
-or `completed` with `result` (the kind and the existing synchronous result fields).
-Duplicate pending requests with the same parameters return the same id. Callers
+`{id}` (`names` holds 1 to 500 entries). Read the `entryCleanups` array in the `hosts(null)` response for items `{id, target, status}` where `status` is `queued`, `running`, `failed` with `message`,
+or `completed` with `result`: `{kind: "thread", ok: true}` or `{kind: "development", running, removedCount, removedBytes, skippedCount, stoppedProcessCount}`. There is no `entryCleanup` RPC; finished entries are pruned after a retention period.
+Duplicate pending requests with the same parameters (names deduplicated and sorted) return the same id. Callers
 must still confirm `stopRunning: true`; a non-stopping job reports running entries
 in its result so the UI can ask for confirmation.
