@@ -196,4 +196,44 @@ describe("markThreadDeleted commit boundary", () => {
       db.select().from(threads).where(eq(threads.id, a.id)).get()?.deletedAt,
     ).toBeNull();
   });
+  it("undoes the whole delete when a caught release failure happens inside an outer transaction", () => {
+    const { db, project } = setup();
+    const a = makeThread(db, project.id);
+    claimThreadRole(db, { ...actor, role: "aaa", threadId: a.id });
+    claimThreadRole(db, { ...actor, role: "zzz", threadId: a.id });
+    db.$client
+      .prepare(
+        "UPDATE thread_roles SET generation = 9007199254740991 WHERE role = 'zzz'",
+      )
+      .run();
+    const events: string[] = [];
+    db.transaction((tx) => {
+      let caught: unknown;
+      try {
+        markThreadDeleted(tx, recordingNotifier(events), { threadId: a.id });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
+        code: "role_generation_exhausted",
+        details: {
+          current: {
+            role: "zzz",
+            threadId: a.id,
+            archived: false,
+            generation: 9007199254740991,
+          },
+        },
+      });
+    });
+    expect(events).toEqual([]);
+    expect(getThreadRole(db, "aaa")).toMatchObject({
+      threadId: a.id,
+      generation: 1,
+    });
+    expect(getThreadRole(db, "zzz")).toMatchObject({ threadId: a.id });
+    expect(
+      db.select().from(threads).where(eq(threads.id, a.id)).get()?.deletedAt,
+    ).toBeNull();
+  });
 });

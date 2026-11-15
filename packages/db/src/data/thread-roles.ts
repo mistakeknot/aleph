@@ -409,14 +409,7 @@ export function releaseRolesForDeletedThreads(
   const released: ReleaseRolesForDeletedThreadsResult["released"] = [];
   for (const row of held) {
     if (row.threadId === null) continue;
-    assertGenerationHeadroom(row.generation, {
-      role: row.role,
-      threadId: row.threadId,
-      title: null,
-      archived: null,
-      generation: row.generation,
-      since: null,
-    });
+    assertGenerationHeadroom(row.generation, readState(tx, row.role));
     const updated = tx
       .update(threadRoles)
       .set({

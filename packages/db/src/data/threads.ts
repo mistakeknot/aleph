@@ -2578,7 +2578,7 @@ export function markThreadDeleted(
   if (rootConnectionOf(db) === db) {
     return (db as DbConnection).transaction(run, { behavior: "immediate" });
   }
-  return run(db);
+  return db.transaction(run);
 }
 
 export function markThreadStorageDeleted(
