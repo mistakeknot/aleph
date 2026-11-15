@@ -73,7 +73,7 @@ async function acceptResolvedThreadSendRequest(
     const environment = await requireThreadCommandEnvironment(deps, {
       thread: args.thread,
     });
-    await attemptDispatch(deps, {
+    const outcome = await attemptDispatch(deps, {
       requestedThreadId: args.requestedThreadId ?? args.thread.id,
       thread: args.thread,
       payload: request,
@@ -86,7 +86,12 @@ async function acceptResolvedThreadSendRequest(
       startedOnBehalfOf: null,
       trigger: "user",
     });
-    return { ok: true, delivery: "sent" };
+    return {
+      ok: true,
+      delivery: "sent",
+      messageSequence:
+        outcome.kind === "dispatched" ? outcome.messageSequence : null,
+    };
   }
 
   if (compactFirst) {
@@ -123,7 +128,11 @@ async function acceptResolvedThreadSendRequest(
       }),
   );
   if (outcome.kind === "dispatched") {
-    return { ok: true, delivery: "sent" };
+    return {
+      ok: true,
+      delivery: "sent",
+      messageSequence: outcome.messageSequence,
+    };
   }
   return {
     ok: true,
