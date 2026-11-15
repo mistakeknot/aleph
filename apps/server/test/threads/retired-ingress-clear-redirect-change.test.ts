@@ -168,7 +168,11 @@ describe("a standalone clear whose redirect changes before its marker commits", 
     it(`marks only the current destination (${window})`, async () => {
       const result = await runClearRedirectChange(window);
       expect(result.state.changed).toBe(true);
-      expect(result.response).toEqual({ ok: true, delivery: "sent" });
+      expect(result.response).toEqual({
+        ok: true,
+        delivery: "sent",
+        messageSequence: null,
+      });
       expect(result.markers.source).toHaveLength(0);
       expect(result.markers.firstTarget).toHaveLength(0);
       expect(result.markers.secondTarget).toHaveLength(1);

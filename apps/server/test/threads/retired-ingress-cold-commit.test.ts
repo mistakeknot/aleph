@@ -214,7 +214,11 @@ describe("a cold admission whose redirect changes after it commits", () => {
       });
       expect(result.outcome).toEqual({
         kind: "ok",
-        response: { ok: true, delivery: "sent" },
+        response: {
+          ok: true,
+          delivery: "sent",
+          messageSequence: expect.any(Number),
+        },
       });
       expect(result.requests).toEqual({
         [result.ids.source]: 0,
