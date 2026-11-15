@@ -167,4 +167,17 @@ describe("@bb/sdk experimental_threadRoles", () => {
       message: expect.stringContaining("upstream said no"),
     });
   });
+
+  it("constructs against a transport whose API tree has no v1 node", () => {
+    const transport = createHttpTransport({
+      baseUrl: "http://bb.test",
+      fetch: async () => new Response("{}"),
+      runtime: "node",
+    });
+    const partialApi = {} as unknown as typeof transport.api;
+
+    expect(() =>
+      createBbSdk({ transport: { ...transport, api: partialApi } }),
+    ).not.toThrow();
+  });
 });
