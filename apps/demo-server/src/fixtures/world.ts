@@ -216,6 +216,8 @@ export function queuedMessage(args: {
     originPluginId: null,
     initiator: "user",
     senderThreadId: null,
+    wakeCause: "unknown",
+    wakeRef: null,
     content: args.content,
     model: THREAD_DEFAULT_EXECUTION_OPTIONS.model,
     reasoningLevel: THREAD_DEFAULT_EXECUTION_OPTIONS.reasoningLevel,
