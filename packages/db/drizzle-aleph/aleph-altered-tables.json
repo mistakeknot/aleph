@@ -7,6 +7,7 @@
     "queued_thread_messages",
     "thread_event_cold_state",
     "thread_redirects",
+    "thread_roles",
     "thread_search_learned_selections",
     "threads",
     "transfer_entries",

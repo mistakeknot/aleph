@@ -659,7 +659,7 @@ preceding ceiling, and no Aleph step was added.
 `migration-step-checks.ts` and `legacy-migration-chain.ts`) replaces the single
 Drizzle journal with two namespaces: the frozen upstream folder
 (`drizzle/`, pinned by `drizzle-aleph/frozen-upstream.json`) and the
-fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0015`, ordered by
+fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0016`, ordered by
 `manifest.json`, checked by `step-checks.json`; `A0010` is the event cold tier that
 main carries as upstream-numbered `0152_event_cold_tier`, which the legacy chain
 maps to it). Applied steps are recorded in
@@ -874,3 +874,42 @@ attribution. This is a design choice for the protected migration slice.
 
 Design choice: append after the full plan tail so an existing database never
 sees a missing ledger entry inserted before already-applied steps.
+
+### Thread roles (mk-yrfu2)
+
+Fork-owned `A0016_thread_roles` anchors after `A0015_queue_wake_cause` (the
+Aleph tail) and creates `thread_roles`: one row per role name, `role` the
+primary key, a nullable `thread_id` foreign key to `threads` that clears on
+delete, and a per-role `generation` that rises on every holder change and is
+never reset. Five CHECK constraints pin the role-name pattern, the generation
+range, the holder type, integer timestamps and the writer kind.
+
+The step also carries a handwritten trigger, `thread_roles_holder_cleared`,
+that bumps generation, `since` and `updated_at` and records writer kind
+`system` when the foreign key clears a holder (a hard delete or a project
+cascade). It skips updates that already bumped the generation, so an explicit
+release is not counted twice. Drizzle does not generate triggers, so the
+snapshot does not list it. A future step that rebuilds `thread_roles` must
+recreate this trigger, and the migration guard refuses an upstream step that
+rebuilds or alters the table.
+
+Soft delete releases the roles of the whole deletion tree inside
+`markThreadDeleted`, in the same transaction as the delete.
+
+There is no down migration. An older binary refuses a database whose ledger
+lists `A0016`; the way back is the pre-migration backup the runner takes before
+the step, restored with the migration restore command.
+
+Failure cases:
+
+- Before COMMIT: the transaction rolls back, the backup is discarded and the
+  database is unchanged. A retry runs the step again.
+- During COMMIT: SQLite either commits or rolls back whole. The backup is kept
+  for the failed run, so restore it if the database is in doubt.
+- After COMMIT: the step is applied and the ledger row exists. A failure while
+  finalizing the backup or validating history leaves the backup in place and
+  the lock released; the next start sees nothing to do. Restore the backup only
+  if the roles feature must be backed out.
+
+Design choice: a table keyed by role makes one-holder-per-role true by
+construction, and the generation column gives callers a compare-and-swap token.

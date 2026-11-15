@@ -35,7 +35,9 @@ describe("queue wake attribution", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
       steps: { id: string }[];
     };
-    manifest.steps = manifest.steps.filter((step) => step.id !== "A0015");
+    manifest.steps = manifest.steps.filter(
+      (step) => step.id !== "A0015" && step.id !== "A0016",
+    );
     writeFileSync(manifestPath, JSON.stringify(manifest));
     const db = createConnection(":memory:");
     try {

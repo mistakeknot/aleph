@@ -86,5 +86,8 @@
       "transfer_entries",
       "transfer_events"
     ]
+  },
+  "A0016": {
+    "createsTables": ["thread_roles"]
   }
 }

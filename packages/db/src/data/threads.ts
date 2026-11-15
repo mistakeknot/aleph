@@ -1,4 +1,9 @@
-import { prepareCachedQuery } from "../connection.js";
+import {
+  afterCommit,
+  prepareCachedQuery,
+  rootConnectionOf,
+} from "../connection.js";
+import { releaseRolesForDeletedThreads } from "./thread-roles.js";
 import { markThreadPruningPolicyWork } from "./thread-pruning-work.js";
 import {
   ColdThreadHistoryError,
@@ -2529,34 +2534,51 @@ export function markThreadDeleted(
   notifier: DbNotifier,
   args: MarkThreadDeletedArgs,
 ) {
-  const updated = db
-    .update(threads)
-    .set({
-      deletedAt: args.deletedAt ?? Date.now(),
-      updatedAt: Date.now(),
-    })
-    .where(
-      and(
-        inArray(threads.id, deletionThreadTreeIdsForThread(args.threadId)),
-        isNull(threads.deletedAt),
-      ),
-    )
-    .returning()
-    .all();
-  deleteThreadSearchLearnedSelections(
-    db,
-    updated.map((thread) => thread.id),
-  );
-  for (const thread of updated) {
-    notifier.notifyThread(thread.id, ["thread-deleted"], {
-      projectId: thread.projectId,
+  const run = (tx: ThreadWriteConnection) => {
+    const updated = tx
+      .update(threads)
+      .set({
+        deletedAt: args.deletedAt ?? Date.now(),
+        updatedAt: Date.now(),
+      })
+      .where(
+        and(
+          inArray(threads.id, deletionThreadTreeIdsForThread(args.threadId)),
+          isNull(threads.deletedAt),
+        ),
+      )
+      .returning()
+      .all();
+    deleteThreadSearchLearnedSelections(
+      tx,
+      updated.map((thread) => thread.id),
+    );
+    const { released } = releaseRolesForDeletedThreads(
+      tx,
+      updated.map((thread) => thread.id),
+    );
+    afterCommit(tx, () => {
+      for (const thread of updated) {
+        notifier.notifyThread(thread.id, ["thread-deleted"], {
+          projectId: thread.projectId,
+        });
+        notifier.notifyProject(thread.projectId, ["threads-changed"]);
+      }
+      for (const release of released) {
+        console.info(
+          `thread role released on delete: role=${release.role} thread=${release.threadId} generation=${release.generation}`,
+        );
+      }
     });
-    notifier.notifyProject(thread.projectId, ["threads-changed"]);
+    return (
+      updated.find((thread) => thread.id === args.threadId) ??
+      getThread(tx, args.threadId)
+    );
+  };
+  if (rootConnectionOf(db) === db) {
+    return (db as DbConnection).transaction(run, { behavior: "immediate" });
   }
-  return (
-    updated.find((thread) => thread.id === args.threadId) ??
-    getThread(db, args.threadId)
-  );
+  return run(db);
 }
 
 export function markThreadStorageDeleted(
