@@ -512,7 +512,7 @@ function appendAndQueueSendThreadMessageInTransaction({
 export async function sendThreadMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendThreadMessageArgs,
-): Promise<void> {
+): Promise<number | null> {
   if (isStandaloneBuiltinClearCommand(args.payload.input)) {
     const { requestedThreadId } = args;
     await clearThreadContext(deps, {
@@ -532,7 +532,7 @@ export async function sendThreadMessage(
               ),
           }),
     });
-    return;
+    return null;
   }
   return withThreadSendGuard(args.thread.id, () =>
     sendThreadMessageWithoutContextClear(deps, args),
@@ -563,13 +563,13 @@ export async function pinWritableThreadHistory(
 async function sendThreadMessageWithoutContextClear(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendThreadMessageArgs,
-): Promise<void> {
+): Promise<number> {
   const releaseHistoryPin = await pinWritableThreadHistory(
     deps,
     args.thread.id,
   );
   try {
-    await sendHotThreadMessageWithoutContextClear(deps, args);
+    return await sendHotThreadMessageWithoutContextClear(deps, args);
   } finally {
     releaseHistoryPin();
   }
@@ -578,7 +578,7 @@ async function sendThreadMessageWithoutContextClear(
 async function sendHotThreadMessageWithoutContextClear(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendThreadMessageArgs,
-): Promise<void> {
+): Promise<number> {
   const { environment, payload, thread } = args;
   ensureThreadIsWritable(thread);
   if (args.trigger === "user") {
@@ -701,28 +701,27 @@ async function sendHotThreadMessageWithoutContextClear(
     initiator,
   });
 
-  if (
-    await dispatchTurnDuringReprovision({
-      beforeRequestAppendInTransaction: beforeAppendInTransaction,
-      deps,
-      environment,
-      execution,
-      ...wakeAttribution(payload),
-      initiator,
-      input,
-      inputGroups,
-      originPluginId: args.originPluginId,
-      ...(args.retryOf !== undefined ? { retryOf: args.retryOf } : {}),
-      senderThreadId,
-      ...(args.systemNotice !== undefined
-        ? {
-            systemMessageKind: args.systemNotice.kind,
-            systemMessageSubject: args.systemNotice.subject,
-          }
-        : {}),
-      thread,
-    })
-  ) {
+  const reprovisionDispatch = await dispatchTurnDuringReprovision({
+    beforeRequestAppendInTransaction: beforeAppendInTransaction,
+    deps,
+    environment,
+    execution,
+    ...wakeAttribution(payload),
+    initiator,
+    input,
+    inputGroups,
+    originPluginId: args.originPluginId,
+    ...(args.retryOf !== undefined ? { retryOf: args.retryOf } : {}),
+    senderThreadId,
+    ...(args.systemNotice !== undefined
+      ? {
+          systemMessageKind: args.systemNotice.kind,
+          systemMessageSubject: args.systemNotice.subject,
+        }
+      : {}),
+    thread,
+  });
+  if (reprovisionDispatch !== null) {
     if (shouldCaptureUserMessageSent) {
       captureUserMessageSentTelemetry(deps, {
         isChildThread: thread.parentThreadId !== null,
@@ -731,7 +730,7 @@ async function sendHotThreadMessageWithoutContextClear(
         initiator: telemetryInitiator,
       });
     }
-    return;
+    return reprovisionDispatch.messageSequence;
   }
   const readyEnvironment = requireReadyThreadEnvironment(
     getEnvironment(deps.db, environment.id) ?? environment,
@@ -867,7 +866,7 @@ async function sendHotThreadMessageWithoutContextClear(
         initiator: telemetryInitiator,
       });
     }
-    return;
+    return queuedRequest.request.sequence;
   }
 
   await ensureHostSessionReadyForWork(deps, {
@@ -940,4 +939,5 @@ async function sendHotThreadMessageWithoutContextClear(
       initiator: telemetryInitiator,
     });
   }
+  return queuedRequest.request.sequence;
 }

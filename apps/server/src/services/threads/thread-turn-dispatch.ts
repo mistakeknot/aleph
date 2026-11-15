@@ -59,9 +59,9 @@ export function requireReadyThreadEnvironment(
 
 export async function dispatchTurnDuringReprovision(
   args: DispatchTurnDuringReprovisionArgs,
-): Promise<boolean> {
+): Promise<{ messageSequence: number } | null> {
   if (args.environment.status === "ready" && args.environment.path) {
-    return false;
+    return null;
   }
 
   const environmentProviderId = args.environment.environmentProviderId;
@@ -73,7 +73,7 @@ export async function dispatchTurnDuringReprovision(
     args.environment.status !== "provisioning" &&
     args.environment.status !== "destroyed"
   ) {
-    requestThreadTargetReprovision(args.deps, {
+    const { messageSequence } = requestThreadTargetReprovision(args.deps, {
       beforeRequestAppendInTransaction: ({ tx }) => {
         args.beforeRequestAppendInTransaction?.({ tx });
         const prepared = applyLoggedThreadLifecycleEventInTransaction(
@@ -110,7 +110,7 @@ export async function dispatchTurnDuringReprovision(
       );
     }
     scheduleThreadProvisioningAdvance(args.deps, args.thread.id);
-    return true;
+    return { messageSequence };
   }
 
   const goneDetails = goneThreadEnvironmentDetails(args.environment);

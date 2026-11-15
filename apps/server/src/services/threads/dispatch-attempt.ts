@@ -290,7 +290,7 @@ export interface DispatchAttemptArgs {
 }
 
 export type DispatchAttemptOutcome =
-  | { kind: "dispatched" }
+  | { kind: "dispatched"; messageSequence: number | null }
   | { kind: "queued"; entry: ThreadQueuedMessage };
 
 /**
@@ -358,7 +358,7 @@ async function runOperationDispatch(
   args: DispatchAttemptArgs,
   source: Extract<DispatchAttemptSource, { kind: "operation" }>,
 ): Promise<DispatchAttemptOutcome> {
-  await sendThreadMessage(deps, {
+  const messageSequence = await sendThreadMessage(deps, {
     environment: source.environment,
     originPluginId: args.originPluginId,
     requestedThreadId: args.requestedThreadId,
@@ -372,7 +372,7 @@ async function runOperationDispatch(
       ? { historyReplacement: source.historyReplacement }
       : {}),
   });
-  return { kind: "dispatched" };
+  return { kind: "dispatched", messageSequence };
 }
 
 interface DispatchAttemptRun {
@@ -534,7 +534,7 @@ async function runDispatchAttempt(
       // The row vanished under a re-queue (the user deleted it). Nothing is
       // waiting and nothing dispatched; report it as dispatched-away so the
       // drain stops rather than looping on a row that no longer exists.
-      return { kind: "dispatched" };
+      return { kind: "dispatched", messageSequence: null };
     }
     return { kind: "queued", entry };
   };
@@ -552,13 +552,16 @@ async function runDispatchAttempt(
     reattemptThread: null,
   };
 
-  const sendToExistingThread = async (): Promise<boolean> => {
+  const sendToExistingThread = async (): Promise<{
+    messageSequence: number | null;
+  } | null> => {
     markTurnTraceSpan("dispatch.checkpoint.done");
     const environment = await requireThreadCommandEnvironment(deps, {
       thread,
     });
+    let messageSequence: number | null;
     try {
-      await sendThreadMessage(deps, {
+      messageSequence = await sendThreadMessage(deps, {
         environment,
         originPluginId: args.originPluginId,
         payload: resolvedPayload,
@@ -582,14 +585,14 @@ async function runDispatchAttempt(
       });
     } catch (error) {
       if (error instanceof DispatchThreadStatusChangedError) {
-        return false;
+        return null;
       }
       throw error;
     }
     if (claimed !== null) {
       settleQueueRowDispatched({ row: claimed[0]! });
     }
-    return true;
+    return { messageSequence };
   };
 
   const continueThroughCoreWaits = async (): Promise<void> => {
@@ -751,8 +754,12 @@ async function runDispatchAttempt(
 
     if (systemNotice !== null) {
       assertDestinationCurrent?.(deps.db);
-      if (await sendToExistingThread()) {
-        continued.outcome = { kind: "dispatched" };
+      const sent = await sendToExistingThread();
+      if (sent !== null) {
+        continued.outcome = {
+          kind: "dispatched",
+          messageSequence: sent.messageSequence,
+        };
         return;
       }
       const current = getThread(deps.db, thread.id);
@@ -841,12 +848,13 @@ async function runDispatchAttempt(
       return reattemptDispatchForThreadChange(deps, args, current, run, waitOn);
     }
     await launchAdmittedThread(deps, admission);
-    return { kind: "dispatched" };
+    return { kind: "dispatched", messageSequence: admission.messageSequence };
   }
 
   assertDestinationCurrent?.(deps.db);
 
-  if (!(await sendToExistingThread())) {
+  const sent = await sendToExistingThread();
+  if (sent === null) {
     return reattemptDispatchForThreadChange(
       deps,
       args,
@@ -855,7 +863,7 @@ async function runDispatchAttempt(
       waitOn,
     );
   }
-  return { kind: "dispatched" };
+  return { kind: "dispatched", messageSequence: sent.messageSequence };
 }
 
 class DispatchThreadStatusChangedError extends Error {}
@@ -939,6 +947,7 @@ type DestinationCheck = (tx: DbQueryConnection) => void;
 
 interface PendingThreadAdmission {
   claimedRow: ClaimedQueuedThreadMessageRow | null;
+  messageSequence: number;
   startingThread: Thread;
 }
 
@@ -989,9 +998,9 @@ async function admitPendingThread(
     threadId: args.thread.id,
   });
   const claimedRow = args.claimed?.[0] ?? null;
-  let startingThread: Thread;
+  let admitted: { messageSequence: number; startingThread: Thread };
   try {
-    startingThread = deps.db.transaction(
+    admitted = deps.db.transaction(
       (tx) => {
         args.assertDestinationCurrent?.(tx);
         // The row is consumed and the thread flipped in ONE transaction: a
@@ -1014,7 +1023,7 @@ async function admitPendingThread(
         }
         const starting = getThread(tx, args.thread.id);
         if (starting === null) throw new PendingThreadAdmissionLost();
-        requestThreadProvision(deps, {
+        const { messageSequence } = requestThreadProvision(deps, {
           author: args.author,
           ...wakeAttribution(args.payload),
           thread: starting,
@@ -1030,7 +1039,7 @@ async function admitPendingThread(
           startedOnBehalfOf: startContext.startedOnBehalfOf,
           titleProvided: startContext.titleProvided,
         });
-        return starting;
+        return { messageSequence, startingThread: starting };
       },
       { behavior: "immediate" },
     );
@@ -1046,6 +1055,7 @@ async function admitPendingThread(
     );
     return null;
   }
+  const { messageSequence, startingThread } = admitted;
   deps.hub.notifyThread(
     startingThread.id,
     ["status-changed"],
@@ -1053,6 +1063,7 @@ async function admitPendingThread(
   );
   return {
     claimedRow,
+    messageSequence,
     startingThread,
   };
 }
