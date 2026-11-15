@@ -23,6 +23,7 @@ import {
   type RequestHeaderReader,
   type RequestSource,
 } from "../request-context.js";
+import { PLUGIN_RPC_CALLER_HEADER } from "../services/plugins/plugin-rpc-caller.js";
 import type { PluginService } from "../services/plugins/plugin-service.js";
 
 function requireRoleName(role: string): string {
@@ -107,6 +108,17 @@ export function registerThreadRoleRoutes(
     actor: ThreadRoleActor;
     source: RequestSource;
   } {
+    const pluginToken = context.req.header(PLUGIN_RPC_CALLER_HEADER);
+    if (
+      pluginToken !== undefined &&
+      !plugins.resolveRpcCaller(pluginToken).ok
+    ) {
+      throw new ApiError(
+        403,
+        "forbidden",
+        "Plugin caller credentials were not accepted",
+      );
+    }
     const source = resolveRequestSource(context, plugins.resolveRpcCaller);
     return { actor: actorFor(source), source };
   }

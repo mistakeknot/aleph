@@ -256,6 +256,35 @@ describe("public thread roles routes", () => {
     });
   });
 
+  it("refuses every mutation carrying a plugin credential that does not resolve", async () => {
+    await withTestHarness(async (harness) => {
+      const { first } = seedTwoThreads(harness, "Holder");
+      await post(harness, "/ruler/claim", { threadId: first.id });
+      const resolve = vi
+        .spyOn(harness.pluginService, "resolveRpcCaller")
+        .mockReturnValue({ ok: false });
+
+      for (const token of ["invalid-token", "revoked-token", ""]) {
+        const headers = { ...JSON_HEADERS, "x-bb-plugin-caller": token };
+        for (const [path, body] of [
+          ["/ruler/claim", { threadId: first.id }],
+          ["/ruler/transfer", { toThreadId: first.id, expectGeneration: 1 }],
+          ["/ruler/release", { expectGeneration: 1 }],
+        ] as const) {
+          const response = await post(harness, path, body, headers);
+          expect(response.status).toBe(403);
+          expect((await readError(response)).code).toBe("forbidden");
+        }
+      }
+
+      resolve.mockRestore();
+      const read = await harness.app.request("/api/v1/thread-roles/ruler");
+      expect(threadRoleStateSchema.parse(await readJson(read)).generation).toBe(
+        1,
+      );
+    });
+  });
+
   it("maps a busy database to a retryable 503 without changing the role", async () => {
     await withTestHarness(async (harness) => {
       const { first, second } = seedTwoThreads(harness, "Holder");
