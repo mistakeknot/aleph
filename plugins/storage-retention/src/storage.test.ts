@@ -3190,7 +3190,11 @@ it("recovers interrupted checkouts without uncommitted changes and explains the 
         checkouts: paths.map((path) =>
           path.endsWith("env_dirty")
             ? { path, state: "changed", changedFileCount: 2 }
-            : { path, state: "clean" },
+            : path.endsWith("env_notgit")
+              ? { path, state: "notGit" }
+              : path.endsWith("env_gone")
+                ? { path, state: "missing" }
+                : { path, state: "clean" },
         ),
       };
     },
@@ -3203,6 +3207,8 @@ it("recovers interrupted checkouts without uncommitted changes and explains the 
         list: async () => [
           leftover("env_clean", interrupted),
           leftover("env_dirty", interrupted),
+          leftover("env_notgit", interrupted),
+          leftover("env_gone", interrupted),
           leftover("env_old_daemon", interrupted),
           leftover("env_failed", "git worktree remove failed"),
         ],
@@ -3226,12 +3232,17 @@ it("recovers interrupted checkouts without uncommitted changes and explains the 
         includeUncommitted: false,
       }),
     ).resolves.toEqual({
-      retriedCount: 2,
+      retriedCount: 3,
       failed: [],
       kept: [
         {
           environmentId: "env_dirty",
           message: "Kept because it has 2 uncommitted changes",
+        },
+        {
+          environmentId: "env_notgit",
+          message:
+            "Kept because Git can’t check this folder for uncommitted work. Run bb storage retry-worktree-cleanup with --include-uncommitted to remove it once you have looked inside",
         },
         {
           environmentId: "env_old_daemon",
@@ -3242,6 +3253,7 @@ it("recovers interrupted checkouts without uncommitted changes and explains the 
     });
     expect(cleaned).toEqual([
       { environmentId: "env_clean", recover: true },
+      { environmentId: "env_gone", recover: true },
       { environmentId: "env_old_daemon", recover: true },
       { environmentId: "env_failed", recover: false },
     ]);
@@ -3250,7 +3262,9 @@ it("recovers interrupted checkouts without uncommitted changes and explains the 
       hostId: "host_test",
       includeUncommitted: true,
     });
-    expect(cleaned.map((call) => call.environmentId)).toContain("env_dirty");
+    expect(cleaned.map((call) => call.environmentId)).toEqual(
+      expect.arrayContaining(["env_dirty", "env_notgit"]),
+    );
   } finally {
     await host.harness.dispose();
   }

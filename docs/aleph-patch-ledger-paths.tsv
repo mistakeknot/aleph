@@ -1171,3 +1171,5 @@ storage-retention-worktree-limit	M	plugins/storage-retention/app.tsx
 storage-retention-worktree-limit	M	plugins/storage-retention/skills/storage-retention/SKILL.md
 storage-retention-worktree-limit	M	plugins/storage-retention/src/worktree-selection.ts
 storage-retention-worktree-limit	A	plugins/storage-retention/src/worktree-selection.test.ts
+storage-retention-worktree-limit	M	plugins/storage-retention/src/storage.test.ts
+storage-retention-worktree-limit	M	plugins/storage-retention/src/storage.ts
