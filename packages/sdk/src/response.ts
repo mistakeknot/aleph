@@ -319,6 +319,7 @@ async function readHttpErrorInfo(
     }
     rawBody = "";
   }
+  const trimmed = rawBody.trim();
   const normalized = rawBody.replace(/\s+/g, " ").trim();
   if (normalized.length === 0) {
     return { body: null, code: null, message: response.statusText };
@@ -337,7 +338,7 @@ async function readHttpErrorInfo(
   }
 
   try {
-    const parsed: unknown = JSON.parse(normalized);
+    const parsed: unknown = JSON.parse(trimmed);
     return {
       body: parsed,
       code: readHttpErrorCode(parsed),

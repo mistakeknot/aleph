@@ -64,6 +64,7 @@ export class BBSdk implements BbSdk {
   readonly experimental_desktopBrowsers: BbSdk["experimental_desktopBrowsers"];
   readonly experimental_promptHistory: BbSdk["experimental_promptHistory"];
   readonly experimental_server: BbSdk["experimental_server"];
+  readonly experimental_threadRoles: BbSdk["experimental_threadRoles"];
   readonly files: BbSdk["files"];
   readonly guide: BbSdk["guide"];
   readonly hosts: BbSdk["hosts"];
@@ -85,6 +86,7 @@ export class BBSdk implements BbSdk {
     this.experimental_desktopBrowsers = sdk.experimental_desktopBrowsers;
     this.experimental_promptHistory = sdk.experimental_promptHistory;
     this.experimental_server = sdk.experimental_server;
+    this.experimental_threadRoles = sdk.experimental_threadRoles;
     this.files = sdk.files;
     this.guide = sdk.guide;
     this.hosts = sdk.hosts;

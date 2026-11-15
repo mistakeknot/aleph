@@ -1,5 +1,6 @@
 export interface CliErrorReport {
   code: string;
+  details?: Record<string, unknown> | null;
   hint: string | null;
   message: string;
 }
@@ -10,6 +11,7 @@ export interface CliErrorEnvelope {
     code: string;
     message: string;
     hint?: string;
+    details?: Record<string, unknown>;
   };
 }
 
@@ -34,6 +36,9 @@ export function toCliErrorEnvelope(report: CliErrorReport): CliErrorEnvelope {
       code: report.code,
       message: report.message,
       ...(report.hint === null ? {} : { hint: report.hint }),
+      ...(report.details === undefined || report.details === null
+        ? {}
+        : { details: report.details }),
     },
   };
 }

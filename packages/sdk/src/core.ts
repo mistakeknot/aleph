@@ -14,6 +14,10 @@ import {
   createServerArea,
   type ExperimentalServerArea,
 } from "./areas/server.js";
+import {
+  createThreadRolesArea,
+  type ExperimentalThreadRolesArea,
+} from "./areas/thread-roles.js";
 import { createProjectsArea, type ProjectsArea } from "./areas/projects.js";
 import { createProvidersArea, type ProvidersArea } from "./areas/providers.js";
 import { createPluginsArea, type PluginsArea } from "./areas/plugins.js";
@@ -50,6 +54,7 @@ export interface BbSdkAreas extends BbRealtime {
   experimental_desktopBrowsers: ExperimentalDesktopBrowsersArea;
   experimental_promptHistory: ExperimentalPromptHistoryArea;
   experimental_server: ExperimentalServerArea;
+  experimental_threadRoles: ExperimentalThreadRolesArea;
   environments: EnvironmentsArea;
   files: FilesArea;
   hosts: HostsArea;
@@ -82,6 +87,7 @@ export function createBbSdk(
     experimental_desktopBrowsers: createDesktopBrowsersArea(sdkContext),
     experimental_promptHistory: createPromptHistoryArea(sdkContext),
     experimental_server: createServerArea(sdkContext),
+    experimental_threadRoles: createThreadRolesArea(sdkContext),
     environments: createEnvironmentsArea(sdkContext),
     files: createFilesArea(sdkContext),
     hosts: createHostsArea(sdkContext),

@@ -43,6 +43,7 @@ import {
   buildPromptInputs,
   uploadClientAttachmentInputs,
 } from "./helpers.js";
+import { claimThreadRoleForThread } from "./roles.js";
 import { SEND_AT_HELP, parseSendAt } from "./send-time.js";
 
 interface ThreadUpdateCommandOptions {
@@ -61,6 +62,7 @@ interface ThreadUpdateCommandOptions {
   reasoningLevel?: string;
   visibility?: string;
   parentNotifications?: string;
+  role?: string;
 }
 
 interface ThreadArchiveCommandOptions {
@@ -208,9 +210,43 @@ export function registerActionsCommands(
     )
     .option("--visibility <visibility>", "Thread visibility: visible or hidden")
     .option("--parent-notifications <value>", PARENT_NOTIFICATIONS_HELP)
+    .option(
+      "--role <role>",
+      "Claim a role that has no holder for this thread (cannot be combined with other update flags)",
+    )
     .action(
       action(
         async (id: string | undefined, opts: ThreadUpdateCommandOptions) => {
+          if (opts.role !== undefined) {
+            const combined =
+              opts.title !== undefined ||
+              opts.parentThread !== undefined ||
+              opts.clearParentThread ||
+              opts.section !== undefined ||
+              opts.clearSection ||
+              opts.ifSection !== undefined ||
+              opts.ifUnpinned ||
+              opts.ifUnarchived ||
+              opts.ifTopLevel ||
+              opts.model !== undefined ||
+              opts.reasoningLevel !== undefined ||
+              opts.visibility !== undefined ||
+              opts.parentNotifications !== undefined;
+            if (combined) {
+              throw new CliUsageError({
+                code: "invalid_usage",
+                hint: null,
+                message: "--role cannot be combined with other update flags.",
+              });
+            }
+            await claimThreadRoleForThread({
+              getUrl,
+              opts,
+              role: opts.role,
+              threadId: requireThreadIdOrSelf(id, opts),
+            });
+            return;
+          }
           const conditional =
             opts.ifSection !== undefined ||
             opts.ifUnpinned ||

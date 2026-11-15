@@ -71,6 +71,23 @@ the most-parsed commands ends with the same shape.
   bb thread search <query> --json
     {active: {total, results}, archived: {total, results}}
 
+  bb thread role get <role> --json
+    {role, threadId, title, archived, generation, since}    (exit 3 with the same body when threadId is null: nobody holds the role; archived holders are still returned)
+
+  bb thread role list --json
+    {roles: [{role, threadId, title, archived, generation, since}]}    (wrapped in .roles; threadId, title, archived are null for a role nobody holds)
+
+  bb thread role transfer <role> --to <id> --expect-generation <n> --json
+    {role, threadId, title, archived, generation, since}    (the role after the change; fails with a 409 error carrying error.details.current when the generation moved)
+
+  bb thread role release <role> --expect-generation <n> --json
+    {role, threadId: null, title: null, archived: null, generation, since}    (the role after the release; fails with a 409 error carrying error.details.current when the generation moved)
+
+  bb thread update <id> --role <role> --json
+    the role after the claim: {role, threadId, title, archived, generation, since}
+
+  Role conflicts (409) add error.details.current: the role's state when the command failed.
+
   bb prompt-history list --json
     {entries: [{id, createdAt, input, projectId, threadId, scope}], nextCursor: string | null}
 

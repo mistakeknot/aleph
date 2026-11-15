@@ -13,13 +13,26 @@ export { CliUsageError } from "./cli-usage-error.js";
 
 export interface CliExitErrorDetails {
   code: string;
+  details?: Record<string, unknown> | null;
   hint: string | null;
+}
+
+export class CliQuietExit extends Error {
+  readonly code: string;
+  readonly exitCode: number;
+  constructor(exitCode: number, code: string) {
+    super(code);
+    this.name = "CliQuietExit";
+    this.code = code;
+    this.exitCode = exitCode;
+  }
 }
 
 export class CliExitError extends Error {
   readonly code: string;
   readonly exitCode: number;
   readonly hint: string | null;
+  readonly details: Record<string, unknown> | null;
   constructor(
     message: string,
     exitCode: number,
@@ -30,6 +43,7 @@ export class CliExitError extends Error {
     this.code = details.code;
     this.exitCode = exitCode;
     this.hint = details.hint;
+    this.details = details.details ?? null;
   }
 }
 
@@ -49,6 +63,14 @@ export function action<TArgs extends CommandActionArgs>(
       if (isProcessExitError(err)) {
         throw err;
       }
+      if (err instanceof CliQuietExit) {
+        await logActionError({
+          code: err.code,
+          command: commandPath(args),
+          exitCode: err.exitCode,
+        });
+        process.exit(err.exitCode);
+      }
       const exitCode = err instanceof CliExitError ? err.exitCode : 1;
       const message =
         err instanceof CliExitError ? err.message : getErrorMessage(err);
@@ -59,7 +81,8 @@ export function action<TArgs extends CommandActionArgs>(
       const code = actionErrorCode(err);
       console.error(`Error: ${message}`);
       if (hint !== null) console.error(hint);
-      writeCliErrorEnvelope({ code, hint, message }, wantsJson(args));
+      const details = err instanceof CliExitError ? err.details : null;
+      writeCliErrorEnvelope({ code, details, hint, message }, wantsJson(args));
       await logActionError({ code, command: commandPath(args), exitCode });
       process.exit(exitCode);
     }

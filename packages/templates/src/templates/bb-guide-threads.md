@@ -240,6 +240,34 @@ Lifecycle ownership:
   restoring a dependent. Stop does not cascade. Sidebar parents and ordinary
   forks keep their own policies.
 
+Roles:
+  A role is a name (matching [a-z0-9-]+) that exactly one thread holds at a time.
+  Roles are the seat identity; pins stay a UI affordance and are unrelated. A
+  thread may hold several roles. Holding a role grants no permission: it only
+  names the thread, so never treat it as an authorization grant.
+
+  bb thread role get <role>                 Show the holder (exit 3 if none)
+  bb thread role list                       Every role with its holder
+  bb thread role transfer <role> --to <id> --expect-generation <n>
+  bb thread role release <role> --expect-generation <n>
+  bb thread update <id> --role <role>       Claim a role nobody holds
+                                            (alone: no other update flags)
+
+  get prints `<role> <threadId> "<title>" generation <n> since <time>`, plus
+  (archived) for an archived holder, which is still returned. Exit codes for
+  get: 0 holder found; 3 nobody holds the role (one stderr line, no Error: line;
+  with --json the body is still on stdout with threadId null); 1 any lookup
+  failure (server down, auth, an older server without roles, bad input), so a
+  caller can tell "no holder" from "could not look".
+  Every change is a compare-and-swap on the generation. Read it with get, then
+  pass it as --expect-generation. On a conflict the command fails with exit 1
+  and shows the current holder and generation (--json: error.details.current);
+  read again and decide before retrying. transfer never leaves the role with two
+  holders or none. claim fails with role_held if any thread, archived or not,
+  holds the role.
+  Archiving a thread keeps its roles. Deleting a thread releases them and
+  bumps the generation. Plugins can read roles but not change them.
+
 Wake attribution for `bb thread tell`, `bb thread spawn`, and `bb thread fork`:
 `--wake-cause <cause>` accepts card_pick, merge, review, timer, message,
 workflow, retry, restart, interaction, or unknown. Omission records unknown.

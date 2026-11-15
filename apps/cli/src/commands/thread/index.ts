@@ -9,6 +9,7 @@ import { registerInteractionCommands } from "./interactions.js";
 import { registerListCommand } from "./list.js";
 import { registerOpenCommand } from "./open.js";
 import { registerPaneCommand } from "./pane.js";
+import { registerThreadRoleCommands } from "./roles.js";
 import { registerOrganizationCommands } from "./organization.js";
 import { registerShowCommand } from "./show.js";
 import { registerSpawnCommand } from "./spawn.js";
@@ -34,5 +35,6 @@ export function registerThreadCommands(
   registerPaneCommand(thread, getUrl);
   registerOrganizationCommands(thread, getUrl);
   registerActionsCommands(thread, getUrl);
+  registerThreadRoleCommands(thread, getUrl);
   registerInteractionCommands(thread, getUrl);
 }
