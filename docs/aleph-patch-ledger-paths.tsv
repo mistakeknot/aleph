@@ -1165,3 +1165,9 @@ build-config	M	packages/sdk/src/job-wait.ts
 build-config	M	plugins/git/host/workspace-reads.ts
 build-config	M	apps/host-daemon/src/command-handlers/discover-repos.test.ts
 build-config	M	plugins/plugin-api-docs/src/anatomy-manifest.json
+storage-retention-worktree-limit	M	plugins/storage-retention/README.md
+storage-retention-worktree-limit	M	plugins/storage-retention/app.test.tsx
+storage-retention-worktree-limit	M	plugins/storage-retention/app.tsx
+storage-retention-worktree-limit	M	plugins/storage-retention/skills/storage-retention/SKILL.md
+storage-retention-worktree-limit	M	plugins/storage-retention/src/worktree-selection.ts
+storage-retention-worktree-limit	A	plugins/storage-retention/src/worktree-selection.test.ts

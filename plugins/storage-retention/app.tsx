@@ -53,7 +53,9 @@ import type {
 } from "./src/storage-types.js";
 import { describeLeftoverCleanup } from "./src/leftover-cleanup.js";
 import {
+  EXTERNAL_WORKTREE_REMOVAL_LIMIT,
   needsForce,
+  limitExternalWorktrees,
   selectExternalWorktrees,
 } from "./src/worktree-selection.js";
 import type { storageRpc, State, Policy } from "./src/contract.js";
@@ -1176,7 +1178,7 @@ function StoragePage({
                       }
                       onAction={() => {
                         if (unusedWorktrees === null) return;
-                        const { selected, forced } = unusedWorktrees;
+                        const { selected, forced, remaining } = unusedWorktrees;
                         const start = (force: boolean) =>
                           rpc
                             .call("startCleanup", {
@@ -1187,9 +1189,7 @@ function StoragePage({
                                 : selected.filter(
                                     (worktree) => !needsForce(worktree),
                                   )
-                              )
-                                .slice(0, 500)
-                                .map((worktree) => worktree.path),
+                              ).map((worktree) => worktree.path),
                               force,
                             })
                             .then(() => "Worktree removal started.");
@@ -1210,6 +1210,8 @@ function StoragePage({
                             "Delete these checkouts, including ignored files such as dependencies, build output, and local env files. Branches and commits on branches stay in the repository.",
                             forced.length > 0 &&
                               `${forced.length === selected.length ? (selected.length === 1 ? "It has" : "They all have") : `${forced.length} of them ${forced.length === 1 ? "has" : "have"}`} uncommitted changes, a lock, or commits on no branch; that work is lost if removed.`,
+                            remaining > 0 &&
+                              `${plural(remaining, "more worktree")} match${remaining === 1 ? "es" : ""} but ${remaining === 1 ? "isn’t" : "aren’t"} included: at most ${EXTERNAL_WORKTREE_REMOVAL_LIMIT} are removed at a time. Run this again afterwards for the rest.`,
                             "Make sure no agent is still working in them. This can’t be undone.",
                           ]
                             .filter(Boolean)
@@ -1265,6 +1267,8 @@ function StoragePage({
                                 "worktree",
                               )}{" "}
                               · {bytes(unusedWorktrees.bytes)}
+                              {unusedWorktrees.remaining > 0 &&
+                                ` · ${unusedWorktrees.remaining} more not included (${EXTERNAL_WORKTREE_REMOVAL_LIMIT} at a time)`}
                               {unusedWorktrees.forced.length > 0 &&
                                 ` · ${unusedWorktrees.forced.length} with uncommitted changes`}
                             </span>
@@ -2503,13 +2507,11 @@ function externalWorktreeSelection(
   worktrees: ExternalWorktree[],
   unusedForDays: number | null,
 ) {
-  const selected = selectExternalWorktrees(
-    worktrees,
-    unusedForDays,
-    Date.now(),
-  );
+  const matched = selectExternalWorktrees(worktrees, unusedForDays, Date.now());
+  const selected = limitExternalWorktrees(matched);
   return {
     selected,
+    remaining: matched.length - selected.length,
     forced: selected.filter(needsForce),
     bytes: selected.reduce((total, worktree) => total + worktree.sizeBytes, 0),
   };
