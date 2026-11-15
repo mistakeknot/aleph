@@ -2503,7 +2503,7 @@ function listDaemonReconciliationPendingThreads(
           "stopping",
         ]),
         notExists(
-          deps.db
+          db
             .select({ threadId: threadPurges.threadId })
             .from(threadPurges)
             .where(eq(threadPurges.threadId, threads.id)),
