@@ -216,6 +216,10 @@ export function queuedMessage(args: {
     originPluginId: null,
     initiator: "user",
     senderThreadId: null,
+    // A plain queued send that nothing woke: the server's wakeAttribution()
+    // defaults the cause to "unknown" and stores an absent ref as null.
+    wakeCause: "unknown",
+    wakeRef: null,
     content: args.content,
     model: THREAD_DEFAULT_EXECUTION_OPTIONS.model,
     reasoningLevel: THREAD_DEFAULT_EXECUTION_OPTIONS.reasoningLevel,
