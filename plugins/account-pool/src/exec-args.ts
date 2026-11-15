@@ -15,6 +15,7 @@ const CODEX_VALUES: Record<string, readonly string[] | null> = {
   "--color": ["always", "never", "auto"],
 };
 const CLAUDE_FLAGS = new Set([
+  "--restricted",
   "--verbose",
   "--print",
   "-p",
@@ -32,6 +33,7 @@ const CLAUDE_VALUES: Record<string, readonly string[] | null> = {
   "--permission-mode": ["dontAsk"],
   "--allowedTools": ["Bash", "Bash,Edit,Write,NotebookEdit"],
   "--disallowedTools": [
+    "Bash,PowerShell,Edit,Write,NotebookEdit,Agent,Task,Skill,WebFetch,WebSearch",
     "Edit,Write,NotebookEdit,Agent,Task,Skill",
     "Edit,Write,NotebookEdit",
     "Agent,Task,Skill",
@@ -52,11 +54,53 @@ const EMPTY_SETTING_SOURCES_GUARDS = ["--tools=", "--strict-mcp-config"];
 const EMPTY_SETTING_SOURCES_REFUSAL =
   "claude --setting-sources '' is permitted only together with --tools= and --strict-mcp-config because it also drops user-settings protections.";
 
+export const RESTRICTED_CLAUDE_CONTROLS = [
+  "--restricted",
+  "--safe-mode",
+  "--tools=Read,Glob,Grep",
+  "--permission-mode=dontAsk",
+  "--disallowedTools=Bash,PowerShell,Edit,Write,NotebookEdit,Agent,Task,Skill,WebFetch,WebSearch",
+  "--setting-sources=",
+  "--strict-mcp-config",
+  '--mcp-config={"mcpServers":{}}',
+  "--disable-slash-commands",
+  "--no-chrome",
+  "--no-session-persistence",
+];
+
 export function parsePoolExecArgs(
   provider: PoolProvider,
   args: readonly string[],
 ): string[] | null {
   const options = parseUnguardedPoolExecArgs(provider, args);
+  if (options === null) return null;
+  const terminator = options.indexOf("--");
+  const flags = terminator < 0 ? options : options.slice(0, terminator);
+  if (provider === "claude" && flags.includes("--restricted")) {
+    const keys = flags.map((option) =>
+      option === "-p" ? "--print" : option.split("=")[0],
+    );
+    if (new Set(keys).size !== keys.length) return null;
+    if (!RESTRICTED_CLAUDE_CONTROLS.every((control) => flags.includes(control)))
+      return null;
+    if (
+      keys.some((key) =>
+        [
+          "--allowedTools",
+          "--system-prompt",
+          "--json-schema",
+          "--max-turns",
+        ].includes(key ?? ""),
+      )
+    )
+      return null;
+    return options;
+  }
+  if (
+    flags.includes("--tools=Read,Glob,Grep") ||
+    flags.includes(RESTRICTED_CLAUDE_CONTROLS[4]!)
+  )
+    return null;
   if (
     options?.includes("--setting-sources=project,local") &&
     (!options.includes("--permission-mode=dontAsk") ||
@@ -76,6 +120,19 @@ export function poolExecArgsRefusal(
   args: readonly string[],
 ): string | null {
   if (parsePoolExecArgs(provider, args) !== null) return null;
+  const options = parseUnguardedPoolExecArgs(provider, args);
+  const terminator = options?.indexOf("--") ?? -1;
+  const flags = terminator < 0 ? options : options?.slice(0, terminator);
+  if (
+    provider === "claude" &&
+    flags?.some(
+      (flag) =>
+        flag === "--restricted" ||
+        flag === "--tools=Read,Glob,Grep" ||
+        flag === RESTRICTED_CLAUDE_CONTROLS[4],
+    )
+  )
+    return "claude requires the complete restricted review profile; caller tool allowances and nonempty settings are refused.";
   if (
     parseUnguardedPoolExecArgs(provider, args)?.includes(
       "--setting-sources=project,local",
@@ -126,6 +183,7 @@ function parseUnguardedPoolExecArgs(
       const emptyValue = equals < 0 ? args[++index] : arg.slice(equals + 1);
       if (
         emptyValue !== "" &&
+        !(key === "--tools" && emptyValue === "Read,Glob,Grep") &&
         !(key === "--setting-sources" && emptyValue === "project,local")
       )
         return null;

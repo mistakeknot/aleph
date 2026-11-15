@@ -38,7 +38,7 @@ const runProbe: Probe = (command, args, env) =>
     execFile(
       command,
       args,
-      { env, timeout: 5_000, maxBuffer: 4096 },
+      { env, timeout: 5_000, maxBuffer: 65_536 },
       (error, stdout) => {
         if (error) reject(error);
         else resolve(stdout);
@@ -50,12 +50,33 @@ export async function verifyClaudeScrub(
   source: NodeJS.ProcessEnv,
   probe: Probe = runProbe,
   platform: NodeJS.Platform = process.platform,
+  profile: "legacy" | "restricted" = "legacy",
 ): Promise<boolean> {
   if (platform !== "linux") return false;
   const env = claudeEnvironment(source);
   try {
     const version = (await probe("claude", ["--version"], env)).trim();
-    if (!/^2\.1\.323 \(Claude Code\)$/.test(version)) return false;
+    if (
+      version !==
+      `${profile === "restricted" ? "2.1.325" : "2.1.323"} (Claude Code)`
+    )
+      return false;
+    if (profile === "restricted") {
+      const help = await probe("claude", ["--help"], env);
+      if (
+        ![
+          "--restricted",
+          "--safe-mode",
+          "--tools",
+          "--permission-mode",
+          "--strict-mcp-config",
+          "--no-chrome",
+          "--no-session-persistence",
+          "--disable-slash-commands",
+        ].every((flag) => help.includes(flag))
+      )
+        return false;
+    }
     await probe("socat", ["-V"], env);
     await probe("rg", ["--version"], env);
     await probe(

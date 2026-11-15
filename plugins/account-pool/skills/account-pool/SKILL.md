@@ -102,6 +102,33 @@ outside directories and duplicate grants are refused. Plans outside cwd must be
 copied into cwd first. Thread-storage roots are not exposed by this SDK path.
 Permission bypass flags, `acceptEdits`, and free-form tool lists are refused.
 
+For an unbudgeted file-reading review, use the coupled restricted Claude profile:
+
+```sh
+bb pool exec --prompt-file "$PWD/review-prompt.txt" -- claude \
+  --restricted --safe-mode --tools=Read,Glob,Grep --permission-mode=dontAsk \
+  --disallowedTools=Bash,PowerShell,Edit,Write,NotebookEdit,Agent,Task,Skill,WebFetch,WebSearch \
+  --setting-sources= --strict-mcp-config --mcp-config='{"mcpServers":{}}' \
+  --disable-slash-commands --no-chrome --no-session-persistence \
+  --output-format=stream-json --verbose -p
+```
+
+Every security control in this example is required. The host builds the final
+security argv from its fixed profile. `--allowedTools`, caller system prompts,
+JSON schemas and max-turn overrides are refused in this profile. Optional model,
+bounded effort and one canonical add-dir retain the existing rules. Stage plans
+and review packets beneath cwd. Input-format overrides, partial-message and
+session-ID flags remain refused; budgeted usage-wrapper execution is separate.
+
+The restricted profile qualifies exactly Claude Code 2.1.325 on Linux with the
+required capabilities and isolation dependencies. Legacy tool-capable seats
+retain their 2.1.323 qualification. Restricted model-visible tools are confined
+to their working directories and cannot read process/device files; the host
+checks the child's cwd identity before supplying the prompt. Provider credentials
+remain in the authenticated executable's environment and are scrubbed from tool
+shells. This safety claim applies to the restricted profile. Existing broader
+execution profiles retain their behavior and trust boundary.
+
 For thread-bound eligibility before cross-provider dispatch, use the authenticated
 `/availability?threadId=<id>` route described in the reference. A provider-wide
 response without the matching thread ID is not proof of thread eligibility.
