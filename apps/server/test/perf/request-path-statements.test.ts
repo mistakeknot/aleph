@@ -3,7 +3,7 @@ import {
   buildHistoryFixture,
   type HistoryFixture,
 } from "@bb/db/history-fixture";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   forgetQueuedCommand,
@@ -28,6 +28,28 @@ const LINEAR_GROWTH_LIMIT = 2.5;
 const RESPONSE_BYTES_GROWTH_LIMIT = 1.5;
 const RESPONSE_BYTES_SLACK = 4_096;
 const FIXTURE_BUILD_TIMEOUT_MS = 120_000;
+
+vi.mock(
+  "../../src/services/threads/timeline-build-coalescer.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../src/services/threads/timeline-build-coalescer.js")
+      >();
+    return {
+      ...actual,
+      createTimelineBuildCoalescer: (
+        options: Parameters<typeof actual.createTimelineBuildCoalescer>[0],
+      ) => {
+        let clock = 0;
+        return actual.createTimelineBuildCoalescer({
+          ...options,
+          now: () => (clock += 1_000),
+        });
+      },
+    };
+  },
+);
 
 interface WorldSize {
   historyTurns: number;
