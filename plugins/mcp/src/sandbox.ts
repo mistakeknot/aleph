@@ -2,6 +2,7 @@ import SINGLEFILE_RELEASE_SYNC from "@jitl/quickjs-singlefile-cjs-release-sync";
 import {
   newQuickJSWASMModuleFromVariant,
   newVariant,
+  type CustomizeVariantOptions,
   type QuickJSContext,
   type QuickJSDeferredPromise,
   type QuickJSHandle,
@@ -60,10 +61,16 @@ const MAX_MEMORY_PAGES = 32_768;
 const TRANSFER_MARGIN_BYTES = 4 * 1024;
 const CANCELLED_REASON = "The call was cancelled.";
 
+type SandboxWasmMemory = Exclude<
+  NonNullable<CustomizeVariantOptions["wasmMemory"]>,
+  () => Promise<unknown>
+>;
+
 declare const WebAssembly: {
-  Memory: new (descriptor: { initial: number; maximum: number }) => {
-    grow(deltaPages: number): number;
-  };
+  Memory: new (descriptor: {
+    initial: number;
+    maximum: number;
+  }) => SandboxWasmMemory;
 };
 
 class SandboxMemory extends WebAssembly.Memory {
