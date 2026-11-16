@@ -5,6 +5,7 @@ import {
   rm,
   symlink,
   writeFile,
+  rename,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,7 +14,48 @@ import {
   validateExecDirectory,
   readExecPrompt,
   createExecOutput,
+  pinExecDirectory,
 } from "./exec-files.js";
+
+it("keeps prompt and output access on the pinned directory after replacement", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "exec-pin-"));
+  let pinned: Awaited<ReturnType<typeof pinExecDirectory>> | undefined;
+  try {
+    const cwd = path.join(root, "work");
+    const home = path.join(root, "home");
+    const held = path.join(root, "held");
+    await mkdir(cwd);
+    await mkdir(home);
+    await writeFile(path.join(cwd, "prompt"), "original prompt");
+    await writeFile(path.join(home, "prompt"), "replacement prompt");
+    pinned = await pinExecDirectory(cwd, { HOME: home }, cwd);
+    await rename(cwd, held);
+    await symlink(home, cwd);
+    expect(pinned.isCurrent()).toBe(false);
+    expect(
+      (
+        await readExecPrompt(cwd, path.join(cwd, "prompt"), pinned.fd)
+      ).toString(),
+    ).toBe("original prompt");
+    const output = await createExecOutput(
+      cwd,
+      path.join(cwd, "output"),
+      "SyntheticCredential",
+      pinned.fd,
+    );
+    output.write("stdout", Buffer.from("safe output"));
+    output.close();
+    expect(await readFile(path.join(held, "output"), "utf8")).toBe(
+      "safe output",
+    );
+    await expect(readFile(path.join(home, "output"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  } finally {
+    pinned?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 it("validates cwd and confines canonical add-dir grants to cwd", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "exec-files-"));

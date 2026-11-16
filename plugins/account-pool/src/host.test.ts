@@ -14,6 +14,7 @@ import { PassThrough } from "node:stream";
 import { experimental_createHostEntryHarness } from "@get-bb/plugin-sdk/testing/host";
 import { describe, expect, it, vi } from "vitest";
 import { createAccountPoolHostEntry as actualHostEntry } from "./host.js";
+import { RESTRICTED_CLAUDE_CONTROLS } from "./exec-args.js";
 
 function createAccountPoolHostEntry(
   deps: Parameters<typeof actualHostEntry>[0],
@@ -36,6 +37,99 @@ function fakeChild() {
 }
 
 describe("Account Pooler host exec", () => {
+  it("selects the restricted runtime qualifier without changing legacy qualification", async () => {
+    const child = Object.assign(fakeChild(), { pid: process.pid });
+    child.stdin.on("finish", () => child.emit("close", 0, null));
+    const check = vi.fn(async (...args: unknown[]) => args[3] === "restricted");
+    const spawn = vi.fn(() => {
+      setImmediate(() => child.emit("spawn"));
+      return child;
+    });
+    const harness = experimental_createHostEntryHarness(
+      createAccountPoolHostEntry({ spawn, env: {}, checkClaudeScrub: check }),
+    );
+    const result = await harness.experimental_call("run", {
+      provider: "claude",
+      args: [...RESTRICTED_CLAUDE_CONTROLS, "-p"],
+      promptPath: path.join(process.cwd(), "package.json"),
+      cwd: process.cwd(),
+      workspacePath: process.cwd(),
+      stdinDir: null,
+      stdinPath: null,
+      token: "SyntheticCredential",
+      baseUrl: "http://127.0.0.1",
+    });
+    expect(result.started).toBe(true);
+    expect(check.mock.calls[0]?.[3]).toBe("restricted");
+  });
+  it("constructs fixed restricted argv and disables tool search", async () => {
+    const child = Object.assign(fakeChild(), { pid: process.pid });
+    child.stdin.on("finish", () => child.emit("close", 0, null));
+    const spawn = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        _options: { env: NodeJS.ProcessEnv },
+      ) => {
+        setImmediate(() => child.emit("spawn"));
+        return child;
+      },
+    );
+    const harness = experimental_createHostEntryHarness(
+      createAccountPoolHostEntry({ spawn, env: {} }),
+    );
+    const result = await harness.experimental_call("run", {
+      provider: "claude",
+      args: [...RESTRICTED_CLAUDE_CONTROLS]
+        .reverse()
+        .concat(["--model=review-model", "-p"]),
+      promptPath: path.join(process.cwd(), "package.json"),
+      cwd: process.cwd(),
+      workspacePath: process.cwd(),
+      stdinDir: null,
+      stdinPath: null,
+      token: "SyntheticCredential",
+      baseUrl: "http://127.0.0.1",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(spawn.mock.calls[0]![1]).toEqual([
+      ...RESTRICTED_CLAUDE_CONTROLS,
+      "--model=review-model",
+      "-p",
+    ]);
+    expect(spawn.mock.calls[0]![2].env.ENABLE_TOOL_SEARCH).toBe("false");
+  });
+  it("refuses restricted launch without a verifiable child cwd before feeding stdin", async () => {
+    const child = fakeChild();
+    child.kill.mockImplementation(() => {
+      setImmediate(() => child.emit("close", null, "SIGTERM"));
+      return true;
+    });
+    const spawn = vi.fn(() => {
+      setImmediate(() => {
+        child.emit("spawn");
+        setTimeout(() => child.emit("close", 0, null), 50);
+      });
+      return child;
+    });
+    const harness = experimental_createHostEntryHarness(
+      createAccountPoolHostEntry({ spawn, env: {} }),
+    );
+    const result = await harness.experimental_call("run", {
+      provider: "claude",
+      args: [...RESTRICTED_CLAUDE_CONTROLS, "-p"],
+      promptPath: path.join(process.cwd(), "package.json"),
+      cwd: process.cwd(),
+      workspacePath: process.cwd(),
+      stdinDir: null,
+      stdinPath: null,
+      token: "SyntheticCredential",
+      baseUrl: "http://127.0.0.1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(child.stdin.writableEnded).toBe(false);
+    expect(child.kill).toHaveBeenCalled();
+  });
   it.each([
     { sources: undefined, available: false, checks: 0, started: true },
     { sources: "", available: false, checks: 0, started: true },

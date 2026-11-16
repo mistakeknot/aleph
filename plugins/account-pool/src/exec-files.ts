@@ -1,4 +1,11 @@
-import { constants, openSync, closeSync, writeSync } from "node:fs";
+import {
+  constants,
+  openSync,
+  closeSync,
+  writeSync,
+  fstatSync,
+  realpathSync,
+} from "node:fs";
 import { open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { validatePoolDirectory } from "./exec-input.js";
@@ -49,6 +56,55 @@ export async function validateExecDirectory(
   return canonical;
 }
 
+export async function pinExecDirectory(
+  cwd: string | null,
+  env: NodeJS.ProcessEnv,
+  workspacePath: string,
+) {
+  const canonical = await validateExecDirectory(cwd, [], env, workspacePath);
+  const fd = openSync(
+    canonical,
+    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+  );
+  try {
+    const reference = `/proc/${process.pid}/fd/${fd}`;
+    const root = realpathSync(workspacePath);
+    const identity = fstatSync(fd);
+    if (
+      !identity.isDirectory() ||
+      realpathSync(reference) !== canonical ||
+      !inside(root, canonical)
+    )
+      throw new Error("Validated exec directory changed while opening");
+    let closed = false;
+    return {
+      cwd: canonical,
+      fd,
+      reference,
+      identity,
+      isCurrent() {
+        if (closed) return false;
+        try {
+          return (
+            realpathSync(reference) === canonical && inside(root, canonical)
+          );
+        } catch {
+          return false;
+        }
+      },
+      close() {
+        if (!closed) {
+          closed = true;
+          closeSync(fd);
+        }
+      },
+    };
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
+}
+
 function directChild(cwd: string, filename: string): void {
   if (
     !path.isAbsolute(filename) ||
@@ -63,10 +119,13 @@ function directChild(cwd: string, filename: string): void {
 export async function readExecPrompt(
   cwd: string,
   filename: string,
+  directoryFd?: number,
 ): Promise<Buffer> {
   directChild(cwd, filename);
   const handle = await open(
-    filename,
+    directoryFd === undefined
+      ? filename
+      : `/proc/self/fd/${directoryFd}/${path.basename(filename)}`,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
   try {
@@ -96,17 +155,22 @@ export async function createExecOutput(
   cwd: string,
   filename: string,
   token: string,
+  directoryFd?: number,
 ) {
   directChild(cwd, filename);
+  const target =
+    directoryFd === undefined
+      ? filename
+      : `/proc/self/fd/${directoryFd}/${path.basename(filename)}`;
   const flags =
     constants.O_WRONLY |
     constants.O_CREAT |
     constants.O_EXCL |
     constants.O_NOFOLLOW;
-  const stdout = openSync(filename, flags, 0o600);
+  const stdout = openSync(target, flags, 0o600);
   let stderr;
   try {
-    stderr = openSync(`${filename}.stderr`, flags, 0o600);
+    stderr = openSync(`${target}.stderr`, flags, 0o600);
   } catch (error) {
     closeSync(stdout);
     throw error;

@@ -1,21 +1,28 @@
 import { spawn as nodeSpawn } from "node:child_process";
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { isolateClaudePoolTools } from "./claude-pool-tools.js";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
-import { parsePoolExecArgs, poolExecArgsRefusal } from "./exec-args.js";
+import {
+  parsePoolExecArgs,
+  poolExecArgsRefusal,
+  RESTRICTED_CLAUDE_CONTROLS,
+} from "./exec-args.js";
 import { readPoolInput } from "./exec-input.js";
 import { claudeEnvironment, verifyClaudeScrub } from "./claude-env.js";
 import {
   createExecOutput,
   readExecPrompt,
   validateExecDirectory,
+  pinExecDirectory,
 } from "./exec-files.js";
 
 const OUTPUT_LIMIT_BYTES = 900_000;
 
 interface PoolExecChild {
+  pid?: number;
   stdin: NodeJS.WritableStream;
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
@@ -86,7 +93,7 @@ function codexArgs(args: readonly string[], baseUrl: string): string[] {
 }
 
 export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
-  const active = new Set<PoolExecChild>();
+  const active = new Map<PoolExecChild, () => void>();
   const defaultInputDir = path.resolve(
     deps.env.HOME || homedir(),
     ".local/state/bb-account-pool/exec-input",
@@ -109,6 +116,8 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             stderr: `${poolExecArgsRefusal(input.provider, input.args) ?? `${input.provider} arguments are not permitted by the Account Pooler execution allowlist.`}\n`,
           };
         }
+        const restricted =
+          input.provider === "claude" && permittedArgs.includes("--restricted");
         const usesProjectSettings = permittedArgs.some(
           (arg) =>
             arg.startsWith("--setting-sources=") &&
@@ -120,37 +129,65 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
         if (
           input.provider === "claude" &&
           (!permittedArgs.includes("--tools=") || usesProjectSettings) &&
-          !(await (deps.checkClaudeScrub ?? verifyClaudeScrub)(deps.env))
+          !(await (deps.checkClaudeScrub ?? verifyClaudeScrub)(
+            deps.env,
+            undefined,
+            process.platform,
+            restricted ? "restricted" : "legacy",
+          ))
         ) {
           return {
             started: false,
             providerPinned: false,
             exitCode: 1,
             stdout: "",
-            stderr:
-              "Pool exec refused: Claude with tools or project/local settings requires verified Claude Code 2.1.323 subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation. Tool-free --print --tools= without project/local settings may still run.\n",
+            stderr: restricted
+              ? "Pool exec refused: restricted review requires verified Claude Code 2.1.325 restricted capabilities, subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation.\n"
+              : "Pool exec refused: Claude with tools or project/local settings requires verified Claude Code 2.1.323 subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation. Tool-free --print --tools= without project/local settings may still run.\n",
           };
         }
         let cwd: string;
+        let pinned: Awaited<ReturnType<typeof pinExecDirectory>> | undefined;
         let output: Awaited<ReturnType<typeof createExecOutput>> | undefined;
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
         try {
           if (input.workspacePath === null)
             throw new Error("Missing server-owned environment workspace");
-          cwd = await validateExecDirectory(
-            input.cwd,
-            permittedArgs,
-            deps.env,
-            input.workspacePath,
-          );
+          if (
+            restricted &&
+            (input.promptPath === null || input.stdinPath !== null)
+          )
+            throw new Error(
+              "Restricted review requires --prompt-file as its only prompt source",
+            );
+          if (restricted) {
+            pinned = await pinExecDirectory(
+              input.cwd,
+              deps.env,
+              input.workspacePath,
+            );
+            cwd = pinned.cwd;
+          } else
+            cwd = await validateExecDirectory(
+              input.cwd,
+              permittedArgs,
+              deps.env,
+              input.workspacePath,
+            );
           if (input.promptPath !== null) {
             if (input.stdinPath !== null)
               throw new Error("Choose only one stdin source");
-            stdin = await readExecPrompt(cwd, input.promptPath);
+            stdin = await readExecPrompt(cwd, input.promptPath, pinned?.fd);
           }
           if (input.outputPath !== null)
-            output = await createExecOutput(cwd, input.outputPath, input.token);
+            output = await createExecOutput(
+              cwd,
+              input.outputPath,
+              input.token,
+              pinned?.fd,
+            );
         } catch (error) {
+          pinned?.close();
           return {
             started: false,
             providerPinned: false,
@@ -168,6 +205,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             );
           } catch (error) {
             output?.close();
+            pinned?.close();
             return {
               started: false,
               providerPinned: false,
@@ -199,36 +237,49 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             env.CLAUDE_CODE_USE_FOUNDRY = "0";
             env.ANTHROPIC_BASE_URL = input.baseUrl;
             env.ANTHROPIC_AUTH_TOKEN = input.token;
-            env.ENABLE_TOOL_SEARCH = "true";
-            const sources = args.find((arg) =>
-              arg.startsWith("--setting-sources="),
-            );
-            args = [
-              "--setting-sources",
-              sources === undefined
-                ? "user"
-                : sources.slice("--setting-sources=".length),
-              ...(!args.includes("--strict-mcp-config")
-                ? ["--strict-mcp-config"]
-                : []),
-              ...args.filter(
-                (arg) =>
-                  !arg.startsWith("--setting-sources=") &&
-                  !arg.startsWith("--mcp-config="),
-              ),
-            ];
+            env.ENABLE_TOOL_SEARCH = restricted ? "false" : "true";
+            if (restricted) {
+              const terminator = args.indexOf("--");
+              const options = terminator < 0 ? args : args.slice(0, terminator);
+              args = [
+                ...RESTRICTED_CLAUDE_CONTROLS,
+                ...options.filter(
+                  (arg) => !RESTRICTED_CLAUDE_CONTROLS.includes(arg),
+                ),
+                ...(terminator < 0 ? [] : args.slice(terminator)),
+              ];
+            } else {
+              const sources = args.find((arg) =>
+                arg.startsWith("--setting-sources="),
+              );
+              args = [
+                "--setting-sources",
+                sources === undefined
+                  ? "user"
+                  : sources.slice("--setting-sources=".length),
+                ...(!args.includes("--strict-mcp-config")
+                  ? ["--strict-mcp-config"]
+                  : []),
+                ...args.filter(
+                  (arg) =>
+                    !arg.startsWith("--setting-sources=") &&
+                    !arg.startsWith("--mcp-config="),
+                ),
+              ];
+            }
           }
 
           let child: PoolExecChild;
           try {
             child = deps.spawn(input.provider, args, {
-              cwd,
+              cwd: pinned?.reference ?? cwd,
               env:
                 input.provider === "claude" ? isolateClaudePoolTools(env) : env,
               stdio: ["pipe", "pipe", "pipe"],
             });
           } catch (error) {
             output?.close();
+            pinned?.close();
             resolve({
               started: false,
               providerPinned: false,
@@ -239,7 +290,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             return;
           }
 
-          active.add(child);
+          active.set(child, () => pinned?.close());
           let started = false;
           let settled = false;
           let outputBytes = 0;
@@ -260,6 +311,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           const finishOutput = () => {
             clearTimeout(timer);
             clearTimeout(forceTimer);
+            pinned?.close();
             try {
               output?.close();
             } catch {
@@ -293,7 +345,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           child.stdout.on("data", (chunk) => append(stdout, chunk));
           child.stderr.on("data", (chunk) => append(stderr, chunk));
           child.stdin.on("error", () => {});
-          child.stdin.end(stdin);
+          if (!restricted) child.stdin.end(stdin);
 
           const cancel = (): void => {
             stop();
@@ -302,6 +354,26 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           if (context.signal.aborted) cancel();
           child.once("spawn", () => {
             started = true;
+            if (restricted) {
+              void (async () => {
+                try {
+                  if (!child.pid || !pinned || !pinned.isCurrent())
+                    throw new Error("Missing child cwd identity");
+                  const actual = await stat(`/proc/${child.pid}/cwd`);
+                  if (
+                    actual.dev !== pinned.identity.dev ||
+                    actual.ino !== pinned.identity.ino ||
+                    !pinned.isCurrent()
+                  )
+                    throw new Error("Changed child cwd identity");
+                  if (!settled && !context.signal.aborted && !timedOut)
+                    child.stdin.end(stdin);
+                } catch {
+                  outputError = "Unable to verify restricted Claude child cwd";
+                  stop();
+                }
+              })();
+            }
           });
           child.once("error", (error) => {
             if (settled) return;
@@ -352,7 +424,10 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
       },
     },
     dispose() {
-      for (const child of active) child.kill("SIGTERM");
+      for (const [child, close] of active) {
+        child.kill("SIGTERM");
+        close();
+      }
       active.clear();
     },
   });

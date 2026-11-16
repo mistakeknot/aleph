@@ -2,6 +2,55 @@ import { describe, expect, it } from "vitest";
 import { claudeEnvironment, verifyClaudeScrub } from "./claude-env.js";
 
 describe("Claude pool environment", () => {
+  const restrictedHelp =
+    "--restricted --safe-mode --tools --permission-mode --strict-mcp-config --no-chrome --no-session-persistence --disable-slash-commands";
+  it("qualifies the restricted runtime separately from legacy", async () => {
+    const probe = async (command: string, args: string[]) =>
+      command === "claude"
+        ? args[0] === "--version"
+          ? "2.1.325 (Claude Code)"
+          : restrictedHelp
+        : "";
+    expect(await verifyClaudeScrub({}, probe, "linux", "restricted")).toBe(
+      true,
+    );
+    expect(await verifyClaudeScrub({}, probe, "linux")).toBe(false);
+  });
+  it.each(["2.1.323 (Claude Code)", "2.1.326 (Claude Code)", "unknown"])(
+    "refuses unqualified restricted version %s",
+    async (version) => {
+      expect(
+        await verifyClaudeScrub(
+          {},
+          async (_command, args) =>
+            args[0] === "--version" ? version : restrictedHelp,
+          "linux",
+          "restricted",
+        ),
+      ).toBe(false);
+    },
+  );
+  it.each(restrictedHelp.split(" "))(
+    "requires restricted capability %s",
+    async (missing) => {
+      expect(
+        await verifyClaudeScrub(
+          {},
+          async (command, args) =>
+            command === "claude"
+              ? args[0] === "--version"
+                ? "2.1.325 (Claude Code)"
+                : restrictedHelp
+                    .split(" ")
+                    .filter((flag) => flag !== missing)
+                    .join(" ")
+              : "",
+          "linux",
+          "restricted",
+        ),
+      ).toBe(false);
+    },
+  );
   it("copies only runtime allowlist names and forces subprocess scrubbing", () => {
     const env = claudeEnvironment({
       PATH: "/bin",

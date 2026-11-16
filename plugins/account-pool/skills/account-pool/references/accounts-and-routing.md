@@ -166,6 +166,23 @@ Claude receives `--setting-sources user` after argument validation by default;
 an explicit empty `--setting-sources` instead suppresses all settings sources,
 and is accepted only together with `--tools=` (empty) and `--strict-mcp-config`
 in the same command, because it also drops user-settings protections.
+The coupled `--restricted` review profile is a second guarded case: it requires
+the exact `Read,Glob,Grep` tool inventory and fixed security controls documented
+in the skill, including empty settings and MCP configuration. Its host-built argv
+has no user-settings fallback. It refuses `--allowedTools` so a blanket allow
+rule cannot override directory confinement. Duplicate security options, incomplete
+profiles, write/shell tools and restricted values outside the profile are refused.
+The Linux host qualifies this profile against exactly Claude Code 2.1.325,
+including its advertised restricted capabilities; the existing legacy qualifier
+continues to require 2.1.323. Restricted reviews require prompt-file exclusively;
+positional prompts, private stdin sources and add-dir grants are refused. The
+host opens the validated cwd with directory/nofollow flags, checks the descriptor
+path and workspace containment, and takes its device/inode identity from fstat.
+Spawn and prompt/output file access use that pinned directory. Before supplying
+the prompt the host checks the child's cwd identity and the pinned path again.
+Synthetic runtime checks cover process/device files, credential-directory
+symlinks, hostile instruction imports and directory replacements. This profile's
+model-visible tool boundary does not change the broader legacy profiles.
 The exact caller source list `project,local` replaces the user default; other non-empty source lists and `--settings` are rejected: host-managed routing prevents settings from replacing the endpoint or provider. Selecting project/local settings enables their hooks and helpers, as in dispatch; these are trusted caller code. The host also sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1` to prevent
 settings-file provider/auth/endpoint variables from overriding its route, and
 sets inherited Bedrock, Vertex and Foundry selectors to `0`.
