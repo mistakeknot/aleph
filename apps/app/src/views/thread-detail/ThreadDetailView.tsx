@@ -1125,7 +1125,21 @@ function ThreadDetailViewInternal(
       switch (action.kind) {
         case "open-file-diff":
           return () => {
-            openSecondaryPanelDiffFile(action.path);
+            if (openSecondaryPanelDiffFile(action.path)) return;
+            const environmentId = thread?.environmentId;
+            if (environmentId === null || environmentId === undefined) return;
+            openLiveFilePreview({
+              target: { kind: "workspace", environmentId, path: action.path },
+              location: null,
+            });
+          };
+        case "open-local-file":
+          return () => {
+            handleOpenTimelineLocalFileLink({
+              lineRange: null,
+              openTargetId: null,
+              path: action.path,
+            });
           };
         case "open-plugin-side-chat":
           return () => {
@@ -1142,7 +1156,14 @@ function ThreadDetailViewInternal(
           return assertNever(action);
       }
     },
-    [openSecondaryPanelDiffFile, panel, threadId],
+    [
+      handleOpenTimelineLocalFileLink,
+      openLiveFilePreview,
+      openSecondaryPanelDiffFile,
+      panel,
+      thread?.environmentId,
+      threadId,
+    ],
   );
   const metadataStorage = useMemo(
     () =>
