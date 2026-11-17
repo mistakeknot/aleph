@@ -30,7 +30,7 @@ import {
   type ThreadTimelineInlineMessageEditor,
   type ThreadTimelineUnreadDividerPlacement,
   type TimelineTitleActionResolver,
-  type UseThreadTimelineControllerResult,
+  useThreadTimelineController,
 } from "@/components/thread/timeline";
 import type { HostConnectionNotice } from "@/components/thread/timeline/ThreadTimelineSurface";
 import { ThreadTimelinePanelLoadingSkeleton } from "@/components/thread/timeline/ThreadChatLoading";
@@ -80,6 +80,7 @@ import {
   type ThreadComposerPermissionPolicy,
   type ThreadDetailSentMessageEdit,
 } from "./ThreadDetailPromptArea";
+import type { SendMessageMutationLike } from "./threadDetailMutationTypes";
 
 const THREAD_DETAIL_COMPOSER_ID = "thread-detail-follow-up-composer";
 const EMPTY_CHILD_THREAD_ITEMS: readonly ChildThreadPendingAttentionSource[] =
@@ -123,7 +124,7 @@ interface ThreadScreenProps {
   projectId: string;
   resolveMentionLink: PromptMentionLinkResolver;
   thread: ThreadResponse;
-  timeline: UseThreadTimelineControllerResult;
+  timelineEnabled: boolean;
   timelineHost: ThreadScreenTimelineHost;
 }
 
@@ -465,9 +466,13 @@ export function ThreadScreen({
   projectId,
   resolveMentionLink,
   thread,
-  timeline,
+  timelineEnabled,
   timelineHost,
 }: ThreadScreenProps) {
+  const timeline = useThreadTimelineController({
+    enabled: timelineEnabled,
+    threadId: thread.id,
+  });
   const systemConfigQuery = useSystemConfig();
   const contextCardInset = useThreadContextCardContentInset();
   const pendingInteractionsQuery = useThreadPendingInteractions(thread.id);
@@ -478,7 +483,14 @@ export function ThreadScreen({
     query: pendingInteractionsQuery,
     threadId: thread.id,
   });
-  const sendMessage = useSendThreadMessage();
+  const sendMessageMutation = useSendThreadMessage();
+  const sendMessage = useMemo<SendMessageMutationLike>(
+    () => ({
+      isPending: sendMessageMutation.isPending,
+      mutateAsync: sendMessageMutation.mutateAsync,
+    }),
+    [sendMessageMutation.isPending, sendMessageMutation.mutateAsync],
+  );
   const parentThreadSection = useParentThreadSection(thread, composer !== null);
   const childThreadsSection = useChildThreadsSection(
     thread.id,
@@ -517,6 +529,9 @@ export function ThreadScreen({
       timelineRows,
     });
 
+  const steerActiveThreadOnEnter =
+    systemConfigQuery.data?.generalSettings.steerActiveThreadOnEnter ??
+    defaultAppSettings.steerActiveThreadOnEnter;
   const isPanelPresentation = presentation.kind !== "page";
   const selectionAddToChat = composer ? handleAddToChat : undefined;
   const surface = (
@@ -600,10 +615,7 @@ export function ThreadScreen({
       composerFocusRequestKey={composerFocusRequestKey}
       sendMessage={sendMessage}
       sentMessageEdit={sentMessageEdit}
-      steerActiveThreadOnEnter={
-        systemConfigQuery.data?.generalSettings.steerActiveThreadOnEnter ??
-        defaultAppSettings.steerActiveThreadOnEnter
-      }
+      steerActiveThreadOnEnter={steerActiveThreadOnEnter}
       pendingInteractions={pendingInteractions}
       onRetryPendingInteractions={pendingInteractionsGate.retry}
       pendingInteractionsInitialLoading={pendingInteractionsGate.isUnverified}
