@@ -233,9 +233,9 @@ export function useDiffPatchStates(args: {
     [initialPatches],
   );
   const scope = JSON.stringify([environmentId, target, ignoreWhitespace]);
-  const [retained, setRetained] = useState<
-    ReadonlyMap<string, GitPatchResult>
-  >(() => new Map());
+  const [retained, setRetained] = useState<ReadonlyMap<string, GitPatchResult>>(
+    () => new Map(),
+  );
   const [manual, setManual] = useState<{
     scope: string;
     paths: ReadonlySet<string>;
@@ -280,9 +280,7 @@ export function useDiffPatchStates(args: {
   useEffect(() => {
     const liveKeys = new Set(keyByPath.values());
     setRetained((current) => {
-      const next = new Map(
-        [...current].filter(([key]) => liveKeys.has(key)),
-      );
+      const next = new Map([...current].filter(([key]) => liveKeys.has(key)));
       for (const [path, entry] of initialPatchByPath) {
         const key = keyByPath.get(path);
         if (key !== undefined && !next.has(key)) {
