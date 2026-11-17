@@ -229,3 +229,7 @@ Preserve picker target toggles beside pill cancellation (mk-8lcd6.181): a synchr
 ## Sidebar, picker and provider sync (mk-8lcd6.183)
 
 Sixteen upstream commits through 2fef0456de merge cleanly. Preserve `model-picker` in-place target choice and the command-only new-thread and pill-rewrite guards from mk-8lcd6.180/mk-8lcd6.181 while adopting nonmodal pickers. Preserve `thread-list-icons` hull and provider icons, `layout-profiles` suppression and panel state, `provider-bridge-changes` hooks/scopes/cache accounting, and existing signed install/update contracts. No workflow or lockfile delta exists; the `build-config` omission policy from mk-8lcd6.66 remains in force. No Aleph patch is retired.
+
+## Published package license sync (mk-8lcd6.185)
+
+Adopt upstream 2964f19a38 MIT metadata and LICENSE copies for bb-app and plugin-sdk. Preserve every Aleph manifest field, including bb-app version 0.48.1+aleph.0.9.0 and signed update packaging; only the license field is added. Each package LICENSE matches the merged root LICENSE byte for byte. No workflow or lockfile change, publication, release, or patch retirement.
