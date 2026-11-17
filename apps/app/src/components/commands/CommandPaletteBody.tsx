@@ -20,7 +20,7 @@ import {
   rankPaletteActions,
   type RankedPaletteAction,
 } from "@/lib/command-palette/palette-ranking";
-import { usePluginSlots } from "@/lib/plugin-slots";
+import { usePluginSlotKind } from "@/lib/plugin-slots";
 import { buildSettingsPaletteActions } from "@/lib/command-palette/palette-settings-actions";
 import { buildPluginPagePaletteActions } from "@/lib/command-palette/palette-plugin-page-actions";
 import {
@@ -71,15 +71,18 @@ export function CommandPaletteBody({
     setHighlightedIndex(0);
     setHighlightedId(null);
   }, []);
-  const pluginSlots = usePluginSlots();
-  const settingsSections = useSettingsNavSections(pluginSlots.fileOpeners);
+  const fileOpeners = usePluginSlotKind("fileOpeners");
+  const navPanels = usePluginSlotKind("navPanels");
+  const pluginSettingsSections = usePluginSlotKind("settingsSections");
+  const settingsSections = useSettingsNavSections(fileOpeners);
+  const commandPaletteSearches = usePluginSlotKind("commandPaletteSearches");
   const pluginSettingsEntries = useMemo(
     () =>
       buildPluginSettingsEntries({
         installedPlugins,
-        settingsSections: pluginSlots.settingsSections,
+        settingsSections: pluginSettingsSections,
       }),
-    [installedPlugins, pluginSlots.settingsSections],
+    [installedPlugins, pluginSettingsSections],
   );
   const settingsActions = useMemo(
     () =>
@@ -94,9 +97,9 @@ export function CommandPaletteBody({
     () =>
       buildPluginPagePaletteActions({
         navigate: (path) => void navigate(path),
-        panels: pluginSlots.navPanels,
+        panels: navPanels,
       }),
-    [navigate, pluginSlots.navPanels],
+    [navigate, navPanels],
   );
   const navigateToPath = useCallback(
     (path: string) => void navigate(path),
@@ -144,8 +147,8 @@ export function CommandPaletteBody({
   const pluginSearch = usePluginPaletteSearch({
     enabled: true,
     query,
-    slots: pluginSlots.commandPaletteSearches,
-    panels: pluginSlots.navPanels,
+    slots: commandPaletteSearches,
+    panels: navPanels,
     projectId,
     navigate: navigateToPath,
   });
@@ -208,7 +211,7 @@ export function CommandPaletteBody({
   const pluginSearchStatus = pluginSearch.pending
     ? "Searching…"
     : !isGroupedRoot &&
-        pluginSlots.commandPaletteSearches.length > 0 &&
+        commandPaletteSearches.length > 0 &&
         isPluginSearchQuery(query)
       ? `${pluginSearch.actions.length} ${pluginSearch.actions.length === 1 ? "search result" : "search results"}`
       : "";

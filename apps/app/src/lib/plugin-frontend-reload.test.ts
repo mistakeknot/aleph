@@ -39,7 +39,7 @@ import {
   removePluginSlotRegistrations,
   resetPluginSlotStoreForTest,
   setPluginSlotRegistrations,
-  usePluginSlots,
+  usePluginSlotKind,
 } from "./plugin-slots";
 import {
   getPluginThreadRowStatus,
@@ -143,7 +143,7 @@ function renderIntoBody(element: ReactElement): HTMLDivElement {
 }
 
 function MountedHomepageSections() {
-  const { homepageSections } = usePluginSlots();
+  const homepageSections = usePluginSlotKind("homepageSections");
   return createElement(
     "div",
     null,

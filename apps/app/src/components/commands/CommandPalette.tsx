@@ -28,7 +28,7 @@ import {
   buildPluginPaletteActions,
 } from "@/lib/command-palette/palette-plugin-actions";
 import { PLUGIN_SEARCH_ACTION_PREFIX } from "@/lib/command-palette/palette-plugin-search";
-import { usePluginSlots } from "@/lib/plugin-slots";
+import { usePluginSlotKind } from "@/lib/plugin-slots";
 import { getFocusedAppPanelController } from "@/lib/app-fixed-tab-navigation";
 import { pluginListQueryOptions } from "@/hooks/queries/plugin-settings-queries";
 import type { PluginSettingsCandidate } from "@/components/settings/plugin-settings-entries";
@@ -78,28 +78,30 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
   const [recents, setRecents] = useState<readonly string[]>(() =>
     readPaletteRecents(),
   );
-  const pluginSlots = usePluginSlots();
+  const pluginSlotsCommandPaletteActions = usePluginSlotKind(
+    "commandPaletteActions",
+  );
   const pluginCommandIds = useMemo(
     () =>
-      pluginSlots.commandPaletteActions.map((command) =>
+      pluginSlotsCommandPaletteActions.map((command) =>
         pluginCommandId(command.pluginId, command.id),
       ),
-    [pluginSlots.commandPaletteActions],
+    [pluginSlotsCommandPaletteActions],
   );
   const pluginShortcuts = useAppCommandShortcuts(pluginCommandIds);
   const appPluginCommands = useMemo(
     () =>
-      pluginSlots.commandPaletteActions.filter(
+      pluginSlotsCommandPaletteActions.filter(
         (command) => command.target === "app",
       ),
-    [pluginSlots.commandPaletteActions],
+    [pluginSlotsCommandPaletteActions],
   );
   const composerPluginCommands = useMemo(
     () =>
-      pluginSlots.commandPaletteActions.filter(
+      pluginSlotsCommandPaletteActions.filter(
         (command) => command.target === "composer",
       ),
-    [pluginSlots.commandPaletteActions],
+    [pluginSlotsCommandPaletteActions],
   );
   const appPluginCommandIds = useMemo(
     () =>
