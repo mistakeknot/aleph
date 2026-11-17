@@ -117,7 +117,7 @@ export function ModelReasoningMenu({
   serviceTierOptions,
   serviceTierValue,
   onServiceTierChange,
-  handoffLabel = "Handoff to new thread",
+  handoffLabel = "Hand off to new thread",
   agentSections,
   onAgentOptionChange,
   onStartHandoff,

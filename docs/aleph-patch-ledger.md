@@ -217,3 +217,9 @@ Adopt upstream 3163ce37c5 per-kind slot subscriptions while retaining the `histo
 ## Provider and tooling sync (mk-8lcd6.177)
 
 Six upstream commits through 0553dccb61 merge cleanly. Retain `provider-bridge-changes` spawn hooks, process scopes, promptCacheTtl and cache-write accounting while adopting session-ID initialization ordering. Keep `plugin-surface` fake-host additions alongside upstream deadline recording. Adopt upstream browser call deadlines, remote-base selection, plugin settings layout, theme property isolation and large ACP tool catalogs. No workflow delta exists; the `build-config` omission policy from mk-8lcd6.66 remains in force. Lockfiles are unchanged; no Aleph patch is retired.
+
+## Slash handoff sync (mk-8lcd6.180)
+
+Source: interim decision recorded on bead mk-8lcd6.180 (option A). Upstream `/handoff` always starts a new-thread handoff with its removable source pill; deleting the pill cancels it. Command-started handoffs do not expose the in-place switch choice. The `model-picker` patch retains picker-driven in-place provider switching, its target preference/default, availability guard and label. Both upstream and Aleph tests remain. No workflow or lockfile changes; no patch retired.
+
+Aleph-owned assertion updated to track upstream's label rename: the switch-mode absence check in `ModelReasoningPicker.test.tsx` now names the new-thread button "Hand off to new thread". The menu default and picker non-switch label adopt that same upstream rename; other titles and header text stay unchanged.
