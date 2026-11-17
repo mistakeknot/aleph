@@ -248,11 +248,21 @@ export function registerThreadActionRoutes(
 
   post(routes.send, async (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const result = await acceptThreadSendRequest(deps, { payload, thread });
+    let admittedThreadId = thread.id;
+    const result = await acceptThreadSendRequest(deps, {
+      payload,
+      thread,
+      onAdmitted: (admittedThread) => {
+        admittedThreadId = admittedThread.id;
+      },
+    });
     logThreadSender(senderLog, deps.logger, context, {
-      db: deps.db,
       route: "send",
       requestedThreadId: thread.id,
+      threadId:
+        result.delivery === "queued"
+          ? result.queuedMessage.threadId
+          : admittedThreadId,
       messageSequence:
         result.delivery === "sent" ? result.messageSequence : null,
       queuedMessageId:
@@ -291,9 +301,9 @@ export function registerThreadActionRoutes(
       thread,
     });
     logThreadSender(senderLog, deps.logger, context, {
-      db: deps.db,
       route: "queue",
       requestedThreadId: thread.id,
+      threadId: queuedMessage.threadId,
       messageSequence: null,
       queuedMessageId: queuedMessage.id,
       claimedSenderThreadId: payload.senderThreadId,

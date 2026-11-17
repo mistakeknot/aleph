@@ -397,53 +397,107 @@ describe("sender log sink", () => {
     }
   });
 
-  it("never throws out of logThreadSender, even when warn throws", async () => {
+  it("never throws out of logThreadSender when the context read or the sink fails", async () => {
+    const warn = vi.fn(() => {
+      throw new Error("warn failed");
+    });
+    const logger = quietLogger(warn);
+    const brokenContext = {
+      req: {
+        header() {
+          throw new Error("header read failed");
+        },
+        path: "/api/v1/threads/t/send",
+      },
+      env: {},
+    } as unknown as Parameters<typeof logThreadSender>[2];
+    const recorded: SenderLogEntry[] = [];
+    const recordingSink = {
+      record(entry: SenderLogEntry) {
+        recorded.push(entry);
+      },
+      async flush() {},
+    };
+    const failingSink = {
+      record: vi.fn(() => {
+        throw new Error("sink failed");
+      }),
+      async flush() {},
+    };
+    const args = {
+      route: "send" as const,
+      requestedThreadId: "t",
+      threadId: "t",
+      messageSequence: null,
+      queuedMessageId: null,
+      claimedSenderThreadId: undefined,
+      input: [],
+      resolvePluginCaller: noPluginCaller,
+    };
+    expect(() =>
+      logThreadSender(recordingSink, logger, brokenContext, args),
+    ).not.toThrow();
+    expect(recorded).toHaveLength(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const app = new Hono();
+    app.all("*", (context) => {
+      expect(() =>
+        logThreadSender(failingSink, logger, context, args),
+      ).not.toThrow();
+      logThreadSender(recordingSink, logger, context, args);
+      return context.json({ ok: true });
+    });
+    const response = await app.fetch(
+      new Request("http://example.test/api/v1/threads/t/send"),
+      { incoming: { socket: { remoteAddress: "127.0.0.1" } } },
+    );
+    expect(response.status).toBe(200);
+    expect(failingSink.record).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.threadId).toBe("t");
+  });
+
+  it("writes a record that arrives while the drain is finishing, without a flush", async () => {
     const dir = scratchDir();
     try {
-      const throwingWarn = () => {
+      const sink = createSenderLogSink({ dataDir: dir, logger: quietLogger() });
+      sink.record(sampleEntry(1));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      sink.record(sampleEntry(2));
+      sink.record(sampleEntry(3));
+      const file = join(dir, "sender-log", SENDER_LOG_FILE_NAME);
+      const deadline = Date.now() + 5000;
+      let lines: string[] = [];
+      while (Date.now() < deadline) {
+        lines = existsSync(file)
+          ? readFileSync(file, "utf8").split("\n").filter(Boolean)
+          : [];
+        if (lines.length === 3) break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      }
+      expect(lines).toHaveLength(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("survives a throwing warn when an append fails", async () => {
+    const dir = scratchDir();
+    try {
+      mkdirSync(join(dir, "sender-log", SENDER_LOG_FILE_NAME), {
+        recursive: true,
+      });
+      const warn = vi.fn(() => {
         throw new Error("warn failed");
-      };
-      const logger = quietLogger(throwingWarn);
-      const sink = createSenderLogSink({ dataDir: dir, logger });
-      const brokenContext = {
-        req: {
-          header() {
-            throw new Error("header read failed");
-          },
-          path: "/api/v1/threads/t/send",
-        },
-        env: {},
-      } as unknown as Parameters<typeof logThreadSender>[2];
-      expect(() =>
-        logThreadSender(sink, logger, brokenContext, {
-          db: {} as Parameters<typeof logThreadSender>[3]["db"],
-          route: "send",
-          requestedThreadId: "t",
-          messageSequence: null,
-          queuedMessageId: null,
-          claimedSenderThreadId: undefined,
-          input: [],
-          resolvePluginCaller: noPluginCaller,
-        }),
-      ).not.toThrow();
-      const failingSink = {
-        record() {
-          throw new Error("sink failed");
-        },
-        async flush() {},
-      };
-      expect(() =>
-        logThreadSender(failingSink, logger, brokenContext, {
-          db: {} as Parameters<typeof logThreadSender>[3]["db"],
-          route: "queue",
-          requestedThreadId: "t",
-          messageSequence: null,
-          queuedMessageId: null,
-          claimedSenderThreadId: undefined,
-          input: [],
-          resolvePluginCaller: noPluginCaller,
-        }),
-      ).not.toThrow();
+      });
+      const sink = createSenderLogSink({
+        dataDir: dir,
+        logger: quietLogger(warn),
+      });
+      sink.record(sampleEntry(1));
+      await expect(sink.flush()).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

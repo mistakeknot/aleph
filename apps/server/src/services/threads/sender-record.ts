@@ -3,7 +3,6 @@ import { constants as fsConstants } from "node:fs";
 import { chmod, lstat, mkdir, open } from "node:fs/promises";
 import { join } from "node:path";
 import type { RequestAppSurface } from "@bb/config/app-surface";
-import { getThreadRedirectState, type DbQueryConnection } from "@bb/db";
 import type { PromptInput } from "@bb/domain";
 import {
   getGateAuthKind,
@@ -195,6 +194,7 @@ export function createSenderLogSink(args: {
     if (draining === null) {
       draining = drain().finally(() => {
         draining = null;
+        if (pending.length > 0) void schedule();
       });
     }
     return draining;
@@ -225,25 +225,14 @@ export function createSenderLogSink(args: {
   };
 }
 
-export function resolveAcceptedThreadId(
-  db: DbQueryConnection,
-  requestedThreadId: string,
-): string {
-  const state = getThreadRedirectState(db, requestedThreadId);
-  if (state.kind === "retired" && state.successorThreadId !== null) {
-    return state.successorThreadId;
-  }
-  return requestedThreadId;
-}
-
 export function logThreadSender(
   sink: SenderLogSink,
   logger: ServerLogger,
   context: SenderRequestContext,
   args: {
-    db: DbQueryConnection;
     route: SenderLogRoute;
     requestedThreadId: string;
+    threadId: string;
     messageSequence: number | null;
     queuedMessageId: string | null;
     claimedSenderThreadId: string | undefined;
@@ -255,7 +244,7 @@ export function logThreadSender(
     sink.record({
       route: args.route,
       requestedThreadId: args.requestedThreadId,
-      threadId: resolveAcceptedThreadId(args.db, args.requestedThreadId),
+      threadId: args.threadId,
       messageSequence: args.messageSequence,
       queuedMessageId: args.queuedMessageId,
       sender: readSenderRecord(context, {
