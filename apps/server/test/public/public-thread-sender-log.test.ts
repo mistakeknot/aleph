@@ -1,21 +1,32 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { createQueuedThreadMessage } from "@bb/db";
+import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { handleDaemonSocketClosed } from "../../src/internal/session-owner-side-effects.js";
 import { markTunnelIngressRequest } from "../../src/request-context.js";
 import {
   SENDER_LOG_FILE_NAME,
+  createSenderLogSink,
+  logThreadSender,
   readSenderRecord,
+  type SenderLogEntry,
 } from "../../src/services/threads/sender-record.js";
 import { readJson } from "../helpers/json.js";
+import { textInput } from "../helpers/prompt-input.js";
 import {
   seedEnvironment,
   seedHostSession,
@@ -26,6 +37,39 @@ import {
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
 
 const noPluginCaller = () => ({ ok: false as const });
+
+function quietLogger(warn: () => void = () => {}) {
+  return { debug() {}, info() {}, error() {}, warn };
+}
+
+function sampleEntry(index: number): SenderLogEntry {
+  return {
+    route: "send",
+    requestedThreadId: `thr_${index}`,
+    threadId: `thr_${index}`,
+    messageSequence: index,
+    queuedMessageId: null,
+    sender: {
+      kind: "api",
+      verified: false,
+      operatorSession: false,
+      claimedSenderThreadId: null,
+      callerThreadHeader: null,
+      pluginId: null,
+      surface: "api",
+      gateAuth: null,
+      accessRoute: null,
+      machineId: null,
+    },
+    textSha256: "0".repeat(64),
+    textLength: 0,
+    inputChunkCount: 1,
+  };
+}
+
+function scratchDir(): string {
+  return mkdtempSync(join(tmpdir(), "sender-log-test-"));
+}
 
 function readLog(harness: TestAppHarness): Record<string, unknown>[] {
   const file = join(harness.config.dataDir, "sender-log", SENDER_LOG_FILE_NAME);
@@ -78,14 +122,20 @@ function sendBody(text: string, extra: Record<string, unknown> = {}): string {
 
 async function classify(
   headers: Record<string, string>,
-  options: { tunnel?: boolean; claimed?: string } = {},
+  options: {
+    tunnel?: boolean;
+    claimed?: string;
+    resolvePluginCaller?: Parameters<
+      typeof readSenderRecord
+    >[1]["resolvePluginCaller"];
+  } = {},
 ) {
   const app = new Hono();
   app.all("*", (context) =>
     context.json(
       readSenderRecord(context, {
         claimedSenderThreadId: options.claimed,
-        resolvePluginCaller: noPluginCaller,
+        resolvePluginCaller: options.resolvePluginCaller ?? noPluginCaller,
       }),
     ),
   );
@@ -167,10 +217,241 @@ describe("sender record classification", () => {
       pluginId: null,
     });
   });
+
+  it("verifies only a plugin caller the registry resolved", async () => {
+    expect(
+      await classify(
+        { "x-bb-plugin-caller": "token" },
+        {
+          resolvePluginCaller: () => ({
+            ok: true as const,
+            caller: { kind: "plugin" as const, pluginId: "plugin-a" },
+          }),
+        },
+      ),
+    ).toMatchObject({ kind: "plugin", verified: true, pluginId: "plugin-a" });
+    expect(await classify({ "x-bb-plugin-caller": "forged" })).toMatchObject({
+      kind: "api",
+      verified: false,
+      pluginId: null,
+    });
+    expect(
+      await classify(
+        { "x-bb-plugin-caller": "token", "x-bb-cli": "1" },
+        {
+          resolvePluginCaller: () => ({
+            ok: true as const,
+            caller: { kind: "client" as const },
+          }),
+        },
+      ),
+    ).toMatchObject({ kind: "cli", verified: false, pluginId: null });
+  });
+
+  it("bounds asserted identifiers instead of storing them verbatim", async () => {
+    const long = "x".repeat(5000);
+    const record = await classify(
+      {
+        "x-bb-cli": "1",
+        "x-bb-caller-thread": "not an id",
+        "x-bb-gate-auth": "machine",
+        "x-bb-gate-machine-id": long,
+      },
+      { claimed: long },
+    );
+    expect(record.callerThreadHeader).toMatch(/^invalid:[0-9a-f]{16}:9$/);
+    expect(record.machineId).toMatch(/^invalid:[0-9a-f]{16}:5000$/);
+    expect(record.claimedSenderThreadId).toMatch(/^invalid:[0-9a-f]{16}:5000$/);
+    expect(JSON.stringify(record)).not.toContain("not an id");
+    expect(JSON.stringify(record)).not.toContain("xxxxxxxx");
+  });
+});
+
+describe("sender log sink", () => {
+  it("writes serialized valid lines for concurrent records", async () => {
+    const dir = scratchDir();
+    try {
+      const sink = createSenderLogSink({ dataDir: dir, logger: quietLogger() });
+      for (let index = 0; index < 200; index += 1) {
+        sink.record(sampleEntry(index));
+        if (index % 50 === 0) await Promise.resolve();
+      }
+      await sink.flush();
+      const lines = readFileSync(
+        join(dir, "sender-log", SENDER_LOG_FILE_NAME),
+        "utf8",
+      )
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as { messageSequence: number });
+      expect(lines.map((line) => line.messageSequence)).toEqual(
+        Array.from({ length: 200 }, (_, index) => index),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("tightens a permissive existing directory and file", async () => {
+    const dir = scratchDir();
+    try {
+      const logDir = join(dir, "sender-log");
+      mkdirSync(logDir, { mode: 0o755 });
+      chmodSync(logDir, 0o755);
+      const file = join(logDir, SENDER_LOG_FILE_NAME);
+      writeFileSync(file, "");
+      chmodSync(file, 0o644);
+      const sink = createSenderLogSink({ dataDir: dir, logger: quietLogger() });
+      sink.record(sampleEntry(1));
+      await sink.flush();
+      expect(statSync(logDir).mode & 0o777).toBe(0o700);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a symlinked log file and leaves its target untouched", async () => {
+    const dir = scratchDir();
+    try {
+      const logDir = join(dir, "sender-log");
+      mkdirSync(logDir, { mode: 0o700 });
+      const target = join(dir, "elsewhere.txt");
+      writeFileSync(target, "keep");
+      symlinkSync(target, join(logDir, SENDER_LOG_FILE_NAME));
+      const warn = vi.fn();
+      const sink = createSenderLogSink({
+        dataDir: dir,
+        logger: quietLogger(warn),
+      });
+      sink.record(sampleEntry(1));
+      await sink.flush();
+      expect(readFileSync(target, "utf8")).toBe("keep");
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a symlinked log directory", async () => {
+    const dir = scratchDir();
+    try {
+      const elsewhere = join(dir, "elsewhere");
+      mkdirSync(elsewhere);
+      symlinkSync(elsewhere, join(dir, "sender-log"));
+      const warn = vi.fn();
+      const sink = createSenderLogSink({
+        dataDir: dir,
+        logger: quietLogger(warn),
+      });
+      sink.record(sampleEntry(1));
+      await sink.flush();
+      expect(existsSync(join(elsewhere, SENDER_LOG_FILE_NAME))).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not block on a named pipe at the log path", async () => {
+    const dir = scratchDir();
+    try {
+      const logDir = join(dir, "sender-log");
+      mkdirSync(logDir, { mode: 0o700 });
+      execFileSync("mkfifo", [join(logDir, SENDER_LOG_FILE_NAME)]);
+      const warn = vi.fn();
+      const sink = createSenderLogSink({
+        dataDir: dir,
+        logger: quietLogger(warn),
+      });
+      sink.record(sampleEntry(1));
+      await sink.flush();
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("drops records beyond the backlog bound and warns", async () => {
+    const dir = scratchDir();
+    try {
+      const warn = vi.fn();
+      const sink = createSenderLogSink({
+        dataDir: dir,
+        logger: quietLogger(warn),
+        maxPending: 3,
+      });
+      for (let index = 0; index < 6; index += 1)
+        sink.record(sampleEntry(index));
+      await sink.flush();
+      const lines = readFileSync(
+        join(dir, "sender-log", SENDER_LOG_FILE_NAME),
+        "utf8",
+      )
+        .split("\n")
+        .filter((line) => line.length > 0);
+      expect(lines).toHaveLength(4);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("never throws out of logThreadSender, even when warn throws", async () => {
+    const dir = scratchDir();
+    try {
+      const throwingWarn = () => {
+        throw new Error("warn failed");
+      };
+      const logger = quietLogger(throwingWarn);
+      const sink = createSenderLogSink({ dataDir: dir, logger });
+      const brokenContext = {
+        req: {
+          header() {
+            throw new Error("header read failed");
+          },
+          path: "/api/v1/threads/t/send",
+        },
+        env: {},
+      } as unknown as Parameters<typeof logThreadSender>[2];
+      expect(() =>
+        logThreadSender(sink, logger, brokenContext, {
+          db: {} as Parameters<typeof logThreadSender>[3]["db"],
+          route: "send",
+          requestedThreadId: "t",
+          messageSequence: null,
+          queuedMessageId: null,
+          claimedSenderThreadId: undefined,
+          input: [],
+          resolvePluginCaller: noPluginCaller,
+        }),
+      ).not.toThrow();
+      const failingSink = {
+        record() {
+          throw new Error("sink failed");
+        },
+        async flush() {},
+      };
+      expect(() =>
+        logThreadSender(failingSink, logger, brokenContext, {
+          db: {} as Parameters<typeof logThreadSender>[3]["db"],
+          route: "queue",
+          requestedThreadId: "t",
+          messageSequence: null,
+          queuedMessageId: null,
+          claimedSenderThreadId: undefined,
+          input: [],
+          resolvePluginCaller: noPluginCaller,
+        }),
+      ).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("sender log on thread messages", () => {
-  it("logs a direct send with a hash of the text and not the text", async () => {
+  it("logs a direct send tied to its response, with a hash and not the text", async () => {
     await withTestHarness(async (harness) => {
       const thread = seedOfflineThread(harness);
       const text = "steer text that must not be logged";
@@ -187,13 +468,22 @@ describe("sender log on thread messages", () => {
         },
       );
       expect(response.status).toBe(200);
+      const body = (await readJson(response)) as {
+        ok: boolean;
+        delivery: string;
+        queuedMessage?: { id: string };
+      };
+      expect(body).toMatchObject({ ok: true, delivery: "queued" });
+      await vi.waitFor(() => expect(readLog(harness)).toHaveLength(1));
       const lines = readLog(harness);
-      expect(lines).toHaveLength(1);
       expect(lines[0]).toMatchObject({
         route: "send",
+        requestedThreadId: thread.id,
         threadId: thread.id,
+        queuedMessageId: body.queuedMessage?.id,
         textSha256: createHash("sha256").update(text).digest("hex"),
         textLength: text.length,
+        inputChunkCount: 1,
         sender: {
           kind: "cli",
           verified: false,
@@ -208,55 +498,168 @@ describe("sender log on thread messages", () => {
     });
   });
 
-  it("logs a queued message with its queued message id", async () => {
+  it("logs a queued message with its id, a hash and no text", async () => {
     await withTestHarness(async (harness) => {
       const thread = seedOfflineThread(harness);
+      const text = "queued text that must not be logged";
       const response = await harness.app.request(
         `/api/v1/threads/${thread.id}/queued-messages`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            input: [{ type: "text", text: "queued text", mentions: [] }],
+            input: [{ type: "text", text, mentions: [] }],
           }),
         },
       );
       expect(response.status).toBe(201);
       const queued = (await readJson(response)) as { id: string };
+      await vi.waitFor(() => expect(readLog(harness)).toHaveLength(1));
       const lines = readLog(harness);
-      expect(lines).toHaveLength(1);
       expect(lines[0]).toMatchObject({
         route: "queue",
+        requestedThreadId: thread.id,
         threadId: thread.id,
         queuedMessageId: queued.id,
         messageSequence: null,
+        textSha256: createHash("sha256").update(text).digest("hex"),
         sender: { kind: "api", verified: false, claimedSenderThreadId: null },
+      });
+      const raw = readFileSync(
+        join(harness.config.dataDir, "sender-log", SENDER_LOG_FILE_NAME),
+        "utf8",
+      );
+      expect(raw).not.toContain(text);
+    });
+  });
+
+  it("records the successor as the destination of a redirected post", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps, { id: "host-redirect" });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/sender-log-redirect",
+      });
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/sender-log-redirect",
+        status: "ready",
+      });
+      const source = seedThread(harness.deps, {
+        projectId: project.id,
+        environmentId: environment.id,
+        status: "active",
+      });
+      const target = seedThread(harness.deps, {
+        projectId: project.id,
+        environmentId: environment.id,
+        status: "active",
+      });
+      createQueuedThreadMessage(harness.db, harness.hub, {
+        threadId: source.id,
+        content: textInput("seed"),
+        model: "gpt-5",
+        reasoningLevel: "medium",
+        permissionMode: "full",
+        serviceTier: "default",
+        waitingOn: { kind: "thread-busy" },
+        sendAt: null,
+        payload: { kind: "inline" },
+        systemNotice: null,
+      });
+      const retire = await harness.app.request(
+        `/api/v1/threads/${source.id}/retire`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            targetThreadId: target.id,
+            operationKey: "sender-log-k1",
+          }),
+        },
+      );
+      expect(retire.status).toBeLessThan(300);
+      const response = await harness.app.request(
+        `/api/v1/threads/${source.id}/queued-messages`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            input: textInput("late"),
+            model: "gpt-5",
+            reasoningLevel: "medium",
+            permissionMode: "full",
+            serviceTier: "default",
+          }),
+        },
+      );
+      expect(response.status).toBe(201);
+      const queued = (await readJson(response)) as {
+        id: string;
+        threadId?: string;
+      };
+      await vi.waitFor(() => expect(readLog(harness)).toHaveLength(1));
+      expect(readLog(harness)[0]).toMatchObject({
+        route: "queue",
+        requestedThreadId: source.id,
+        threadId: target.id,
+        queuedMessageId: queued.id,
+      });
+    });
+  }, 20_000);
+
+  it("logs nothing for a rejected request", async () => {
+    await withTestHarness(async (harness) => {
+      const thread = seedOfflineThread(harness);
+      const rejected = await harness.app.request(
+        `/api/v1/threads/${thread.id}/send`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ input: "not a prompt" }),
+        },
+      );
+      expect(rejected.status).toBeGreaterThanOrEqual(400);
+      const accepted = await harness.app.request(
+        `/api/v1/threads/${thread.id}/send`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: sendBody("accepted"),
+        },
+      );
+      expect(accepted.status).toBe(200);
+      await vi.waitFor(() => expect(readLog(harness)).toHaveLength(1));
+      expect(readLog(harness)[0]).toMatchObject({
+        textLength: "accepted".length,
       });
     });
   });
 
-  it("still accepts the message when the log cannot be written", async () => {
+  it("still accepts and persists the message when the log cannot be written", async () => {
     await withTestHarness(async (harness) => {
       const thread = seedOfflineThread(harness);
       const dir = join(harness.config.dataDir, "sender-log");
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, SENDER_LOG_FILE_NAME), "");
-      chmodSync(join(dir, SENDER_LOG_FILE_NAME), 0o000);
-      chmodSync(dir, 0o500);
-      try {
-        const response = await harness.app.request(
-          `/api/v1/threads/${thread.id}/send`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: sendBody("still sent"),
-          },
-        );
-        expect(response.status).toBe(200);
-      } finally {
-        chmodSync(dir, 0o700);
-        chmodSync(join(dir, SENDER_LOG_FILE_NAME), 0o600);
-      }
+      const target = join(harness.config.dataDir, "elsewhere.txt");
+      writeFileSync(target, "keep");
+      symlinkSync(target, join(dir, SENDER_LOG_FILE_NAME));
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}/send`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: sendBody("still sent"),
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(await readJson(response)).toMatchObject({
+        ok: true,
+        delivery: "queued",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(readFileSync(target, "utf8")).toBe("keep");
     });
   });
 });
