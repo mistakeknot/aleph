@@ -197,3 +197,7 @@ diagnostics-log guards against #6630 and #7001, app-shell-ui hunks, mobile hunks
 ## Sync through f266dc101f (mk-8lcd6.160)
 
 The split-panes patch keeps optional composer focus and Cmd/Ctrl-W pane close. Upstream now derives the destination layout during the route render; the existing pane commands and focus paths remain. `SplitThreadArea.test.tsx` covers pane close, focus and both new route-commit cases. No other ledger-owned path changes in this range.
+
+## Sync through 49982f7fbd (mk-8lcd6.161)
+
+The fork-owned-migrations barrel conflict takes upstream module exports and its private environment-lifecycle module, keeping the six Aleph-only module export blocks. Queue-transfer and event-cold-tier retain named exports for queued-thread-messages and maintenance: star exports there would newly expose five Aleph internal helpers (getLastQueuedThreadMessage, claimQueuedThreadMessageIdsInTransaction, sweepStaleQueuedMessageClaims, countQueuedThreadMessagesInTransaction and isThreadMaintenanceBusy). Their existing public exports and cold-history gates stay unchanged. No migration changes.
