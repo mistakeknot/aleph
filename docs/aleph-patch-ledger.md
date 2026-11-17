@@ -249,3 +249,7 @@ One field added to an upstream test fixture to satisfy Aleph's required timeline
 ## Timeline mount layout sync (mk-8lcd6.193)
 
 Adopt upstream 64c272a16e timeline row mounting, shared resize observations and scroll-handler layout isolation. The markdown-preview auto-merge retains Aleph task-scheme URL preservation, plain-click routing and modifier handling unchanged. Thread-view timing and the pending-interactions composer gate remain unchanged. No workflow or lockfile delta and no patch retired.
+
+## Plugin call signal cleanup sync (mk-8lcd6.196)
+
+Adopt upstream c5028d6966 lifecycle regression test unchanged. Keep Aleph linkAbortSignals and linked?.dispose() in invokeWrapped finally; upstream linkCallSignal and call.unlink() are not taken because Aleph already has equivalent cleanup. Success and thrown errors reach finally; caller or lifetime abort disposes listeners in the helper; release rejects the caller race and reaches finally, including calls started during stopping using the released signal. Already-released calls return before linking. Exactly one signal-link implementation remains. No workflow or lockfile delta, and no Aleph patch retired.
