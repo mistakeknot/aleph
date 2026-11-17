@@ -242,7 +242,7 @@ export function ModelReasoningPicker({
   serviceTierSupportByProvider,
   className,
   muted,
-  modal = true,
+  modal = false,
   align = "start",
   disabled,
   handoff,
