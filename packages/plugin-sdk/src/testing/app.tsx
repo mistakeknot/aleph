@@ -2004,18 +2004,24 @@ const testPluginSdkApp = {
   experimental_SidebarNavigationIcon: TestSidebarNavigationIcon,
   experimental_useSidebarThreadSplit(threadId): PluginSidebarThreadSplit {
     const env = useSlotEnv("experimental_useSidebarThreadSplit");
-    return useMemo(
-      () => ({
+    return useMemo(() => {
+      const panes =
+        env.sidebarSplitLayout?.panes.map((pane) => ({
+          paneId: pane.paneId,
+          rect: pane.rect,
+          isMe: pane.threadId === threadId,
+          isFocused: pane.isFocused,
+        })) ?? [];
+      return {
         splitProps: {
           onPointerDown: () => {
             env.sidebarActionCalls.push({ method: "open", threadId });
           },
         },
         isAvailable: true,
-        layout: null,
-      }),
-      [env, threadId],
-    );
+        layout: panes.some((pane) => pane.isMe) ? { panes } : null,
+      };
+    }, [env, threadId]);
   },
   useSidebarThreadDraft(threadId): PluginSidebarThreadDraftState {
     const env = useSlotEnv("useSidebarThreadDraft");

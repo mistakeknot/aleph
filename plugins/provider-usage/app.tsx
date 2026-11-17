@@ -465,7 +465,7 @@ function AccountUsage({
         {showProvider ? (
           <ProviderIcon
             providerKind="agent"
-            provider={account}
+            provider={{ ...account, id: account.providerId }}
             fallback="Bot"
             className="size-3 shrink-0"
           />
