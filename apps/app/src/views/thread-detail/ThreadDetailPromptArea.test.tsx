@@ -2298,6 +2298,63 @@ describe("ThreadDetailPromptArea", () => {
       expect(mocks.switchThreadProvider).not.toHaveBeenCalled();
     });
 
+    it("keeps picker target rewrites active but cancels a user pill deletion", () => {
+      const listeners = new Set<() => void>();
+      mocks.promptDraft.subscribe.mockImplementation((listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      });
+      mocks.promptDraft.setDraft.mockImplementation(
+        (draft: {
+          text: string;
+          mentions: PromptTextMention[];
+          attachments: PromptDraftAttachment[];
+        }) => {
+          mocks.promptDraft.text = draft.text;
+          mocks.promptDraft.mentions = draft.mentions;
+          mocks.promptDraft.attachments = draft.attachments;
+          for (const listener of listeners) listener();
+        },
+      );
+      mocks.promptDraft.text = "Keep going";
+      renderPromptArea({ thread: sourceThread() });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Complete handoff flow" }),
+      );
+      const selected = () => [
+        screen.getByTestId("selected-provider").textContent,
+        screen.getByTestId("selected-model").textContent,
+        screen.getByTestId("selected-reasoning").textContent,
+      ];
+      const selection = selected();
+      expect(selection).toEqual(["claude-code", "claude-opus-5", "medium"]);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose new thread" }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Choose switch" }));
+      expect(
+        screen.getByRole("button", { name: "Exit handoff" }),
+      ).not.toBeNull();
+      expect(screen.getByTestId("submit-label").textContent).toBe("Switch");
+      expect(selected()).toEqual(selection);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose new thread" }),
+      );
+      expect(selected()).toEqual(selection);
+      expect(mocks.promptDraft.mentions).not.toHaveLength(0);
+      act(() =>
+        mocks.promptDraft.setDraft({
+          text: "Keep going",
+          mentions: [],
+          attachments: [],
+        }),
+      );
+      expect(screen.queryByRole("button", { name: "Exit handoff" })).toBeNull();
+      expect(screen.getByTestId("selected-provider").textContent).toBe("codex");
+    });
+
     it("keeps bb's own handoff when the plugin is not running", () => {
       mocks.plugins = [{ id: "handoff", enabled: true, status: "stopped" }];
       mocks.promptDraft.text = "Keep going";

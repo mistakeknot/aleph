@@ -863,6 +863,7 @@ export function ThreadDetailPromptArea({
     setServiceTier,
     thread.id,
   ]);
+  const isChangingHandoffTargetRef = useRef(false);
   const handleHandoffTargetChange = useCallback(
     (target: ThreadHandoffTarget) => {
       setPreferredHandoffTarget(target);
@@ -873,7 +874,12 @@ export function ThreadDetailPromptArea({
           : (stripThreadHandoffPrefix(handoffSeed, currentDraft) ??
             currentDraft);
       if (nextDraft !== currentDraft) {
-        promptDraft.setDraft(nextDraft);
+        isChangingHandoffTargetRef.current = true;
+        try {
+          promptDraft.setDraft(nextDraft);
+        } finally {
+          isChangingHandoffTargetRef.current = false;
+        }
       }
     },
     [handoffSeed, promptDraft],
@@ -934,7 +940,10 @@ export function ThreadDetailPromptArea({
       const priorDraft = observed.draft;
       const nextDraft = getCurrentPromptDraft();
       observed.draft = nextDraft;
-      if (isCreatingHandoffThreadRef.current) {
+      if (
+        isCreatingHandoffThreadRef.current ||
+        isChangingHandoffTargetRef.current
+      ) {
         return;
       }
       const cancelledDraft = threadHandoffDraftAfterSourceRemoved(
