@@ -39,6 +39,10 @@ import {
   emitPluginMessageQueued,
   emitPluginThreadUnarchived,
 } from "../../services/plugins/plugin-thread-events.js";
+import {
+  createSenderLogSink,
+  logThreadSender,
+} from "../../services/threads/sender-record.js";
 import { toThreadQueuedMessage } from "../../services/threads/thread-queued-messages.js";
 import { retryFailedTurn } from "../../services/threads/turn-retry.js";
 import { regenerateThreadTitle } from "../../services/threads/title-generation.js";
@@ -237,11 +241,37 @@ export function registerThreadActionRoutes(
   });
   const routes = publicApiRoutes.threads;
 
+  const senderLog = createSenderLogSink({
+    dataDir: deps.config.dataDir,
+    logger: deps.logger,
+  });
+
   post(routes.send, async (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    return context.json(
-      await acceptThreadSendRequest(deps, { payload, thread }),
-    );
+    let admittedThreadId = thread.id;
+    const result = await acceptThreadSendRequest(deps, {
+      payload,
+      thread,
+      onAdmitted: (admittedThread) => {
+        admittedThreadId = admittedThread.id;
+      },
+    });
+    logThreadSender(senderLog, deps.logger, context, {
+      route: "send",
+      requestedThreadId: thread.id,
+      threadId:
+        result.delivery === "queued"
+          ? result.queuedMessage.threadId
+          : admittedThreadId,
+      messageSequence:
+        result.delivery === "sent" ? result.messageSequence : null,
+      queuedMessageId:
+        result.delivery === "queued" ? result.queuedMessage.id : null,
+      claimedSenderThreadId: payload.senderThreadId,
+      input: payload.input,
+      resolvePluginCaller: plugins.resolveRpcCaller,
+    });
+    return context.json(result);
   });
 
   post(routes.editMessage, async (context, payload) => {
@@ -269,6 +299,16 @@ export function registerThreadActionRoutes(
     const queuedMessage = await createQueuedMessageForThread(deps, {
       payload,
       thread,
+    });
+    logThreadSender(senderLog, deps.logger, context, {
+      route: "queue",
+      requestedThreadId: thread.id,
+      threadId: queuedMessage.threadId,
+      messageSequence: null,
+      queuedMessageId: queuedMessage.id,
+      claimedSenderThreadId: payload.senderThreadId,
+      input: payload.input,
+      resolvePluginCaller: plugins.resolveRpcCaller,
     });
     return context.json(queuedMessage, 201);
   });
