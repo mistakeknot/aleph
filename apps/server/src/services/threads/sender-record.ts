@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, type Stats } from "node:fs";
 import { chmod, lstat, mkdir, open, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { RequestAppSurface } from "@bb/config/app-surface";
@@ -123,6 +123,12 @@ function startOfUtcDay(atMs: number): number {
   return Date.parse(`${senderLogDay(atMs)}T00:00:00.000Z`);
 }
 
+function parseLogDay(day: string): number | null {
+  const parsed = Date.parse(`${day}T00:00:00.000Z`);
+  if (Number.isNaN(parsed)) return null;
+  return new Date(parsed).toISOString().slice(0, 10) === day ? parsed : null;
+}
+
 export async function pruneExpiredSenderLogs(
   dir: string,
   atMs: number,
@@ -130,6 +136,7 @@ export async function pruneExpiredSenderLogs(
 ): Promise<number> {
   let names: string[];
   try {
+    await requirePlainOwnedDirectory(dir);
     names = await readdir(dir);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -143,8 +150,8 @@ export async function pruneExpiredSenderLogs(
   for (const name of names) {
     const match = LOG_FILE_PATTERN.exec(name);
     if (match === null) continue;
-    const fileDay = Date.parse(`${match[1]}T00:00:00.000Z`);
-    if (Number.isNaN(fileDay)) continue;
+    const fileDay = parseLogDay(match[1]);
+    if (fileDay === null) continue;
     if ((today - fileDay) / MS_PER_DAY < SENDER_LOG_RETENTION_DAYS) continue;
     const path = join(dir, name);
     try {
@@ -178,12 +185,7 @@ function ownedByThisProcess(uid: number): boolean {
   return typeof process.getuid !== "function" || uid === process.getuid();
 }
 
-async function appendPrivately(
-  dir: string,
-  file: string,
-  payload: string,
-): Promise<void> {
-  await mkdir(dir, { recursive: true, mode: 0o700 });
+async function requirePlainOwnedDirectory(dir: string): Promise<Stats> {
   const dirStat = await lstat(dir);
   if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) {
     throw new Error("sender log directory is not a plain directory");
@@ -191,6 +193,16 @@ async function appendPrivately(
   if (!ownedByThisProcess(dirStat.uid)) {
     throw new Error("sender log directory is owned by another user");
   }
+  return dirStat;
+}
+
+async function appendPrivately(
+  dir: string,
+  file: string,
+  payload: string,
+): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const dirStat = await requirePlainOwnedDirectory(dir);
   if ((dirStat.mode & 0o077) !== 0) await chmod(dir, 0o700);
   const handle = await open(
     file,

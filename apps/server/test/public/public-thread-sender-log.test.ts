@@ -357,7 +357,13 @@ describe("sender log sink", () => {
       expect(existsSync(join(elsewhere, senderLogFileName(Date.now())))).toBe(
         false,
       );
-      expect(warn).toHaveBeenCalledTimes(1);
+      const messages = warn.mock.calls.map((call) => String(call[0]));
+      expect(messages.some((m) => m.includes("sender log append failed"))).toBe(
+        true,
+      );
+      expect(messages.some((m) => m.includes("sender log prune failed"))).toBe(
+        true,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -529,12 +535,94 @@ describe("sender log sink", () => {
           "sender-log-2026-11-17.jsonl",
           "sender-log-2026-11-18.jsonl",
         ]);
-        for (const name of readdirSync(logDir))
-          expect(
-            readFileSync(join(logDir, name), "utf8")
-              .split("\n")
-              .filter(Boolean),
-          ).toHaveLength(1);
+        const owners = new Map<string, string>();
+        for (const name of readdirSync(logDir)) {
+          const lines = readFileSync(join(logDir, name), "utf8")
+            .split("\n")
+            .filter(Boolean);
+          expect(lines).toHaveLength(1);
+          owners.set(name, JSON.parse(lines[0] as string).threadId);
+        }
+        expect(owners.get("sender-log-2026-11-17.jsonl")).toBe("thr_1");
+        expect(owners.get("sender-log-2026-11-18.jsonl")).toBe("thr_2");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps names that are not real calendar days and honours leap days", async () => {
+      const dir = scratchDir();
+      try {
+        const logDir = seedLogDir(dir);
+        const impossible = [
+          "sender-log-2023-02-30.jsonl",
+          "sender-log-2023-02-29.jsonl",
+          "sender-log-2023-04-31.jsonl",
+          "sender-log-2023-00-10.jsonl",
+        ].map((name) => {
+          const path = join(logDir, name);
+          writeFileSync(path, "keep");
+          return path;
+        });
+        const leap = join(logDir, "sender-log-2024-02-29.jsonl");
+        const afterLeap = join(logDir, "sender-log-2024-03-01.jsonl");
+        writeFileSync(leap, "x");
+        writeFileSync(afterLeap, "x");
+        const sink = createSenderLogSink({
+          dataDir: dir,
+          logger: quietLogger(),
+          now: () => Date.UTC(2024, 2, 30, 12),
+          pruneIntervalMs: 0,
+        });
+        await sink.flush();
+        for (const kept of impossible) expect(existsSync(kept)).toBe(true);
+        expect(existsSync(leap)).toBe(false);
+        expect(existsSync(afterLeap)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("leaves an expired-named directory in place", async () => {
+      const dir = scratchDir();
+      try {
+        const logDir = seedLogDir(dir);
+        const folder = join(logDir, senderLogFileName(noon - 90 * DAY_MS));
+        mkdirSync(folder);
+        writeFileSync(join(folder, "inner.txt"), "keep");
+        const sink = createSenderLogSink({
+          dataDir: dir,
+          logger: quietLogger(),
+          now: () => noon,
+          pruneIntervalMs: 0,
+        });
+        await sink.flush();
+        expect(readFileSync(join(folder, "inner.txt"), "utf8")).toBe("keep");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not prune through a symlinked log directory", async () => {
+      const dir = scratchDir();
+      try {
+        const outside = join(dir, "outside");
+        mkdirSync(outside, { recursive: true });
+        const victim = join(outside, senderLogFileName(noon - 90 * DAY_MS));
+        writeFileSync(victim, "keep");
+        symlinkSync(outside, join(dir, SENDER_LOG_DIR_NAME));
+        const warn = vi.fn();
+        const sink = createSenderLogSink({
+          dataDir: dir,
+          logger: quietLogger(warn),
+          now: () => noon,
+          pruneIntervalMs: 0,
+        });
+        await sink.flush();
+        expect(readFileSync(victim, "utf8")).toBe("keep");
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("sender log prune failed"),
+        );
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
