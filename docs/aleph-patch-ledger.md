@@ -213,3 +213,7 @@ The three upstream commits through 9fe5add24c merge cleanly. Keep `queue-transfe
 ## Slot subscription sync (mk-8lcd6.174)
 
 Adopt upstream 3163ce37c5 per-kind slot subscriptions while retaining the `history-keybindings` Go menu, page-first browser back/forward and editable-target detection. Palette conflict resolution also keeps the `plugin-surface` search prefix, highlight identity/reset, and asynchronous plugin search; subscribe separately to `commandPaletteSearches` and `navPanels`. Aleph app-header status and existing slot registrations remain. No workflow delta exists; the `build-config` omission policy from mk-8lcd6.66 remains in force. Lockfiles are unchanged. No patch is retired.
+
+## Provider and tooling sync (mk-8lcd6.177)
+
+Six upstream commits through 0553dccb61 merge cleanly. Retain `provider-bridge-changes` spawn hooks, process scopes, promptCacheTtl and cache-write accounting while adopting session-ID initialization ordering. Keep `plugin-surface` fake-host additions alongside upstream deadline recording. Adopt upstream browser call deadlines, remote-base selection, plugin settings layout, theme property isolation and large ACP tool catalogs. No workflow delta exists; the `build-config` omission policy from mk-8lcd6.66 remains in force. Lockfiles are unchanged; no Aleph patch is retired.
