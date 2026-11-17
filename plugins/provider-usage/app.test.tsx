@@ -960,12 +960,13 @@ describe("provider usage panel layout", () => {
     );
   });
 
-  it("caps the panel at the footer disclosure's height cap", () => {
+  it("shrinks to the footer disclosure's height cap", () => {
     const view = renderPanel();
-    expect(
-      view.container.querySelector("[data-provider-usage-header]")!
-        .parentElement!.className,
-    ).toContain("max-h-80");
+    const panelClassName = view.container.querySelector(
+      "[data-provider-usage-header]",
+    )!.parentElement!.className;
+    expect(panelClassName).toContain("min-h-0");
+    expect(panelClassName).not.toContain("max-h-80");
   });
 
   describe("sort order", () => {

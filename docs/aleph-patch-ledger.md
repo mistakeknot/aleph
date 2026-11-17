@@ -233,3 +233,9 @@ Sixteen upstream commits through 2fef0456de merge cleanly. Preserve `model-picke
 ## Published package license sync (mk-8lcd6.185)
 
 Adopt upstream 2964f19a38 MIT metadata and LICENSE copies for bb-app and plugin-sdk. Preserve every Aleph manifest field, including bb-app version 0.48.1+aleph.0.9.0 and signed update packaging; only the license field is added. Each package LICENSE matches the merged root LICENSE byte for byte. No workflow or lockfile change, publication, release, or patch retirement.
+
+## Window-sized sidebar usage panel (mk-8lcd6.187)
+
+Adopt upstream d2fd33885b box-content disclosure sizing and flex-column content capped at 50svh. Preserve Aleph data-pinned, pinned border/ring classes, hover-preview and click-away handlers. Provider usage retains its TooltipProvider and all remaining quota, burn-rate, sorting and compact rows; only the panel root max-h-80 changes to min-h-0. This shared usage panel also covers Account Pooler usage; no separate footer root needs a change. No workflows or lockfiles change and no patch is retired.
+
+Aleph-owned assertion updated to follow upstream #7648's move of the height cap from the panel to the footer disclosure host: the provider-usage panel root must contain min-h-0 and must not contain max-h-80. No other test changes.

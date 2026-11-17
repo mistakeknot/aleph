@@ -272,7 +272,7 @@ export function PluginSidebarFooterDisclosure({
       data-testid={`plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}`}
       data-pinned={pinned}
       className={cn(
-        "overflow-hidden rounded-lg border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none",
+        "box-content overflow-hidden rounded-lg border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none",
         pinned
           ? "border-sidebar-ring ring-1 ring-sidebar-ring/40"
           : "border-sidebar-border",
@@ -285,7 +285,10 @@ export function PluginSidebarFooterDisclosure({
         if (event.pointerType === "mouse") hoverPreview?.onPanelLeave();
       }}
     >
-      <div ref={contentRef} className="max-h-96 overflow-auto">
+      <div
+        ref={contentRef}
+        className="flex max-h-[50svh] flex-col overflow-auto"
+      >
         <PluginSlotMount
           pluginId={item.pluginId}
           slotKind="experimental_sidebarFooter"
