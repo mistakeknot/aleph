@@ -205,3 +205,7 @@ The fork-owned-migrations barrel conflict takes upstream module exports and its 
 ## Render-invariant sync policy delta (mk-8lcd6.168)
 
 Upstream e46c91c219 adds a real-browser render-invariant suite. The `build-config` policy from mk-8lcd6.66 omits its `.github/workflows/ci.yml` delta: Aleph has no Actions opt-in, so workflows stay byte-identical to the sync parent. The suite, profiling build, local Turbo targets and CI-selection tests outside `.github` are retained. The `design-wiki` lockfile conflict is resolved by regenerating with pnpm from the Aleph lockfile and merged manifests; fork workspace entries stay. No Aleph behavior or patch is retired.
+
+## Environment ordering and sidebar sync (mk-8lcd6.173)
+
+The three upstream commits through 9fe5add24c merge cleanly. Keep `queue-transfer` fences in the environment engine, `plugin-surface` testing helpers, `provider-usage` burn-rate and projection UI, and `thread-list-icons` hull badges and provider colours. Adopt upstream reconnect/setup ordering, provider-ID icon lookup and per-row split subscriptions. No workflow delta exists in this range; the `build-config` omission policy from mk-8lcd6.66 remains in force. Lockfiles are unchanged. No Aleph patch is retired.
