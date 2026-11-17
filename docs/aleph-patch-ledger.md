@@ -239,3 +239,9 @@ Adopt upstream 2964f19a38 MIT metadata and LICENSE copies for bb-app and plugin-
 Adopt upstream d2fd33885b box-content disclosure sizing and flex-column content capped at 50svh. Preserve Aleph data-pinned, pinned border/ring classes, hover-preview and click-away handlers. Provider usage retains its TooltipProvider and all remaining quota, burn-rate, sorting and compact rows; only the panel root max-h-80 changes to min-h-0. This shared usage panel also covers Account Pooler usage; no separate footer root needs a change. No workflows or lockfiles change and no patch is retired.
 
 Aleph-owned assertion updated to follow upstream #7648's move of the height cap from the panel to the footer disclosure host: the provider-usage panel root must contain min-h-0 and must not contain max-h-80. No other test changes.
+
+## Timeline push isolation sync (mk-8lcd6.190)
+
+Adopt upstream f663f6e270 timeline controller ownership in ThreadScreen, non-rendering subscriptions in ThreadDetailView and PluginThreadChat, memoized send-message mutation and timeline row isolation. Preserve thread-view timing (mk-3uyp.9.6.3): the hook remains in ThreadDetailView to start at mount, with timeline-enabled readiness from a disabled query observer selecting only whether timeline data has resolved. It observes only the selected data boolean, so row pushes do not notify the view. Preserve the pending-interactions gate (mk-h1q8), including retry and unverified-state composer blocking, alongside the SendMessageMutationLike adapter. Timing and gate tests remain unchanged; upstream render-invariant tests and counts are retained. No workflow or lockfile changes; no patch retired.
+
+One field added to an upstream test fixture to satisfy Aleph's required timelineResolved: ThreadScreen.test.tsx marks its loaded TIMELINE fixture timelineResolved: true. No assertions or other fixtures changed; the production field stays required.
