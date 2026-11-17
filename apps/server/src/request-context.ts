@@ -39,7 +39,7 @@ export function markTunnelIngressRequest(incoming: object): void {
   tunnelIngressRequests.add(incoming);
 }
 
-function isTunnelIngressContext(context: Context): boolean {
+function isTunnelIngressContext(context: { env: unknown }): boolean {
   const env: unknown = context.env;
   if (typeof env !== "object" || env === null || !("incoming" in env)) {
     return false;
@@ -86,7 +86,11 @@ export function getGateMachineId(context: RequestHeaderReader): string | null {
 }
 
 export function resolveRequestAccessRoute(
-  context: Context,
+  context: RequestHeaderReader &
+    TrustedRemoteAddressReader & {
+      env: unknown;
+      req: { path: string };
+    },
 ): "connect" | "direct" | "loopback" | null {
   if (
     context.req.path.startsWith("/internal/") ||

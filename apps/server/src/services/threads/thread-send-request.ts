@@ -26,6 +26,7 @@ interface AcceptThreadSendRequestArgs {
   payload: SendMessageRequest;
   thread: Thread;
   requestedThreadId?: string;
+  onAdmitted?: (admittedThread: Thread) => void;
 }
 
 export async function acceptThreadSendRequest(
@@ -41,6 +42,7 @@ export async function acceptThreadSendRequest(
       throwThreadNotWritable(thread, resolution.reason, "Thread is retired");
     }
     try {
+      args.onAdmitted?.(resolution.thread);
       return await acceptResolvedThreadSendRequest(deps, {
         payload: args.payload,
         thread: resolution.thread,
