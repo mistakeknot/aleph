@@ -8,6 +8,7 @@ bb-data-path apps/web/src/guides/pages/work-from-anywhere.tsx -- unchanged, alre
 bb-data-path docs/configuration.md -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
 bb-data-path packages/templates/src/templates/bb-guide-machines.md -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
 bb-data-path packages/templates/src/templates/bb-guide-thread-inspection.md -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path packages/thread-view/test/timeline-row-title.test.ts -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
 bb-data-path plugins/mcp/src/cli-runner.test.ts -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
 bb-data-path plugins/mcp/src/cli-runner.ts -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
 bb-host apps/app/src/components/onboarding/Onboarding.stories.tsx -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
