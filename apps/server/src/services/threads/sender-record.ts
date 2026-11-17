@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { chmod, lstat, mkdir, open } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { RequestAppSurface } from "@bb/config/app-surface";
 import type { PromptInput } from "@bb/domain";
@@ -14,8 +14,12 @@ import {
 } from "../../request-context.js";
 import type { ServerLogger } from "../../types.js";
 
-export const SENDER_LOG_FILE_NAME = "sender-log.jsonl";
+export const SENDER_LOG_DIR_NAME = "sender-log";
 export const SENDER_LOG_MAX_PENDING = 1000;
+export const SENDER_LOG_RETENTION_DAYS = 30;
+export const SENDER_LOG_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const LOG_FILE_PATTERN = /^sender-log-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 const ASSERTED_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 export type SenderRecordKind = "plugin" | "cli" | "app" | "api";
@@ -107,6 +111,57 @@ export function hashPromptText(input: readonly PromptInput[]): {
   };
 }
 
+export function senderLogDay(atMs: number): string {
+  return new Date(atMs).toISOString().slice(0, 10);
+}
+
+export function senderLogFileName(atMs: number): string {
+  return `sender-log-${senderLogDay(atMs)}.jsonl`;
+}
+
+function startOfUtcDay(atMs: number): number {
+  return Date.parse(`${senderLogDay(atMs)}T00:00:00.000Z`);
+}
+
+export async function pruneExpiredSenderLogs(
+  dir: string,
+  atMs: number,
+  logger: ServerLogger,
+): Promise<number> {
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      safeWarn(logger, `sender log prune failed: ${describeError(error)}`);
+    }
+    return 0;
+  }
+  const today = startOfUtcDay(atMs);
+  let removed = 0;
+  let failed = 0;
+  for (const name of names) {
+    const match = LOG_FILE_PATTERN.exec(name);
+    if (match === null) continue;
+    const fileDay = Date.parse(`${match[1]}T00:00:00.000Z`);
+    if (Number.isNaN(fileDay)) continue;
+    if ((today - fileDay) / MS_PER_DAY < SENDER_LOG_RETENTION_DAYS) continue;
+    const path = join(dir, name);
+    try {
+      const info = await lstat(path);
+      if (!info.isFile()) continue;
+      await unlink(path);
+      removed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  if (failed > 0) {
+    safeWarn(logger, `sender log prune left ${failed} expired files in place`);
+  }
+  return removed;
+}
+
 function safeWarn(logger: ServerLogger, message: string): void {
   try {
     logger.warn(message);
@@ -166,26 +221,37 @@ export function createSenderLogSink(args: {
   logger: ServerLogger;
   now?: () => number;
   maxPending?: number;
+  pruneIntervalMs?: number;
 }): SenderLogSink {
   const now = args.now ?? Date.now;
   const maxPending = args.maxPending ?? SENDER_LOG_MAX_PENDING;
-  const dir = join(args.dataDir, "sender-log");
-  const file = join(dir, SENDER_LOG_FILE_NAME);
-  let pending: string[] = [];
+  const pruneIntervalMs = args.pruneIntervalMs ?? SENDER_LOG_PRUNE_INTERVAL_MS;
+  const dir = join(args.dataDir, SENDER_LOG_DIR_NAME);
+  let pending: { file: string; line: string }[] = [];
   let dropped = 0;
   let draining: Promise<void> | null = null;
+  let pruning: Promise<void> | null = null;
+  let lastDay: string | null = null;
 
   async function drain(): Promise<void> {
     while (pending.length > 0) {
       const batch = pending;
       pending = [];
-      try {
-        await appendPrivately(dir, file, batch.join(""));
-      } catch (error) {
-        safeWarn(
-          args.logger,
-          `sender log append failed (${batch.length} lines lost): ${describeError(error)}`,
-        );
+      const byFile = new Map<string, string[]>();
+      for (const item of batch) {
+        const lines = byFile.get(item.file) ?? [];
+        lines.push(item.line);
+        byFile.set(item.file, lines);
+      }
+      for (const [file, lines] of byFile) {
+        try {
+          await appendPrivately(dir, join(dir, file), lines.join(""));
+        } catch (error) {
+          safeWarn(
+            args.logger,
+            `sender log append failed (${lines.length} lines lost): ${describeError(error)}`,
+          );
+        }
       }
     }
   }
@@ -200,6 +266,24 @@ export function createSenderLogSink(args: {
     return draining;
   }
 
+  function schedulePrune(): Promise<void> {
+    if (pruning === null) {
+      pruning = pruneExpiredSenderLogs(dir, now(), args.logger)
+        .then(() => undefined)
+        .catch(() => undefined)
+        .finally(() => {
+          pruning = null;
+        });
+    }
+    return pruning;
+  }
+
+  void schedulePrune();
+  if (pruneIntervalMs > 0) {
+    const timer = setInterval(() => void schedulePrune(), pruneIntervalMs);
+    timer.unref();
+  }
+
   return {
     record(entry) {
       if (pending.length >= maxPending) {
@@ -212,14 +296,24 @@ export function createSenderLogSink(args: {
         }
         return;
       }
-      pending.push(
-        `${JSON.stringify({ at: new Date(now()).toISOString(), ...entry })}\n`,
-      );
+      const at = now();
+      const day = senderLogDay(at);
+      pending.push({
+        file: senderLogFileName(at),
+        line: `${JSON.stringify({ at: new Date(at).toISOString(), ...entry })}\n`,
+      });
+      if (day !== lastDay) {
+        lastDay = day;
+        void schedulePrune();
+      }
       void schedule();
     },
     async flush() {
-      while (draining !== null || pending.length > 0) {
-        await schedule();
+      while (draining !== null || pruning !== null || pending.length > 0) {
+        await Promise.all([
+          draining !== null || pending.length > 0 ? schedule() : null,
+          pruning,
+        ]);
       }
     },
   };

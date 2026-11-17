@@ -23,7 +23,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-const { SENDER_LOG_FILE_NAME, createSenderLogSink } =
+const { senderLogFileName, createSenderLogSink } =
   await import("../../src/services/threads/sender-record.js");
 
 const entry = {
@@ -84,7 +84,7 @@ describe("sender log drain cleanup", () => {
           step();
         };
         sink.record(entry);
-        const file = join(dir, "sender-log", SENDER_LOG_FILE_NAME);
+        const file = join(dir, "sender-log", senderLogFileName(Date.now()));
         expect(await lineCount(file, 2)).toBe(2);
       } finally {
         hooks.afterClose = null;

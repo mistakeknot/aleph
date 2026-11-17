@@ -3,8 +3,10 @@ import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -19,7 +21,9 @@ import { Hono } from "hono";
 import { handleDaemonSocketClosed } from "../../src/internal/session-owner-side-effects.js";
 import { markTunnelIngressRequest } from "../../src/request-context.js";
 import {
-  SENDER_LOG_FILE_NAME,
+  SENDER_LOG_DIR_NAME,
+  SENDER_LOG_RETENTION_DAYS,
+  senderLogFileName,
   createSenderLogSink,
   logThreadSender,
   readSenderRecord,
@@ -72,7 +76,11 @@ function scratchDir(): string {
 }
 
 function readLog(harness: TestAppHarness): Record<string, unknown>[] {
-  const file = join(harness.config.dataDir, "sender-log", SENDER_LOG_FILE_NAME);
+  const file = join(
+    harness.config.dataDir,
+    "sender-log",
+    senderLogFileName(Date.now()),
+  );
   if (!existsSync(file)) return [];
   return readFileSync(file, "utf8")
     .split("\n")
@@ -278,7 +286,7 @@ describe("sender log sink", () => {
       }
       await sink.flush();
       const lines = readFileSync(
-        join(dir, "sender-log", SENDER_LOG_FILE_NAME),
+        join(dir, "sender-log", senderLogFileName(Date.now())),
         "utf8",
       )
         .split("\n")
@@ -298,7 +306,7 @@ describe("sender log sink", () => {
       const logDir = join(dir, "sender-log");
       mkdirSync(logDir, { mode: 0o755 });
       chmodSync(logDir, 0o755);
-      const file = join(logDir, SENDER_LOG_FILE_NAME);
+      const file = join(logDir, senderLogFileName(Date.now()));
       writeFileSync(file, "");
       chmodSync(file, 0o644);
       const sink = createSenderLogSink({ dataDir: dir, logger: quietLogger() });
@@ -318,7 +326,7 @@ describe("sender log sink", () => {
       mkdirSync(logDir, { mode: 0o700 });
       const target = join(dir, "elsewhere.txt");
       writeFileSync(target, "keep");
-      symlinkSync(target, join(logDir, SENDER_LOG_FILE_NAME));
+      symlinkSync(target, join(logDir, senderLogFileName(Date.now())));
       const warn = vi.fn();
       const sink = createSenderLogSink({
         dataDir: dir,
@@ -346,7 +354,9 @@ describe("sender log sink", () => {
       });
       sink.record(sampleEntry(1));
       await sink.flush();
-      expect(existsSync(join(elsewhere, SENDER_LOG_FILE_NAME))).toBe(false);
+      expect(existsSync(join(elsewhere, senderLogFileName(Date.now())))).toBe(
+        false,
+      );
       expect(warn).toHaveBeenCalledTimes(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -358,7 +368,7 @@ describe("sender log sink", () => {
     try {
       const logDir = join(dir, "sender-log");
       mkdirSync(logDir, { mode: 0o700 });
-      execFileSync("mkfifo", [join(logDir, SENDER_LOG_FILE_NAME)]);
+      execFileSync("mkfifo", [join(logDir, senderLogFileName(Date.now()))]);
       const warn = vi.fn();
       const sink = createSenderLogSink({
         dataDir: dir,
@@ -385,7 +395,7 @@ describe("sender log sink", () => {
         sink.record(sampleEntry(index));
       await sink.flush();
       const lines = readFileSync(
-        join(dir, "sender-log", SENDER_LOG_FILE_NAME),
+        join(dir, "sender-log", senderLogFileName(Date.now())),
         "utf8",
       )
         .split("\n")
@@ -395,6 +405,160 @@ describe("sender log sink", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  describe("retention", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const noon = Date.UTC(2026, 10, 17, 12, 0, 0);
+
+    function seedLogDir(dir: string): string {
+      const logDir = join(dir, SENDER_LOG_DIR_NAME);
+      mkdirSync(logDir, { recursive: true, mode: 0o700 });
+      return logDir;
+    }
+
+    function seedDayFile(logDir: string, daysAgo: number): string {
+      const path = join(logDir, senderLogFileName(noon - daysAgo * DAY_MS));
+      writeFileSync(path, '{"seeded":true}\n');
+      return path;
+    }
+
+    it("states a 30 day retention", () => {
+      expect(SENDER_LOG_RETENTION_DAYS).toBe(30);
+    });
+
+    it("deletes day files that are 30 or more days old at startup and keeps newer ones", async () => {
+      const dir = scratchDir();
+      try {
+        const logDir = seedLogDir(dir);
+        const old45 = seedDayFile(logDir, 45);
+        const old31 = seedDayFile(logDir, 31);
+        const old30 = seedDayFile(logDir, 30);
+        const keep29 = seedDayFile(logDir, 29);
+        const keep1 = seedDayFile(logDir, 1);
+        const keepToday = seedDayFile(logDir, 0);
+        const unrelated = join(logDir, "notes.txt");
+        writeFileSync(unrelated, "keep");
+        const badDate = join(logDir, "sender-log-2026-13-45.jsonl");
+        writeFileSync(badDate, "keep");
+        const sink = createSenderLogSink({
+          dataDir: dir,
+          logger: quietLogger(),
+          now: () => noon,
+          pruneIntervalMs: 0,
+        });
+        await sink.flush();
+        for (const gone of [old45, old31, old30])
+          expect(existsSync(gone)).toBe(false);
+        for (const kept of [keep29, keep1, keepToday, unrelated, badDate])
+          expect(existsSync(kept)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("never follows or removes a symlink that carries an expired name", async () => {
+      const dir = scratchDir();
+      try {
+        const logDir = seedLogDir(dir);
+        const victim = join(dir, "victim.txt");
+        writeFileSync(victim, "keep");
+        const link = join(logDir, senderLogFileName(noon - 60 * DAY_MS));
+        symlinkSync(victim, link);
+        const sink = createSenderLogSink({
+          dataDir: dir,
+          logger: quietLogger(),
+          now: () => noon,
+          pruneIntervalMs: 0,
+        });
+        await sink.flush();
+        expect(readFileSync(victim, "utf8")).toBe("keep");
+        expect(lstatSync(link).isSymbolicLink()).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("rolls to a new day file and prunes the expired one when the day changes", async () => {
+      const dir = scratchDir();
+      try {
+        let clock = noon;
+        const sink = createSenderLogSink({
+          dataDir: dir,
+          logger: quietLogger(),
+          now: () => clock,
+          pruneIntervalMs: 0,
+        });
+        sink.record(sampleEntry(1));
+        await sink.flush();
+        const first = join(dir, SENDER_LOG_DIR_NAME, senderLogFileName(clock));
+        expect(existsSync(first)).toBe(true);
+        clock = noon + 29 * DAY_MS;
+        sink.record(sampleEntry(2));
+        await sink.flush();
+        expect(existsSync(first)).toBe(true);
+        clock = noon + 30 * DAY_MS;
+        sink.record(sampleEntry(3));
+        await sink.flush();
+        expect(existsSync(first)).toBe(false);
+        const today = join(dir, SENDER_LOG_DIR_NAME, senderLogFileName(clock));
+        expect(
+          readFileSync(today, "utf8").split("\n").filter(Boolean),
+        ).toHaveLength(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("writes each record to the file for the day it was recorded", async () => {
+      const dir = scratchDir();
+      try {
+        let clock = Date.UTC(2026, 10, 17, 23, 59, 59);
+        const sink = createSenderLogSink({
+          dataDir: dir,
+          logger: quietLogger(),
+          now: () => clock,
+          pruneIntervalMs: 0,
+        });
+        sink.record(sampleEntry(1));
+        clock += 2000;
+        sink.record(sampleEntry(2));
+        await sink.flush();
+        const logDir = join(dir, SENDER_LOG_DIR_NAME);
+        expect(readdirSync(logDir).sort()).toEqual([
+          "sender-log-2026-11-17.jsonl",
+          "sender-log-2026-11-18.jsonl",
+        ]);
+        for (const name of readdirSync(logDir))
+          expect(
+            readFileSync(join(logDir, name), "utf8")
+              .split("\n")
+              .filter(Boolean),
+          ).toHaveLength(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("prunes on a timer without any write", async () => {
+      const dir = scratchDir();
+      try {
+        const logDir = seedLogDir(dir);
+        let clock = noon;
+        const sink = createSenderLogSink({
+          dataDir: dir,
+          logger: quietLogger(),
+          now: () => clock,
+          pruneIntervalMs: 20,
+        });
+        await sink.flush();
+        const aging = seedDayFile(logDir, 0);
+        clock = noon + 31 * DAY_MS;
+        await vi.waitFor(() => expect(existsSync(aging)).toBe(false));
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   it("never throws out of logThreadSender when the context read or the sink fails", async () => {
@@ -466,7 +630,7 @@ describe("sender log sink", () => {
       await new Promise<void>((resolve) => setImmediate(resolve));
       sink.record(sampleEntry(2));
       sink.record(sampleEntry(3));
-      const file = join(dir, "sender-log", SENDER_LOG_FILE_NAME);
+      const file = join(dir, "sender-log", senderLogFileName(Date.now()));
       const deadline = Date.now() + 5000;
       let lines: string[] = [];
       while (Date.now() < deadline) {
@@ -485,7 +649,7 @@ describe("sender log sink", () => {
   it("survives a throwing warn when an append fails", async () => {
     const dir = scratchDir();
     try {
-      mkdirSync(join(dir, "sender-log", SENDER_LOG_FILE_NAME), {
+      mkdirSync(join(dir, "sender-log", senderLogFileName(Date.now())), {
         recursive: true,
       });
       const warn = vi.fn(() => {
@@ -545,7 +709,11 @@ describe("sender log on thread messages", () => {
         },
       });
       const raw = readFileSync(
-        join(harness.config.dataDir, "sender-log", SENDER_LOG_FILE_NAME),
+        join(
+          harness.config.dataDir,
+          "sender-log",
+          senderLogFileName(Date.now()),
+        ),
         "utf8",
       );
       expect(raw).not.toContain(text);
@@ -580,7 +748,11 @@ describe("sender log on thread messages", () => {
         sender: { kind: "api", verified: false, claimedSenderThreadId: null },
       });
       const raw = readFileSync(
-        join(harness.config.dataDir, "sender-log", SENDER_LOG_FILE_NAME),
+        join(
+          harness.config.dataDir,
+          "sender-log",
+          senderLogFileName(Date.now()),
+        ),
         "utf8",
       );
       expect(raw).not.toContain(text);
@@ -698,7 +870,7 @@ describe("sender log on thread messages", () => {
       mkdirSync(dir, { recursive: true });
       const target = join(harness.config.dataDir, "elsewhere.txt");
       writeFileSync(target, "keep");
-      symlinkSync(target, join(dir, SENDER_LOG_FILE_NAME));
+      symlinkSync(target, join(dir, senderLogFileName(Date.now())));
       const response = await harness.app.request(
         `/api/v1/threads/${thread.id}/send`,
         {
