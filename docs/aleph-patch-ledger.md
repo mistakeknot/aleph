@@ -245,3 +245,7 @@ Aleph-owned assertion updated to follow upstream #7648's move of the height cap 
 Adopt upstream f663f6e270 timeline controller ownership in ThreadScreen, non-rendering subscriptions in ThreadDetailView and PluginThreadChat, memoized send-message mutation and timeline row isolation. Preserve thread-view timing (mk-3uyp.9.6.3): the hook remains in ThreadDetailView to start at mount, with timeline-enabled readiness from a disabled query observer selecting only whether timeline data has resolved. It observes only the selected data boolean, so row pushes do not notify the view. Preserve the pending-interactions gate (mk-h1q8), including retry and unverified-state composer blocking, alongside the SendMessageMutationLike adapter. Timing and gate tests remain unchanged; upstream render-invariant tests and counts are retained. No workflow or lockfile changes; no patch retired.
 
 One field added to an upstream test fixture to satisfy Aleph's required timelineResolved: ThreadScreen.test.tsx marks its loaded TIMELINE fixture timelineResolved: true. No assertions or other fixtures changed; the production field stays required.
+
+## Timeline mount layout sync (mk-8lcd6.193)
+
+Adopt upstream 64c272a16e timeline row mounting, shared resize observations and scroll-handler layout isolation. The markdown-preview auto-merge retains Aleph task-scheme URL preservation, plain-click routing and modifier handling unchanged. Thread-view timing and the pending-interactions composer gate remain unchanged. No workflow or lockfile delta and no patch retired.
