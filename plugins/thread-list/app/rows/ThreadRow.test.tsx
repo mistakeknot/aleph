@@ -48,7 +48,7 @@ import {
   sidebarShowProviderIconsAtom,
   sidebarShowRowMetadataAtom,
 } from "../preferences/atoms.js";
-import { SidebarProjectsContext } from "../model/use-sidebar-data.js";
+import { SidebarProjectNamesContext } from "../model/use-sidebar-data.js";
 import type { ThreadRowOptions } from "./ThreadRow.js";
 import {
   preferenceValueAtom,
@@ -137,7 +137,9 @@ function ThreadRowHarness({
     />
   );
   const content = (
-    <SidebarProjectsContext.Provider value={projects}>
+    <SidebarProjectNamesContext.Provider
+      value={new Map(projects.map((project) => [project.id, project.name]))}
+    >
       <SidebarProvidersContext.Provider value={providers}>
         <TooltipProvider>
           <SidebarDraftPresenceSync />
@@ -180,7 +182,7 @@ function ThreadRowHarness({
           </ThreadRowNavigationProvider>
         </TooltipProvider>
       </SidebarProvidersContext.Provider>
-    </SidebarProjectsContext.Provider>
+    </SidebarProjectNamesContext.Provider>
   );
   return isCompactViewport === undefined ? (
     content

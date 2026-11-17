@@ -225,3 +225,7 @@ Source: interim decision recorded on bead mk-8lcd6.180 (option A). Upstream `/ha
 Aleph-owned assertion updated to track upstream's label rename: the switch-mode absence check in `ModelReasoningPicker.test.tsx` now names the new-thread button "Hand off to new thread". The menu default and picker non-switch label adopt that same upstream rename; other titles and header text stay unchanged.
 
 Preserve picker target toggles beside pill cancellation (mk-8lcd6.181): a synchronous guard covers only the target handler's draft rewrite. The subscriber still updates its observed draft and skips cancellation during that rewrite; genuine user pill removal follows upstream cancellation unchanged. One new Aleph-owned notifying-store regression covers both target directions, selected provider/model/reasoning retention, and user deletion cancellation; it failed without the guard.
+
+## Sidebar, picker and provider sync (mk-8lcd6.183)
+
+Sixteen upstream commits through 2fef0456de merge cleanly. Preserve `model-picker` in-place target choice and the command-only new-thread and pill-rewrite guards from mk-8lcd6.180/mk-8lcd6.181 while adopting nonmodal pickers. Preserve `thread-list-icons` hull and provider icons, `layout-profiles` suppression and panel state, `provider-bridge-changes` hooks/scopes/cache accounting, and existing signed install/update contracts. No workflow or lockfile delta exists; the `build-config` omission policy from mk-8lcd6.66 remains in force. No Aleph patch is retired.
