@@ -277,7 +277,7 @@ export function ModelReasoningPicker({
   const handoffLabel =
     handoff?.onTargetChange !== undefined
       ? "Switch provider"
-      : "Handoff to new thread";
+      : "Hand off to new thread";
   const [handoffReasoningLevel, setHandoffReasoningLevel] =
     useState<ReasoningLevel | null>(null);
 

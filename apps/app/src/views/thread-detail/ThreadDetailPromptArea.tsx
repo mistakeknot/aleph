@@ -132,7 +132,10 @@ import { getThreadDisplayTitle } from "@/lib/thread-title";
 import {
   buildThreadHandoffCreateRequest,
   buildThreadHandoffFollowUpDraft,
+  stripLeadingThreadHandoffCommand,
   stripThreadHandoffPrefix,
+  THREAD_HANDOFF_COMMAND_SUGGESTION,
+  threadHandoffDraftAfterSourceRemoved,
   type ThreadHandoffCreateSeed,
 } from "@bb/client-core";
 import { usePluginList } from "@/hooks/queries/plugin-settings-queries";
@@ -746,9 +749,15 @@ export function ThreadDetailPromptArea({
   );
   const [preferredHandoffTarget, setPreferredHandoffTarget] =
     useState<ThreadHandoffTarget>("switch");
-  const handoffTarget: ThreadHandoffTarget = canSwitchInThread
-    ? preferredHandoffTarget
-    : "new-thread";
+  const [commandHandoffThreadId, setCommandHandoffThreadId] = useState<
+    string | null
+  >(null);
+  const isCommandHandoff =
+    isHandoffSelection && commandHandoffThreadId === thread.id;
+  const handoffTarget: ThreadHandoffTarget =
+    canSwitchInThread && !isCommandHandoff
+      ? preferredHandoffTarget
+      : "new-thread";
   const isFallbackModelActive =
     !isHandoffSelection &&
     selectedProviderId === thread.providerId &&
@@ -785,44 +794,49 @@ export function ThreadDetailPromptArea({
       thread.projectId,
     ],
   );
-  const beginHandoff = useCallback(() => {
-    setHandoffSourceSelection((current) =>
-      current?.threadId === thread.id
-        ? current
-        : {
-            threadId: thread.id,
-            execution: {
-              providerId: thread.providerId,
-              model: effectiveSelectedModel,
-              reasoningLevel,
+  const beginHandoff = useCallback(
+    (
+      baseDraft?: PromptDraftState,
+      target: ThreadHandoffTarget = handoffTarget,
+    ) => {
+      setHandoffSourceSelection((current) =>
+        current?.threadId === thread.id
+          ? current
+          : {
+              threadId: thread.id,
+              execution: {
+                providerId: thread.providerId,
+                model: effectiveSelectedModel,
+                reasoningLevel,
+              },
+              serviceTier,
+              permissionMode,
+              overriddenFallbackIdentity,
             },
-            serviceTier,
-            permissionMode,
-            overriddenFallbackIdentity,
-          },
-    );
-    if (handoffTarget === "new-thread") {
+      );
+      if (target !== "new-thread") return;
       const currentDraft = promptDraft.getCurrent();
       const seededDraft = buildThreadHandoffFollowUpDraft(
         handoffSeed,
-        currentDraft,
+        baseDraft ?? currentDraft,
       );
       if (seededDraft !== currentDraft) {
         promptDraft.setDraft(seededDraft);
       }
-    }
-  }, [
-    effectiveSelectedModel,
-    handoffSeed,
-    handoffTarget,
-    overriddenFallbackIdentity,
-    permissionMode,
-    promptDraft,
-    reasoningLevel,
-    serviceTier,
-    thread.id,
-    thread.providerId,
-  ]);
+    },
+    [
+      effectiveSelectedModel,
+      handoffSeed,
+      handoffTarget,
+      overriddenFallbackIdentity,
+      permissionMode,
+      promptDraft,
+      reasoningLevel,
+      serviceTier,
+      thread.id,
+      thread.providerId,
+    ],
+  );
   const exitHandoff = useCallback(() => {
     if (handoffSourceSelection?.threadId !== thread.id) return;
     setProviderModelReasoning(handoffSourceSelection.execution);
@@ -832,6 +846,7 @@ export function ThreadDetailPromptArea({
       handoffSourceSelection.overriddenFallbackIdentity,
     );
     setHandoffSourceSelection(null);
+    setCommandHandoffThreadId(null);
     const restoredDraft = stripThreadHandoffPrefix(
       handoffSeed,
       promptDraft.getCurrent(),
@@ -848,6 +863,7 @@ export function ThreadDetailPromptArea({
     setServiceTier,
     thread.id,
   ]);
+  const isChangingHandoffTargetRef = useRef(false);
   const handleHandoffTargetChange = useCallback(
     (target: ThreadHandoffTarget) => {
       setPreferredHandoffTarget(target);
@@ -858,7 +874,12 @@ export function ThreadDetailPromptArea({
           : (stripThreadHandoffPrefix(handoffSeed, currentDraft) ??
             currentDraft);
       if (nextDraft !== currentDraft) {
-        promptDraft.setDraft(nextDraft);
+        isChangingHandoffTargetRef.current = true;
+        try {
+          promptDraft.setDraft(nextDraft);
+        } finally {
+          isChangingHandoffTargetRef.current = false;
+        }
       }
     },
     [handoffSeed, promptDraft],
@@ -886,24 +907,88 @@ export function ThreadDetailPromptArea({
     },
     [beginHandoff, fallbackIdentity, setProviderModelReasoning],
   );
+  const {
+    getCurrent: getCurrentPromptDraft,
+    setDraft: setPromptDraft,
+    subscribe: subscribePromptDraft,
+  } = promptDraft;
   useEffect(() => {
     if (isHandoffSelection) {
       return;
     }
     const restoredDraft = stripThreadHandoffPrefix(
       handoffSeed,
-      promptDraft.getCurrent(),
+      getCurrentPromptDraft(),
     );
     if (restoredDraft !== null) {
-      promptDraft.setDraft(restoredDraft);
+      setPromptDraft(restoredDraft);
     }
-  }, [handoffSeed, isHandoffSelection, promptDraft]);
+  }, [getCurrentPromptDraft, handoffSeed, isHandoffSelection, setPromptDraft]);
   const hasSentMessageEdit = sentMessageEdit !== undefined;
   useEffect(() => {
     if (hasSentMessageEdit && isHandoffSelection) {
       exitHandoff();
     }
   }, [hasSentMessageEdit, isHandoffSelection, exitHandoff]);
+  const isCreatingHandoffThreadRef = useRef(false);
+  useEffect(() => {
+    if (!isHandoffSelection) {
+      return;
+    }
+    const observed = { draft: getCurrentPromptDraft() };
+    return subscribePromptDraft(() => {
+      const priorDraft = observed.draft;
+      const nextDraft = getCurrentPromptDraft();
+      observed.draft = nextDraft;
+      if (
+        isCreatingHandoffThreadRef.current ||
+        isChangingHandoffTargetRef.current
+      ) {
+        return;
+      }
+      const cancelledDraft = threadHandoffDraftAfterSourceRemoved(
+        handoffSeed,
+        priorDraft,
+        nextDraft,
+      );
+      if (cancelledDraft === null) {
+        return;
+      }
+      if (cancelledDraft !== nextDraft) {
+        setPromptDraft(cancelledDraft);
+      }
+      exitHandoff();
+    });
+  }, [
+    exitHandoff,
+    getCurrentPromptDraft,
+    handoffSeed,
+    isHandoffSelection,
+    setPromptDraft,
+    subscribePromptDraft,
+  ]);
+  const handoffCommands = useMemo(
+    () =>
+      isHandoffSelection || hasSentMessageEdit
+        ? []
+        : [THREAD_HANDOFF_COMMAND_SUGGESTION],
+    [hasSentMessageEdit, isHandoffSelection],
+  );
+  const startHandoffFromCommand = useCallback(
+    (draft: PromptDraftState) => {
+      if (isHandoffSelection) {
+        return false;
+      }
+      const followUpDraft = stripLeadingThreadHandoffCommand(draft);
+      if (followUpDraft === null) {
+        return false;
+      }
+      setCommandHandoffThreadId(thread.id);
+      beginHandoff(followUpDraft, "new-thread");
+      return true;
+    },
+    [beginHandoff, isHandoffSelection, thread.id],
+  );
   const { typeaheadConfig, promptActions } = useComposerTypeahead({
     projectId: thread.projectId,
     mentionsProjectId: projectId,
@@ -914,6 +999,7 @@ export function ThreadDetailPromptArea({
     selectedProviderComposerActions,
     threadProviderCommands:
       selectedProviderId === thread.providerId ? providerCommands : null,
+    builtinCommands: handoffCommands,
     resolveMentionLink,
   });
   const {
@@ -1285,6 +1371,7 @@ export function ThreadDetailPromptArea({
         ...baseRequest,
         ...(pluginSubmission === undefined ? {} : { pluginSubmission }),
       };
+      isCreatingHandoffThreadRef.current = true;
       const clearedSubmittedDraft =
         promptDraft.clearIfCurrentMatches(submittedDraft);
       setBottomAttachmentError(null);
@@ -1301,6 +1388,8 @@ export function ThreadDetailPromptArea({
           promptDraft.restoreIfEmpty(submittedDraft);
         }
         throw error;
+      } finally {
+        isCreatingHandoffThreadRef.current = false;
       }
       return true;
     },
@@ -1325,6 +1414,9 @@ export function ThreadDetailPromptArea({
   const submitFollowUpDraft = useCallback(
     async ({ sendAt, pluginSubmission }: ComposerSubmitExtras = {}) => {
       const submittedDraft = promptDraft.getCurrent();
+      if (startHandoffFromCommand(submittedDraft)) {
+        return;
+      }
       const submittedInput = promptDraftToInput(submittedDraft);
       if (isHandoffSelection) {
         if (effectiveSelectedModel.length === 0) {
@@ -1405,6 +1497,7 @@ export function ThreadDetailPromptArea({
       promptDraft,
       sendMessage,
       setBottomAttachmentError,
+      startHandoffFromCommand,
       thread.id,
       runtimeDisplayStatus,
     ],
@@ -1421,6 +1514,9 @@ export function ThreadDetailPromptArea({
       }
 
       const submittedDraft = promptDraft.getCurrent();
+      if (startHandoffFromCommand(submittedDraft)) {
+        return;
+      }
       const submittedInput = promptDraftToInput(submittedDraft);
       const shortcutRequest = buildFollowUpShortcutRequest({
         execution: followUpExecutionSelection,
@@ -1490,6 +1586,7 @@ export function ThreadDetailPromptArea({
       sendMessage,
       sendQueuedMessageById,
       setBottomAttachmentError,
+      startHandoffFromCommand,
       submitDraft,
       thread.id,
     ],
@@ -1675,10 +1772,10 @@ export function ThreadDetailPromptArea({
       handoff: {
         sourceProviderId: thread.providerId,
         active: isHandoffSelection,
-        onStart: beginHandoff,
+        onStart: () => beginHandoff(),
         onExit: exitHandoff,
         onSelect: handleHandoffSelect,
-        ...(canSwitchInThread
+        ...(canSwitchInThread && !isCommandHandoff
           ? { target: handoffTarget, onTargetChange: handleHandoffTargetChange }
           : {}),
       },
@@ -1693,6 +1790,7 @@ export function ThreadDetailPromptArea({
     }),
     [
       canSwitchInThread,
+      isCommandHandoff,
       handoffTarget,
       handleHandoffTargetChange,
       pickerSessionOptionSections,

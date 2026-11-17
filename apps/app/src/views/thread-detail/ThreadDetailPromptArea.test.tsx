@@ -2298,6 +2298,63 @@ describe("ThreadDetailPromptArea", () => {
       expect(mocks.switchThreadProvider).not.toHaveBeenCalled();
     });
 
+    it("keeps picker target rewrites active but cancels a user pill deletion", () => {
+      const listeners = new Set<() => void>();
+      mocks.promptDraft.subscribe.mockImplementation((listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      });
+      mocks.promptDraft.setDraft.mockImplementation(
+        (draft: {
+          text: string;
+          mentions: PromptTextMention[];
+          attachments: PromptDraftAttachment[];
+        }) => {
+          mocks.promptDraft.text = draft.text;
+          mocks.promptDraft.mentions = draft.mentions;
+          mocks.promptDraft.attachments = draft.attachments;
+          for (const listener of listeners) listener();
+        },
+      );
+      mocks.promptDraft.text = "Keep going";
+      renderPromptArea({ thread: sourceThread() });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Complete handoff flow" }),
+      );
+      const selected = () => [
+        screen.getByTestId("selected-provider").textContent,
+        screen.getByTestId("selected-model").textContent,
+        screen.getByTestId("selected-reasoning").textContent,
+      ];
+      const selection = selected();
+      expect(selection).toEqual(["claude-code", "claude-opus-5", "medium"]);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose new thread" }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Choose switch" }));
+      expect(
+        screen.getByRole("button", { name: "Exit handoff" }),
+      ).not.toBeNull();
+      expect(screen.getByTestId("submit-label").textContent).toBe("Switch");
+      expect(selected()).toEqual(selection);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose new thread" }),
+      );
+      expect(selected()).toEqual(selection);
+      expect(mocks.promptDraft.mentions).not.toHaveLength(0);
+      act(() =>
+        mocks.promptDraft.setDraft({
+          text: "Keep going",
+          mentions: [],
+          attachments: [],
+        }),
+      );
+      expect(screen.queryByRole("button", { name: "Exit handoff" })).toBeNull();
+      expect(screen.getByTestId("selected-provider").textContent).toBe("codex");
+    });
+
     it("keeps bb's own handoff when the plugin is not running", () => {
       mocks.plugins = [{ id: "handoff", enabled: true, status: "stopped" }];
       mocks.promptDraft.text = "Keep going";
@@ -2346,6 +2403,114 @@ describe("ThreadDetailPromptArea", () => {
       await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
       expect(mocks.promptDraft.restoreIfEmpty).toHaveBeenCalled();
       expect(mocks.navigate).not.toHaveBeenCalled();
+    });
+  });
+  describe("/handoff command", () => {
+    const HANDOFF_COMMAND_MENTION: PromptTextMention = {
+      start: 0,
+      end: 8,
+      resource: {
+        kind: "command",
+        trigger: "/",
+        name: "handoff",
+        source: "command",
+        origin: "builtin",
+        label: "handoff",
+        argumentHint: null,
+      },
+    };
+
+    function notifyingDraftStore() {
+      const listeners = new Set<() => void>();
+      const notify = () => listeners.forEach((listener) => listener());
+      mocks.promptDraft.subscribe.mockImplementation((listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      });
+      return {
+        edit(text: string, mentions: PromptTextMention[]) {
+          act(() => {
+            mocks.promptDraft.text = text;
+            mocks.promptDraft.mentions = mentions;
+            notify();
+          });
+        },
+        clearOnSend() {
+          mocks.promptDraft.clearIfCurrentMatches.mockImplementation(() => {
+            mocks.promptDraft.text = "";
+            mocks.promptDraft.mentions = [];
+            notify();
+            return true;
+          });
+        },
+      };
+    }
+
+    it("offers /handoff in the thread composer, but not during a handoff", () => {
+      renderPromptArea();
+      expect(screen.getByTestId("builtin-commands").textContent).toBe(
+        "handoff",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Start handoff" }));
+      expect(screen.getByTestId("builtin-commands").textContent).toBe("");
+    });
+
+    it("starts a handoff from a picked /handoff instead of sending it", async () => {
+      mocks.promptDraft.text = "/handoff keep going";
+      mocks.promptDraft.mentions = [HANDOFF_COMMAND_MENTION];
+      renderPromptArea();
+
+      fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("submit-label").textContent).toBe(
+          "New thread",
+        ),
+      );
+      expect(mocks.promptDraft.getCurrent().text).toMatch(
+        /^Continue from @thread:thr_1\n\nkeep going$/,
+      );
+      expect(mocks.sendMessageMutateAsync).not.toHaveBeenCalled();
+      expect(mocks.createThreadMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it("exits the handoff when its source thread pill is deleted", () => {
+      const store = notifyingDraftStore();
+      mocks.promptDraft.text = "Keep going";
+      renderPromptArea();
+      fireEvent.click(screen.getByRole("button", { name: "Start handoff" }));
+      expect(screen.getByTestId("submit-label").textContent).toBe("New thread");
+
+      store.edit("Continue from \n\nKeep going", []);
+
+      expect(screen.getByTestId("submit-label").textContent).toBe("");
+      expect(mocks.promptDraft.getCurrent().text).toBe("Keep going");
+    });
+
+    it("keeps the handoff while the draft is cleared to send it", async () => {
+      const store = notifyingDraftStore();
+      store.clearOnSend();
+      const created = createDeferredPromise<{
+        id: string;
+        projectId: string;
+      }>();
+      mocks.createThreadMutateAsync.mockReturnValue(created.promise);
+      mocks.promptDraft.text = "Keep going";
+      renderPromptArea();
+      fireEvent.click(screen.getByRole("button", { name: "Start handoff" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
+
+      await waitFor(() =>
+        expect(mocks.createThreadMutateAsync).toHaveBeenCalled(),
+      );
+      expect(screen.getByTestId("submit-label").textContent).toBe("New thread");
+      await act(async () => {
+        created.resolve({ id: "thr_new", projectId: "proj_1" });
+        await created.promise;
+      });
     });
   });
 });

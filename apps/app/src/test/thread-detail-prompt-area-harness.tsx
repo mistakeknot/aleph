@@ -45,7 +45,7 @@ export const promptAreaMocks = {
     setDraft: vi.fn(),
     setTextAndMentions: vi.fn(),
     storageKey: "bb.promptbox.contents-proj_1-thr_1-3",
-    subscribe: vi.fn(() => () => {}),
+    subscribe: vi.fn((_listener: () => void) => () => {}),
     text: "",
   },
   queuedMessages: [] as ThreadQueuedMessage[] | undefined,
@@ -222,6 +222,11 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
         </div>
         <div data-testid="command-suggestions">
           {`${typeahead.command.source.providerId}:${typeahead.command.source.commandScope}`}
+        </div>
+        <div data-testid="builtin-commands">
+          {(typeahead.command.source.builtinCommands ?? [])
+            .map((command) => command.name)
+            .join(",")}
         </div>
         <div data-testid="selected-model">{execution.model.active?.model}</div>
         {execution.model.onChange ? (
