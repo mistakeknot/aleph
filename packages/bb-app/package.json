@@ -1,6 +1,7 @@
 {
   "name": "bb-app",
   "version": "0.48.1+aleph.0.9.0",
+  "license": "MIT",
   "description": "bb app launcher for npx",
   "keywords": [
     "bb",
