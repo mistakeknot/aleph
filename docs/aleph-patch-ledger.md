@@ -201,3 +201,7 @@ The split-panes patch keeps optional composer focus and Cmd/Ctrl-W pane close. U
 ## Sync through 49982f7fbd (mk-8lcd6.161)
 
 The fork-owned-migrations barrel conflict takes upstream module exports and its private environment-lifecycle module, keeping the six Aleph-only module export blocks. Queue-transfer and event-cold-tier retain named exports for queued-thread-messages and maintenance: star exports there would newly expose five Aleph internal helpers (getLastQueuedThreadMessage, claimQueuedThreadMessageIdsInTransaction, sweepStaleQueuedMessageClaims, countQueuedThreadMessagesInTransaction and isThreadMaintenanceBusy). Their existing public exports and cold-history gates stay unchanged. No migration changes.
+
+## Render-invariant sync policy delta (mk-8lcd6.168)
+
+Upstream e46c91c219 adds a real-browser render-invariant suite. The `build-config` policy from mk-8lcd6.66 omits its `.github/workflows/ci.yml` delta: Aleph has no Actions opt-in, so workflows stay byte-identical to the sync parent. The suite, profiling build, local Turbo targets and CI-selection tests outside `.github` are retained. The `design-wiki` lockfile conflict is resolved by regenerating with pnpm from the Aleph lockfile and merged manifests; fork workspace entries stay. No Aleph behavior or patch is retired.
