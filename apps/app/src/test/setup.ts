@@ -1,7 +1,17 @@
 /// <reference types="vitest/jsdom" />
 
 import "@bb/shared-ui/icon-extended";
-import { configure } from "@testing-library/react";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const requireFromReactTestingLibrary = createRequire(
+  require.resolve("@testing-library/react/package.json"),
+);
+const {
+  configure,
+}: {
+  configure: typeof import("@testing-library/react").configure;
+} = requireFromReactTestingLibrary("@testing-library/dom");
 
 configure({ asyncUtilTimeout: 5000 });
 
