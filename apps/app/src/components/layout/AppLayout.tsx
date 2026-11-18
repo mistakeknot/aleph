@@ -37,7 +37,7 @@ import {
 import { AppBreadcrumbs } from "./AppBreadcrumbs";
 import { PageTitleHeader } from "./PageTitleHeader";
 import {
-  PageTitleHookHost,
+  PageTitleProvider,
   usePageTitleValue,
   focusedPageTitleAtom,
 } from "./page-title";
@@ -459,13 +459,13 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
+  const pageTitle = useCorePageTitle({
+    subPath: location.pathname + location.search,
+  });
   return (
-    <PageTitleHookHost
-      usePageTitle={useCorePageTitle}
-      subPath={location.pathname + location.search}
-    >
+    <PageTitleProvider value={pageTitle}>
       <AppLayoutContent>{children}</AppLayoutContent>
-    </PageTitleHookHost>
+    </PageTitleProvider>
   );
 }
 

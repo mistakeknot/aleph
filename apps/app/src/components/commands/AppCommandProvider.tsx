@@ -375,10 +375,11 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
           continue;
         }
         if (!matchesAppShortcut(event, binding.shortcut, isMac)) continue;
-        context ??= currentContext(
-          event.target,
-          event.composedPath()[0] ?? event.target,
-        );
+        if (context === null)
+          context = currentContext(
+            event.target,
+            event.composedPath()[0] ?? event.target,
+          );
         if (!matchesAppCommandContext(binding, context)) continue;
         const fallback = APP_COMMAND_FALLBACKS[binding.command];
         if (

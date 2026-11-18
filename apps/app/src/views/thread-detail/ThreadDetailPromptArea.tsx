@@ -7,6 +7,7 @@ import { ThreadMachineStatus } from "@/components/promptbox/banner/ThreadMachine
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -50,6 +51,7 @@ import {
   waitForSettledComposerState,
   waitUntilComposerStateSettled,
   type CommittedComposerState,
+  type CommittedComposerStateController,
 } from "@/components/promptbox/composer-selection-settle";
 import { ThreadPendingInteractionBanners } from "@/components/thread/pending-interactions/ThreadPendingInteractionBanner";
 import {
@@ -369,6 +371,20 @@ function writeInlineQueuedMessageDraft(
   }
 }
 
+function isInlineQueuedMessageEditSessionActive(
+  editStateRef: RefObject<InlineQueuedMessageEditState | null>,
+  session: InlineQueuedMessageEditSession,
+): boolean {
+  return isInlineQueuedMessageEditSession(editStateRef.current, session);
+}
+
+function isSentMessageEditActive(
+  sentMessageEditRef: RefObject<ThreadDetailSentMessageEdit | undefined>,
+  operationId: string,
+): boolean {
+  return sentMessageEditRef.current?.operationId === operationId;
+}
+
 function readSentMessageEditDraft(
   sentMessageEditRef: RefObject<ThreadDetailSentMessageEdit | undefined>,
   operationId: string,
@@ -389,6 +405,66 @@ function writeSentMessageEditDraft(
   }
 }
 
+async function applyThreadComposerSelection(
+  selectionState: CommittedComposerStateController<ThreadComposerSelectionState>,
+  selection: ExperimentalComposerSelection,
+): Promise<ExperimentalComposerSelection> {
+  const deadline = resolveComposerSelectionDeadline();
+  const { observer } = selectionState;
+  let state = await observer.waitUntil(() => true, deadline);
+  const settle = async (requireSettled: boolean) => {
+    state = await waitForSettledComposerState(
+      selectionState,
+      deadline,
+      requireSettled,
+    );
+  };
+  const ensureSettled = async () => {
+    if (state.isSettled) return;
+    state = await waitUntilComposerStateSettled(selectionState, deadline);
+  };
+  if (selection.providerId !== undefined) await ensureSettled();
+  if (
+    selection.providerId !== undefined &&
+    selection.providerId !== state.selectedProviderId &&
+    state.providerIds.includes(selection.providerId)
+  ) {
+    state.changeProvider(selection.providerId);
+    await settle(true);
+  }
+  const providerMatches =
+    selection.providerId === undefined ||
+    state.selectedProviderId === selection.providerId;
+  if (providerMatches && selection.model !== undefined) {
+    await ensureSettled();
+    if (state.isHandoffSelection) {
+      state.handoffSelect({
+        providerId: state.selectedProviderId,
+        model: selection.model,
+        reasoningLevel: selection.reasoningLevel ?? state.reasoningLevel,
+      });
+    } else {
+      state.changeModel(selection.model);
+    }
+    await settle(false);
+  }
+  if (providerMatches && selection.reasoningLevel !== undefined) {
+    await ensureSettled();
+    state.changeReasoning(selection.reasoningLevel);
+    await settle(false);
+  }
+  if (selection.serviceTier !== undefined && state.supportsServiceTier) {
+    state.changeServiceTier(selection.serviceTier);
+    await settle(false);
+  }
+  if (selection.permissionMode !== undefined) {
+    state.changePermissionMode(selection.permissionMode);
+    await settle(false);
+  }
+  await settle(true);
+  return readExecutionSelection(state);
+}
+
 async function runWhileFollowUpShortcutSending(
   setSending: (sending: boolean) => void,
   task: () => Promise<void>,
@@ -398,6 +474,31 @@ async function runWhileFollowUpShortcutSending(
     await task();
   } finally {
     setSending(false);
+  }
+}
+
+async function runWhileCreatingHandoffThread(
+  creatingRef: RefObject<boolean>,
+  task: () => Promise<void>,
+): Promise<void> {
+  creatingRef.current = true;
+  try {
+    await task();
+  } finally {
+    creatingRef.current = false;
+  }
+}
+
+function rewriteHandoffTargetDraft(
+  isChangingHandoffTargetRef: RefObject<boolean>,
+  promptDraft: Pick<ComposerDraftStore, "setDraft">,
+  nextDraft: PromptDraftState,
+) {
+  isChangingHandoffTargetRef.current = true;
+  try {
+    promptDraft.setDraft(nextDraft);
+  } finally {
+    isChangingHandoffTargetRef.current = false;
   }
 }
 
@@ -652,10 +753,11 @@ export function ThreadDetailPromptArea({
     overriddenFallbackIdentity: string | null;
   } | null>(null);
   const isHandoffSelection = handoffSourceSelection?.threadId === thread.id;
-  const sessionOptionChoices = useThreadSessionOptionChoices({
-    threadId: thread.id,
-    options: sessionOptions,
-  });
+  const { choices: sessionChoices, choose: chooseSessionOption } =
+    useThreadSessionOptionChoices({
+      threadId: thread.id,
+      options: sessionOptions,
+    });
   const placedSessionOptions = useMemo(
     () => splitSessionOptionsByPlacement(sessionOptions ?? []),
     [sessionOptions],
@@ -664,19 +766,16 @@ export function ThreadDetailPromptArea({
     () =>
       isHandoffSelection
         ? NO_SESSION_OPTION_SELECTIONS
-        : sessionOptionViewSelections(
-            sessionOptions ?? [],
-            sessionOptionChoices.choices,
-          ),
-    [isHandoffSelection, sessionOptionChoices.choices, sessionOptions],
+        : sessionOptionViewSelections(sessionOptions ?? [], sessionChoices),
+    [isHandoffSelection, sessionChoices, sessionOptions],
   );
   const pickerSessionOptionSections = useMemo(
     () =>
       buildSessionOptionMenuSections(
         placedSessionOptions.picker,
-        sessionOptionChoices.choices,
+        sessionChoices,
       ),
-    [placedSessionOptions.picker, sessionOptionChoices.choices],
+    [placedSessionOptions.picker, sessionChoices],
   );
   const {
     executionOptionsRouting,
@@ -869,12 +968,11 @@ export function ThreadDetailPromptArea({
           : (stripThreadHandoffPrefix(handoffSeed, currentDraft) ??
             currentDraft);
       if (nextDraft !== currentDraft) {
-        isChangingHandoffTargetRef.current = true;
-        try {
-          promptDraft.setDraft(nextDraft);
-        } finally {
-          isChangingHandoffTargetRef.current = false;
-        }
+        rewriteHandoffTargetDraft(
+          isChangingHandoffTargetRef,
+          promptDraft,
+          nextDraft,
+        );
       }
     },
     [handoffSeed, promptDraft],
@@ -920,11 +1018,30 @@ export function ThreadDetailPromptArea({
     }
   }, [getCurrentPromptDraft, handoffSeed, isHandoffSelection, setPromptDraft]);
   const hasSentMessageEdit = sentMessageEdit !== undefined;
+  const [handoffExitSelection, setHandoffExitSelection] =
+    useState<typeof handoffSourceSelection>(null);
+  if (
+    sentMessageEdit !== undefined &&
+    handoffSourceSelection?.threadId === thread.id
+  ) {
+    setOverriddenFallbackIdentity(
+      handoffSourceSelection.overriddenFallbackIdentity,
+    );
+    setHandoffExitSelection(handoffSourceSelection);
+    setHandoffSourceSelection(null);
+  }
+  const restoreHandoffSourceSelection = useEffectEvent(
+    (selection: NonNullable<typeof handoffSourceSelection>) => {
+      setProviderModelReasoning(selection.execution);
+      setServiceTier(selection.serviceTier);
+      setPermissionMode(selection.permissionMode);
+    },
+  );
   useEffect(() => {
-    if (hasSentMessageEdit && isHandoffSelection) {
-      exitHandoff();
+    if (handoffExitSelection !== null) {
+      restoreHandoffSourceSelection(handoffExitSelection);
     }
-  }, [hasSentMessageEdit, isHandoffSelection, exitHandoff]);
+  }, [handoffExitSelection]);
   const isCreatingHandoffThreadRef = useRef(false);
   useEffect(() => {
     if (!isHandoffSelection) {
@@ -1167,64 +1284,8 @@ export function ThreadDetailPromptArea({
   );
   const pendingSelectionRef = useRef<Promise<unknown>>(Promise.resolve());
   const applySelection = useCallback(
-    async (
-      selection: ExperimentalComposerSelection,
-    ): Promise<ExperimentalComposerSelection> => {
-      const deadline = resolveComposerSelectionDeadline();
-      const { observer } = selectionState;
-      let state = await observer.waitUntil(() => true, deadline);
-      const settle = async (requireSettled: boolean) => {
-        state = await waitForSettledComposerState(
-          selectionState,
-          deadline,
-          requireSettled,
-        );
-      };
-      const ensureSettled = async () => {
-        if (state.isSettled) return;
-        state = await waitUntilComposerStateSettled(selectionState, deadline);
-      };
-      if (selection.providerId !== undefined) await ensureSettled();
-      if (
-        selection.providerId !== undefined &&
-        selection.providerId !== state.selectedProviderId &&
-        state.providerIds.includes(selection.providerId)
-      ) {
-        state.changeProvider(selection.providerId);
-        await settle(true);
-      }
-      const providerMatches =
-        selection.providerId === undefined ||
-        state.selectedProviderId === selection.providerId;
-      if (providerMatches && selection.model !== undefined) {
-        await ensureSettled();
-        if (state.isHandoffSelection) {
-          state.handoffSelect({
-            providerId: state.selectedProviderId,
-            model: selection.model,
-            reasoningLevel: selection.reasoningLevel ?? state.reasoningLevel,
-          });
-        } else {
-          state.changeModel(selection.model);
-        }
-        await settle(false);
-      }
-      if (providerMatches && selection.reasoningLevel !== undefined) {
-        await ensureSettled();
-        state.changeReasoning(selection.reasoningLevel);
-        await settle(false);
-      }
-      if (selection.serviceTier !== undefined && state.supportsServiceTier) {
-        state.changeServiceTier(selection.serviceTier);
-        await settle(false);
-      }
-      if (selection.permissionMode !== undefined) {
-        state.changePermissionMode(selection.permissionMode);
-        await settle(false);
-      }
-      await settle(true);
-      return readExecutionSelection(state);
-    },
+    (selection: ExperimentalComposerSelection) =>
+      applyThreadComposerSelection(selectionState, selection),
     [selectionState],
   );
   const setSelection = useCallback(
@@ -1365,26 +1426,28 @@ export function ThreadDetailPromptArea({
         ...baseRequest,
         ...(pluginSubmission === undefined ? {} : { pluginSubmission }),
       };
-      isCreatingHandoffThreadRef.current = true;
-      const clearedSubmittedDraft =
-        promptDraft.clearIfCurrentMatches(submittedDraft);
-      setBottomAttachmentError(null);
-      try {
-        const created = await createThread.mutateAsync(request);
-        navigate(
-          getThreadRoutePath({
-            projectId: created.projectId,
-            threadId: created.id,
-          }),
-        );
-      } catch (error) {
-        if (clearedSubmittedDraft) {
-          promptDraft.restoreIfEmpty(submittedDraft);
-        }
-        throw error;
-      } finally {
-        isCreatingHandoffThreadRef.current = false;
-      }
+      await runWhileCreatingHandoffThread(
+        isCreatingHandoffThreadRef,
+        async () => {
+          const clearedSubmittedDraft =
+            promptDraft.clearIfCurrentMatches(submittedDraft);
+          setBottomAttachmentError(null);
+          try {
+            const created = await createThread.mutateAsync(request);
+            navigate(
+              getThreadRoutePath({
+                projectId: created.projectId,
+                threadId: created.id,
+              }),
+            );
+          } catch (error) {
+            if (clearedSubmittedDraft) {
+              promptDraft.restoreIfEmpty(submittedDraft);
+            }
+            throw error;
+          }
+        },
+      );
       return true;
     },
     [
@@ -1451,9 +1514,19 @@ export function ThreadDetailPromptArea({
       promptDraft.clearIfCurrentMatches(submittedDraft);
       setBottomAttachmentError(null);
 
+      const compactRequestFirst = compactFirst && sendAt === undefined;
+      const sendAtFields = sendAt === undefined ? {} : { sendAt };
+      const pluginSubmissionFields =
+        pluginSubmission === undefined ? {} : { pluginSubmission };
+      const failureMessage = isQueuingMessage
+        ? "Failed to queue message"
+        : "Failed to send message";
+      const failureLifecycleOperation = isQueuingMessage
+        ? "queue_message"
+        : "send_message";
       try {
         const request = buildAutoFollowUpRequest({
-          compactFirst: compactFirst && sendAt === undefined,
+          compactFirst: compactRequestFirst,
           threadId: thread.id,
           input: submittedInput,
           execution: followUpExecutionSelection,
@@ -1461,8 +1534,8 @@ export function ThreadDetailPromptArea({
         if (request) {
           await sendMessage.mutateAsync({
             ...request,
-            ...(sendAt === undefined ? {} : { sendAt }),
-            ...(pluginSubmission === undefined ? {} : { pluginSubmission }),
+            ...sendAtFields,
+            ...pluginSubmissionFields,
           });
           if (!isQueuingMessage) {
             setFullHistoryThreadId(null);
@@ -1472,12 +1545,8 @@ export function ThreadDetailPromptArea({
         promptDraft.restoreIfEmpty(submittedDraft);
         throw reportMutationError({
           error: nextError,
-          fallbackMessage: isQueuingMessage
-            ? "Failed to queue message"
-            : "Failed to send message",
-          lifecycleOperation: isQueuingMessage
-            ? "queue_message"
-            : "send_message",
+          fallbackMessage: failureMessage,
+          lifecycleOperation: failureLifecycleOperation,
         });
       }
     },
@@ -1523,6 +1592,9 @@ export function ThreadDetailPromptArea({
       }
 
       if (shortcutRequest.kind === "draft") {
+        const sendAtFields = sendAt === undefined ? {} : { sendAt };
+        const pluginSubmissionFields =
+          pluginSubmission === undefined ? {} : { pluginSubmission };
         await submitDraft(async () => {
           promptDraft.clearIfCurrentMatches(submittedDraft);
           setBottomAttachmentError(null);
@@ -1532,10 +1604,8 @@ export function ThreadDetailPromptArea({
               try {
                 await sendMessage.mutateAsync({
                   ...shortcutRequest.request,
-                  ...(sendAt === undefined ? {} : { sendAt }),
-                  ...(pluginSubmission === undefined
-                    ? {}
-                    : { pluginSubmission }),
+                  ...sendAtFields,
+                  ...pluginSubmissionFields,
                 });
               } catch (nextError) {
                 promptDraft.restoreIfEmpty(submittedDraft);
@@ -1721,7 +1791,7 @@ export function ThreadDetailPromptArea({
     sentMessageEdit,
     sentMessageEditInput,
   ]);
-  const bottomExecutionConfig = useMemo(
+  const compactExecutionConfig = useMemo(
     () => ({
       providerRouting:
         thread.environmentId === null
@@ -1729,8 +1799,7 @@ export function ThreadDetailPromptArea({
           : { environmentId: thread.environmentId },
       provider: {
         options: providerOptions,
-        selectedId: selectedProviderId,
-        onChange: handleProviderChange,
+        selectedId: thread.providerId,
         hasMultiple: hasMultipleProviders,
       },
       model: {
@@ -1758,41 +1827,23 @@ export function ThreadDetailPromptArea({
         isLoading: isLoadingReasoning,
         onChange: setReasoningLevel,
       },
-      handoff: {
-        sourceProviderId: thread.providerId,
-        active: isHandoffSelection,
-        onStart: () => beginHandoff(),
-        onExit: exitHandoff,
-        onSelect: handleHandoffSelect,
-        ...(canSwitchInThread && !isCommandHandoff
-          ? { target: handoffTarget, onTargetChange: handleHandoffTargetChange }
-          : {}),
-      },
       ...(isHandoffSelection || pickerSessionOptionSections.length === 0
         ? {}
         : {
             agentOptions: {
               sections: pickerSessionOptionSections,
-              onChange: sessionOptionChoices.choose,
+              onChange: chooseSessionOption,
             },
           }),
     }),
     [
-      canSwitchInThread,
-      isCommandHandoff,
-      handoffTarget,
-      handleHandoffTargetChange,
       pickerSessionOptionSections,
-      sessionOptionChoices.choose,
+      chooseSessionOption,
       effectiveSelectedModel,
       executionOptionsRouting,
       hasMultipleProviders,
-      handleHandoffSelect,
-      beginHandoff,
       isHandoffSelection,
-      exitHandoff,
       handleModelChange,
-      handleProviderChange,
       isLoadingModels,
       modelLoadFailed,
       modelLoadError,
@@ -1803,7 +1854,6 @@ export function ThreadDetailPromptArea({
       reasoningOptions,
       isLoadingReasoning,
       selectedModel,
-      selectedProviderId,
       serviceTier,
       serviceTierSupportByProvider,
       setReasoningLevel,
@@ -1814,17 +1864,40 @@ export function ThreadDetailPromptArea({
       thread.providerId,
     ],
   );
-  const compactExecutionConfig = useMemo(() => {
-    const {
-      handoff: _handoff,
-      provider: { onChange: _onProviderChange, ...lockedProvider },
-      ...lockedExecution
-    } = bottomExecutionConfig;
-    return {
-      ...lockedExecution,
-      provider: { ...lockedProvider, selectedId: thread.providerId },
-    };
-  }, [bottomExecutionConfig, thread.providerId]);
+  const bottomExecutionConfig = useMemo(
+    () => ({
+      ...compactExecutionConfig,
+      provider: {
+        ...compactExecutionConfig.provider,
+        selectedId: selectedProviderId,
+        onChange: handleProviderChange,
+      },
+      handoff: {
+        sourceProviderId: thread.providerId,
+        active: isHandoffSelection,
+        onStart: () => beginHandoff(),
+        onExit: exitHandoff,
+        onSelect: handleHandoffSelect,
+        ...(canSwitchInThread && !isCommandHandoff
+          ? { target: handoffTarget, onTargetChange: handleHandoffTargetChange }
+          : {}),
+      },
+    }),
+    [
+      compactExecutionConfig,
+      selectedProviderId,
+      handleProviderChange,
+      thread.providerId,
+      isHandoffSelection,
+      beginHandoff,
+      exitHandoff,
+      handleHandoffSelect,
+      canSwitchInThread,
+      isCommandHandoff,
+      handoffTarget,
+      handleHandoffTargetChange,
+    ],
+  );
   const inlineExecutionConfig = useMemo(() => {
     if (!inlineEditingQueuedMessage) return null;
     return {
@@ -1998,7 +2071,10 @@ export function ThreadDetailPromptArea({
         : NO_INLINE_EDITOR_SELECTION,
     [inlineEditingQueuedMessage, supportsServiceTier, thread.providerId],
   );
-  const queuedMessageComposerSelection = useComposerHostSelection(
+  const {
+    getSelection: getQueuedSelection,
+    subscribeSelection: subscribeQueuedSelection,
+  } = useComposerHostSelection(
     `queued-message:${thread.id}:${inlineEditQueuedMessageId}:${inlineEditSessionId}`,
     queuedMessageSelection,
   );
@@ -2025,8 +2101,8 @@ export function ThreadDetailPromptArea({
             ENDED_EDIT_SESSION_DRAFT,
           ),
         subscribeDraft: subscribeInlineQueuedDraft,
-        getSelection: queuedMessageComposerSelection.getSelection,
-        subscribeSelection: queuedMessageComposerSelection.subscribeSelection,
+        getSelection: getQueuedSelection,
+        subscribeSelection: subscribeQueuedSelection,
         setDraft: (draft) =>
           writeInlineQueuedMessageDraft(
             inlineEditingQueuedMessageRef,
@@ -2035,8 +2111,8 @@ export function ThreadDetailPromptArea({
             commitInlineQueuedMessage,
           ),
         isAvailable: () =>
-          isInlineQueuedMessageEditSession(
-            inlineEditingQueuedMessageRef.current,
+          isInlineQueuedMessageEditSessionActive(
+            inlineEditingQueuedMessageRef,
             session,
           ),
         focus: focusInlinePluginComposer,
@@ -2047,7 +2123,8 @@ export function ThreadDetailPromptArea({
       inlineEditQueuedMessageId,
       inlineEditSessionId,
       inlineEditingQueuedMessageRef,
-      queuedMessageComposerSelection,
+      getQueuedSelection,
+      subscribeQueuedSelection,
       subscribeInlineQueuedDraft,
       thread.id,
     ]);
@@ -2154,7 +2231,10 @@ export function ThreadDetailPromptArea({
       thread.providerId,
     ],
   );
-  const sentMessageComposerSelection = useComposerHostSelection(
+  const {
+    getSelection: getSentSelection,
+    subscribeSelection: subscribeSentSelection,
+  } = useComposerHostSelection(
     `sent-message:${thread.id}:${sentMessageEditOperationId}`,
     sentMessageSelection,
   );
@@ -2174,17 +2254,18 @@ export function ThreadDetailPromptArea({
             ENDED_EDIT_SESSION_DRAFT,
           ),
         subscribeDraft: subscribeSentMessageEditDraft,
-        getSelection: sentMessageComposerSelection.getSelection,
-        subscribeSelection: sentMessageComposerSelection.subscribeSelection,
+        getSelection: getSentSelection,
+        subscribeSelection: subscribeSentSelection,
         setDraft: (nextDraft) =>
           writeSentMessageEditDraft(sentMessageEditRef, operationId, nextDraft),
         isAvailable: () =>
-          sentMessageEditRef.current?.operationId === operationId,
+          isSentMessageEditActive(sentMessageEditRef, operationId),
         focus: focusInlinePluginComposer,
       };
     }, [
       focusInlinePluginComposer,
-      sentMessageComposerSelection,
+      getSentSelection,
+      subscribeSentSelection,
       sentMessageEditOperationId,
       sentMessageEditRef,
       subscribeSentMessageEditDraft,
@@ -2485,8 +2566,8 @@ export function ThreadDetailPromptArea({
     isHandoffSelection || placedSessionOptions.footer.length === 0 ? null : (
       <SessionOptionsMenu
         options={placedSessionOptions.footer}
-        choices={sessionOptionChoices.choices}
-        onChange={sessionOptionChoices.choose}
+        choices={sessionChoices}
+        onChange={chooseSessionOption}
       />
     );
 

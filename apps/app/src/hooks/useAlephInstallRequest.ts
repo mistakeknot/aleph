@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { BbHttpError } from "@bb/sdk/browser";
 import type { SystemAlephUpdateStatus } from "@bb/server-contract";
 import {
@@ -21,6 +21,28 @@ function messageFrom(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed";
 }
 
+async function runAlephInstallRequest(
+  send: () => Promise<unknown>,
+  busy: { current: boolean },
+  setPending: (pending: boolean) => void,
+  setError: (error: string | null) => void,
+  queryClient: QueryClient,
+) {
+  if (busy.current) return;
+  busy.current = true;
+  setPending(true);
+  setError(null);
+  try {
+    await send();
+  } catch (failure) {
+    setError(messageFrom(failure));
+  } finally {
+    busy.current = false;
+    setPending(false);
+    invalidateAlephUpdateStatus({ queryClient });
+  }
+}
+
 export function useAlephInstallRequest(): AlephInstallRequestState {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -29,19 +51,13 @@ export function useAlephInstallRequest(): AlephInstallRequestState {
 
   const run = useCallback(
     async (send: () => Promise<unknown>) => {
-      if (busy.current) return;
-      busy.current = true;
-      setPending(true);
-      setError(null);
-      try {
-        await send();
-      } catch (failure) {
-        setError(messageFrom(failure));
-      } finally {
-        busy.current = false;
-        setPending(false);
-        invalidateAlephUpdateStatus({ queryClient });
-      }
+      await runAlephInstallRequest(
+        send,
+        busy,
+        setPending,
+        setError,
+        queryClient,
+      );
     },
     [queryClient],
   );

@@ -196,6 +196,30 @@ export function useUpdateAppearance() {
   });
 }
 
+async function writeMusicSecret(
+  secret: string | null,
+  queryClient: QueryClient,
+  setPending: (pending: boolean) => void,
+): Promise<boolean> {
+  setPending(true);
+  try {
+    await sdk.theme.setMusicSecret({ secret });
+    invalidateSystemConfig({ queryClient });
+    return true;
+  } catch (error) {
+    showMutationErrorToast({
+      error,
+      fallbackMessage:
+        secret === null
+          ? "Failed to clear the music pairing secret."
+          : "Failed to save the music pairing secret.",
+    });
+    return false;
+  } finally {
+    setPending(false);
+  }
+}
+
 export function useWriteMusicSecret(): {
   write: (secret: string | null) => Promise<boolean>;
   pending: boolean;
@@ -204,23 +228,7 @@ export function useWriteMusicSecret(): {
   const [pending, setPending] = useState(false);
   const write = useCallback(
     async (secret: string | null) => {
-      setPending(true);
-      try {
-        await sdk.theme.setMusicSecret({ secret });
-        invalidateSystemConfig({ queryClient });
-        return true;
-      } catch (error) {
-        showMutationErrorToast({
-          error,
-          fallbackMessage:
-            secret === null
-              ? "Failed to clear the music pairing secret."
-              : "Failed to save the music pairing secret.",
-        });
-        return false;
-      } finally {
-        setPending(false);
-      }
+      return writeMusicSecret(secret, queryClient, setPending);
     },
     [queryClient],
   );

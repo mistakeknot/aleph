@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLatestRef } from "@/hooks/useLatestRef";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue, useStore } from "jotai";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@bb/shared-ui/button";
@@ -51,7 +52,7 @@ export function WindowPresetController() {
   const threadsQuery = useWindowPresetThreads(true);
   const threads = threadsQuery.data;
 
-  useEffect(() => {
+  const applyRequestedPreset = useLatestRef(() => {
     if (requested === null || !preferencesReady || threads === undefined) {
       return;
     }
@@ -72,7 +73,18 @@ export function WindowPresetController() {
     setAppliedPresetId(target.id);
     setActivePresetId(target.id);
     void navigate(focusedPaneRoute(nextLayout) ?? "/", { replace: true });
-  }, [requested, preferencesReady, threads, presets, store, navigate]);
+  });
+  useEffect(() => {
+    applyRequestedPreset.current();
+  }, [
+    applyRequestedPreset,
+    requested,
+    preferencesReady,
+    threads,
+    presets,
+    store,
+    navigate,
+  ]);
 
   const titleById = useMemo(() => {
     const map = new Map<string, string | null>();
@@ -128,22 +140,25 @@ export function WindowPresetController() {
     maximizedPaneId,
   ]);
 
-  const buildReportRef = useRef(buildReport);
-  buildReportRef.current = buildReport;
+  const buildLatestReport = useLatestRef(buildReport);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void sdk.system.windows.report(buildReportRef.current()).catch(() => {});
+      void sdk.system.windows
+        .report(buildLatestReport.current())
+        .catch(() => {});
     }, REPORT_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [buildReport]);
+  }, [buildLatestReport, buildReport]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      void sdk.system.windows.report(buildReportRef.current()).catch(() => {});
+      void sdk.system.windows
+        .report(buildLatestReport.current())
+        .catch(() => {});
     }, REPORT_HEARTBEAT_MS);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [buildLatestReport]);
 
   const suggestion =
     activePresetId === null ? undefined : suggestions[activePresetId];

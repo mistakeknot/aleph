@@ -99,6 +99,24 @@ function optionKey(option: ThreadSearchOption): string {
   return option.row?.id ?? `more:${option.lifecycle}`;
 }
 
+function growShownCounts(
+  current: Partial<Record<ThreadArchiveFilter, number>>,
+  lifecycles: readonly ThreadArchiveFilter[],
+  options: readonly ThreadSearchOption[],
+): Partial<Record<ThreadArchiveFilter, number>> {
+  let next = current;
+  for (const lifecycle of lifecycles) {
+    const shown = options.filter(
+      (option) =>
+        !isPluginSearchOption(option) &&
+        option.lifecycle === lifecycle &&
+        option.row !== null,
+    ).length;
+    if (shown > (next[lifecycle] ?? 0)) next = { ...next, [lifecycle]: shown };
+  }
+  return next;
+}
+
 export function ThreadSearchPaletteMode({
   query,
   onQueryChange: setQuery,
@@ -273,22 +291,11 @@ export function ThreadSearchPaletteMode({
     result,
     shownCounts,
   ]);
-  useLayoutEffect(() => {
-    setShownCounts((current) => {
-      let next = current;
-      for (const lifecycle of lifecycles) {
-        const shown = options.filter(
-          (option) =>
-            !isPluginSearchOption(option) &&
-            option.lifecycle === lifecycle &&
-            option.row !== null,
-        ).length;
-        if (shown > (next[lifecycle] ?? 0))
-          next = { ...next, [lifecycle]: shown };
-      }
-      return next;
-    });
-  }, [lifecycles, options]);
+  const filterStateIsCurrent = previousFilterKey === filterKey;
+  const grownShownCounts = growShownCounts(shownCounts, lifecycles, options);
+  if (filterStateIsCurrent && grownShownCounts !== shownCounts) {
+    setShownCounts(grownShownCounts);
+  }
   const highlightedKeyIndex = options.findIndex(
     (option) => optionKey(option) === highlightedKey,
   );
@@ -304,11 +311,19 @@ export function ThreadSearchPaletteMode({
       : options.length === 0
         ? -1
         : Math.min(highlightedIndex, options.length - 1);
-  useLayoutEffect(() => {
-    if (holdHighlightedSearchResult) return;
-    setHighlightedIndex(Math.max(activeIndex, 0));
-    setHighlightedKey(activeIndex < 0 ? null : optionKey(options[activeIndex]));
-  }, [activeIndex, holdHighlightedSearchResult, options]);
+  const syncedHighlightedIndex = Math.max(activeIndex, 0);
+  const syncedHighlightedKey =
+    activeIndex < 0 ? null : optionKey(options[activeIndex]);
+  if (
+    filterStateIsCurrent &&
+    !holdHighlightedSearchResult &&
+    (highlightedIndex !== syncedHighlightedIndex ||
+      highlightedKey !== syncedHighlightedKey)
+  ) {
+    setHighlightedIndex(syncedHighlightedIndex);
+    setHighlightedKey(syncedHighlightedKey);
+  }
+
   const highlightOption = useCallback(
     (index: number) => {
       setHighlightPinned(true);
