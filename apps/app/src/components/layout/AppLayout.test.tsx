@@ -37,6 +37,7 @@ vi.mock("sonner", async (importOriginal) => ({
 }));
 import { AppCommandProvider } from "@/components/commands/AppCommandProvider";
 import { AppLayout } from "./AppLayout";
+import { attachSonnerToast } from "@/components/ui/app-toast-runtime";
 import { wsManager } from "@/lib/ws";
 import { splitLayoutAtom } from "@/lib/split-layout/atoms";
 import { createSinglePaneLayout } from "@/views/thread-detail/splitThreadNavigation";
@@ -738,6 +739,9 @@ describe("AppLayout plugin overlay contexts", () => {
 });
 
 describe("thread open signals", () => {
+  beforeEach(() => {
+    attachSonnerToast(toastMock as unknown as typeof import("sonner").toast);
+  });
   function captureThreadOpen() {
     let callback: ((signal: unknown) => void) | null = null;
     vi.spyOn(wsManager, "onThreadOpen").mockImplementation((cb) => {

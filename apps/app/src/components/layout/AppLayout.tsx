@@ -130,7 +130,7 @@ import {
   paneContentForPathname,
   planBackgroundThreadOpen,
 } from "@/views/thread-detail/splitThreadNavigation";
-import { toast } from "sonner";
+import { withSonnerToast } from "@/components/ui/app-toast-runtime";
 import { useAppSettingsRouteMemory } from "@/hooks/useAppSettingsRouteMemory";
 import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
 import { BackToAppCommandHandler } from "./BackToAppCommandHandler";
@@ -534,24 +534,28 @@ function AppLayoutContent({ children }: AppLayoutProps) {
         if (plan.kind === "already-open") {
           return;
         }
-        toast("A thread was opened in the background", {
-          id: `thread-open:${signal.threadId}`,
-          action: {
-            label: "Open",
-            onClick: () => {
-              const current = store.get(splitLayoutAtom);
-              const next = applyThreadOpenToLayout(
-                current,
-                target,
-                isCompactViewport ? "replace" : signal.split,
-              );
-              if (next !== current) {
-                store.set(splitLayoutAtom, next);
-              }
-              void navigate(getThreadRoutePath(target));
-            },
-          },
-        });
+        withSonnerToast(
+          (toast) =>
+            toast("A thread was opened in the background", {
+              id: `thread-open:${signal.threadId}`,
+              action: {
+                label: "Open",
+                onClick: () => {
+                  const current = store.get(splitLayoutAtom);
+                  const next = applyThreadOpenToLayout(
+                    current,
+                    target,
+                    isCompactViewport ? "replace" : signal.split,
+                  );
+                  if (next !== current) {
+                    store.set(splitLayoutAtom, next);
+                  }
+                  void navigate(getThreadRoutePath(target));
+                },
+              },
+            }),
+          `thread-open:${signal.threadId}`,
+        );
       }),
     [isCompactViewport, navigate, store],
   );
