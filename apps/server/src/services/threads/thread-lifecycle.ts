@@ -1724,6 +1724,27 @@ export function resendStopsAwaitingDaemon(
   for (const [threadId, awaiting] of stopsAwaitingDaemon) {
     if (awaiting.hostId !== hostId) continue;
     stopsAwaitingDaemon.delete(threadId);
+    void resendStopWithHotHistory(
+      deps,
+      threadId,
+      hostId,
+      awaiting.sentAt,
+    ).catch((error) => {
+      deps.logger.warn(
+        { err: error, threadId },
+        "Resending thread stop after daemon reconnect failed",
+      );
+    });
+  }
+}
+
+async function resendStopWithHotHistory(
+  deps: CommandResultSideEffectsDeps,
+  threadId: string,
+  hostId: string,
+  sentAt: number,
+): Promise<void> {
+  await withHotThreadHistory(deps, threadId, () => {
     const thread = getThread(deps.db, threadId);
     if (
       thread === null ||
@@ -1731,11 +1752,11 @@ export function resendStopsAwaitingDaemon(
       thread.environmentId === null ||
       (thread.status !== "idle" && thread.status !== "error") ||
       hasStoredTurnRequestEventSince(deps.db, {
-        since: awaiting.sentAt,
+        since: sentAt,
         threadId,
       })
     ) {
-      continue;
+      return;
     }
     dispatchThreadStopCommand(deps, {
       environmentId: thread.environmentId,
@@ -1743,7 +1764,7 @@ export function resendStopsAwaitingDaemon(
       interruptionReason: "manual-stop",
       threadId,
     });
-  }
+  });
 }
 
 function requestPreStartThreadStop(

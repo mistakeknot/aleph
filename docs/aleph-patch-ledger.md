@@ -305,3 +305,7 @@ Adopt upstream d8b910e8c2 through cb627c8574 keyed plugin CSS experiment, delega
 ## Dispatch interleaving and reconnect sync (mk-8lcd6.246)
 
 Adopt upstream 1fa400dec7 lost-reply, stop and queue-drain fixes and interleaving tests. Preserve Aleph cold-history selection gates/pins, rules receipts, queue transfer, runtime options and every auto-merged fork delta. Resolve live-command imports as a union with HostConnectionLostApiError; keep upstream host_connection_lost handling. Preserve the protocol offset of four: upstream 266 becomes Aleph 270, accepting 270 and rejecting 265 through 269 while retaining earlier incompatibility and Aleph account-pool/page-note assertions. No other Aleph adaptation, assertion/threshold/budget change, workflow delta or retired patch.
+
+## Reconnect stop cold-history gate (mk-8lcd6.247)
+
+Gate each reconnect stop resend with withHotThreadHistory before the request-since predicate and stop-aim read. Re-read thread state inside the gate; retain the existing conditions, interruption reason and aim. Keep map admission/removal ordering and log asynchronous hydration/resend failures. Implementation-only adaptation; no test, assertion or threshold changes.
