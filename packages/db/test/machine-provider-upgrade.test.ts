@@ -6,7 +6,7 @@ import { expect, it } from "vitest";
 import { createConnection, migrate } from "../src/index.js";
 import { legacyOracleFolder } from "./helpers/plan-apply.js";
 
-const POST_ORACLE_STEPS = 15;
+const POST_ORACLE_STEPS = 16;
 
 it("upgrades the merged environment schema and preserves existing hosts", () => {
   const directory = mkdtempSync(join(tmpdir(), "bb-machine-upgrade-"));
