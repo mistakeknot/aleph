@@ -75,6 +75,7 @@ function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
+    if (key === "--strict") args.strict = true;
     if (key === "--recording" || key === "--dialect" || key === "--state") {
       args[key.slice(2)] = argv[i + 1];
       i += 1;
@@ -496,7 +497,8 @@ function main() {
     process.argv.includes("--no-session-persistence");
   const segmentIndex = diagnosticFork ? null : claimSegmentIndex(args.state);
   let script = segmentIndex === null ? [] : (segments[segmentIndex] ?? []);
-  const log = (text) => process.stderr.write(`[replay-child #${segmentIndex}] ${text}\n`);
+  const log = (text) =>
+    process.stderr.write(`[replay-child #${segmentIndex}] ${text}\n`);
   if (script.length === 0) {
     log(
       `no recorded segment ${segmentIndex} (recording has ${segments.length}); answering generically`,
@@ -699,6 +701,7 @@ function main() {
    */
   function lookAhead() {
     lookaheadTimer = null;
+    if (args.strict) return;
     if (emitTimer !== null) {
       lookaheadTimer = setTimeout(lookAhead, CURSOR_POLL_MS);
       return;
@@ -714,11 +717,14 @@ function main() {
             : step.classified.key === live.classified.key);
         if (!same) continue;
         const cursor = readCursor(args.state);
-        const gated = script.slice(position, index).some((between) =>
-          between.dir === "provider→bridge" &&
-          between.classified.kind !== "response" &&
-          !cursorAllows(cursor, between),
-        );
+        const gated = script
+          .slice(position, index)
+          .some(
+            (between) =>
+              between.dir === "provider→bridge" &&
+              between.classified.kind !== "response" &&
+              !cursorAllows(cursor, between),
+          );
         if (gated) {
           lookaheadTimer = setTimeout(lookAhead, CURSOR_POLL_MS);
           return;
@@ -752,6 +758,11 @@ function main() {
   }
 
   function answerGenerically(live, reason) {
+    if (args.strict) {
+      throw new Error(
+        `Strict replay: ${reason}: unmatched ${live.classified.kind} ${live.classified.key}`,
+      );
+    }
     if (live.classified.kind === "request") {
       log(
         `${reason}: answering ${live.classified.key} (${String(live.classified.id)}) generically`,
