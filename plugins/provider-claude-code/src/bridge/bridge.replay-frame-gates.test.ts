@@ -141,6 +141,7 @@ it("approval replies after interrupt do not settle the Claude turn twice", async
       "Bash",
       { command: "git status" },
       {
+        requestId: "control-request",
         toolUseID: "synthetic-command",
         signal: new AbortController().signal,
       },
