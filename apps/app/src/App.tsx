@@ -23,12 +23,9 @@ import { RouteNavigationIndicator } from "./components/ui/route-navigation-indic
 import { AppNavigationUrlHost } from "./lib/url-open-routing";
 import { NativeShellReporter } from "./lib/native-shell";
 import { UiPreferencesSync } from "@/lib/ui-preferences/UiPreferencesSync";
-import { WindowPresetController } from "@/components/window-presets/WindowPresetController";
 import { AppFileExternalNavigationHost } from "./components/plugin/AppFileExternalNavigationHost";
 import { pluginDetailKeyFromRoute } from "./components/plugin/plugin-detail-key";
 import { useAppTheme } from "./hooks/useAppTheme";
-import { useAmbientScreenCare } from "./hooks/useAmbientScreenCare";
-import { useMusicSignal } from "./hooks/useMusicSignal";
 import { useFaviconColorSync } from "./lib/favicon-color-preference";
 import { useDesktopThemeSync } from "./hooks/useDesktopThemeSync";
 import { usePluginFrontendBoot } from "./hooks/usePluginFrontendBoot";
@@ -94,6 +91,15 @@ import {
   trackCriticalLoad,
   whenCriticalLoadsSettled,
 } from "./lib/split-prefetch";
+
+const AmbientFeatures = lazy(
+  () => import("./components/layout/AmbientFeatures"),
+);
+const WindowPresetController = lazy(() =>
+  import("./components/window-presets/WindowPresetController").then(
+    (module) => ({ default: module.WindowPresetController }),
+  ),
+);
 
 const SettingsView = lazy(() =>
   import("./views/SettingsView").then((m) => ({
@@ -479,8 +485,6 @@ export function App() {
   useAlephDiagnostics();
   useDesktopThemeSync();
   useAppTheme();
-  useAmbientScreenCare();
-  useMusicSignal();
   useFaviconColorSync();
   usePluginFrontendBoot();
   useCodeRendererPreloads();
@@ -496,7 +500,12 @@ export function App() {
               <HashNavigationScroll />
               <NativeShellReporter />
               <UiPreferencesSync />
-              <WindowPresetController />
+              <Suspense fallback={null}>
+                <AmbientFeatures />
+              </Suspense>
+              <Suspense fallback={null}>
+                <WindowPresetController />
+              </Suspense>
               <Routes>
                 <Route
                   path={AUTH_CALLBACK_ROUTE_PATH}
