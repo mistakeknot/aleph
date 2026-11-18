@@ -1,4 +1,7 @@
-import { pinThreadHistories } from "./event-cold-tier/pins.js";
+import {
+  pinThreadHistories,
+  pinThreadHistory,
+} from "./event-cold-tier/pins.js";
 import {
   assertSelectionPinned,
   withHotSelectedThreadHistories,
@@ -933,14 +936,20 @@ export function requestThreadStopForCurrentState(
   thread: Pick<StopTarget, "id">,
   _environment?: StopEnvironment | null,
 ): void {
+  // event-cold-tier-gates.test.ts covers cold exclusion; explicit stops use
+  // requestThreadStop/stopThreadForCurrentState's hydration boundaries.
   if (isThreadEventsCold(deps.db, thread.id)) return;
-  void requestThreadStop(deps, thread.id, { skipSendStop: false }).catch(
-    (error) =>
+  const releasePin = pinThreadHistory(thread.id);
+  // Preserve upstream's synchronous pre-start transaction (generated-thread-titles
+  // metadata-settlement test), retaining the pin through all awaited finish effects.
+  void requestHotThreadStop(deps, thread.id, { skipSendStop: false })
+    .finally(releasePin)
+    .catch((error) =>
       deps.logger.warn(
         { err: error, threadId: thread.id },
         "Thread stop request failed",
       ),
-  );
+    );
 }
 
 const threadStopRequestDeduper = new Map<
