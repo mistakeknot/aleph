@@ -39,7 +39,10 @@ import {
   type NewThreadComposerState,
 } from "@/components/promptbox/NewThreadComposer";
 import { setComposerSelectionSettleTimeoutForTest } from "@/components/promptbox/composer-selection-settle";
-import type { PluginComposerHost } from "@/components/plugin/plugin-composer-host";
+import type {
+  ComposerDraftStore,
+  PluginComposerHost,
+} from "@/components/plugin/plugin-composer-host";
 import {
   resetPluginSlotStoreForTest,
   setPluginSlotRegistrations,
@@ -486,6 +489,19 @@ function latestPromptBoxProps(): Record<string, any> {
   return props as Record<string, any>;
 }
 
+function promptBoxDraft(): ComposerDraftStore {
+  return latestPromptBoxProps().draft;
+}
+
+function promptBoxText(): string {
+  return promptBoxDraft().getCurrent().text;
+}
+
+function typeInPromptBox(text: string): void {
+  const draft = promptBoxDraft();
+  draft.setDraft({ ...draft.getCurrent(), text, mentions: [] });
+}
+
 function RootReuseProbe() {
   const [reuseEnvironment, setReuseEnvironment] =
     useRootComposeReuseEnvironment();
@@ -772,7 +788,7 @@ describe("PluginNewThreadComposer seeding", () => {
     );
   }
 
-  it("re-renders only the prompt box, not the composer surface, while typing", () => {
+  it("re-renders neither the composer surface nor the prompt box while typing", () => {
     const surfaceStates: NewThreadComposerState[] = [];
     render(
       <Provider>
@@ -795,7 +811,7 @@ describe("PluginNewThreadComposer seeding", () => {
       </Provider>,
     );
     act(() => {
-      latestPromptBoxProps().onChange("h", []);
+      typeInPromptBox("h");
     });
     const surfaceRendersAfterFirstKey = surfaceStates.length;
     const promptBoxRendersAfterFirstKey = mocks.promptBoxProps.length;
@@ -803,15 +819,13 @@ describe("PluginNewThreadComposer seeding", () => {
     const text = "hello world";
     for (let length = 2; length <= text.length; length += 1) {
       act(() => {
-        latestPromptBoxProps().onChange(text.slice(0, length), []);
+        typeInPromptBox(text.slice(0, length));
       });
     }
 
     expect(surfaceStates.length).toBe(surfaceRendersAfterFirstKey);
-    expect(mocks.promptBoxProps.length - promptBoxRendersAfterFirstKey).toBe(
-      text.length - 1,
-    );
-    expect(latestPromptBoxProps().value).toBe("hello world");
+    expect(mocks.promptBoxProps.length).toBe(promptBoxRendersAfterFirstKey);
+    expect(promptBoxText()).toBe("hello world");
     expect(new Set(surfaceStates.map((state) => state.promptDraft)).size).toBe(
       1,
     );
@@ -999,7 +1013,7 @@ describe("PluginNewThreadComposer seeding", () => {
     expect(submitted).toHaveLength(1);
     expect(submitted[0]).toEqual(STORED_REQUEST);
     await waitFor(() => {
-      expect(latestPromptBoxProps().value).toBe("");
+      expect(promptBoxText()).toBe("");
     });
   });
 
@@ -1054,7 +1068,7 @@ describe("PluginNewThreadComposer seeding", () => {
       </MemoryRouter>,
     );
     await waitFor(() => {
-      expect(latestPromptBoxProps().value).toBe(text);
+      expect(promptBoxText()).toBe(text);
       expect(latestPromptBoxProps().disabled).toBe(false);
     });
     await submit();
@@ -1228,9 +1242,7 @@ describe("PluginNewThreadComposer seeding", () => {
     });
 
     await waitFor(() => {
-      expect(latestPromptBoxProps().value).toBe(
-        "updated through the Composer API",
-      );
+      expect(promptBoxText()).toBe("updated through the Composer API");
     });
   });
 
@@ -2114,7 +2126,7 @@ describe("PluginNewThreadComposer seeding", () => {
     );
 
     await waitFor(() => {
-      expect(latestPromptBoxProps().value).toBe("Create a kanban plugin");
+      expect(promptBoxText()).toBe("Create a kanban plugin");
     });
     await waitFor(() => {
       expect(router.state.location.state).toBeNull();
@@ -2149,7 +2161,7 @@ describe("PluginNewThreadComposer seeding", () => {
       pressSubmit();
     });
     expect(onSubmit).toHaveBeenCalledTimes(1);
-    expect(latestPromptBoxProps().value).toBe("");
+    expect(promptBoxText()).toBe("");
 
     await act(async () => {
       finishSubmit?.();
@@ -2173,14 +2185,14 @@ describe("PluginNewThreadComposer seeding", () => {
       pressSubmit();
     });
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(latestPromptBoxProps().value).toBe("");
+    expect(promptBoxText()).toBe("");
     await act(async () => {
       failSubmit?.();
     });
     await waitFor(() => {
       expect(latestPromptBoxProps().isSubmitting).toBe(false);
     });
-    expect(latestPromptBoxProps().value).toBe("review every PR for slop");
+    expect(promptBoxText()).toBe("review every PR for slop");
   });
 
   it("does not replace a new draft when submission fails", async () => {
@@ -2200,9 +2212,9 @@ describe("PluginNewThreadComposer seeding", () => {
       pressSubmit();
     });
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(latestPromptBoxProps().value).toBe("");
+    expect(promptBoxText()).toBe("");
     act(() => {
-      latestPromptBoxProps().onChange("next thread", []);
+      typeInPromptBox("next thread");
     });
     await act(async () => {
       failSubmit?.();
@@ -2211,7 +2223,7 @@ describe("PluginNewThreadComposer seeding", () => {
     await waitFor(() => {
       expect(latestPromptBoxProps().isSubmitting).toBe(false);
     });
-    expect(latestPromptBoxProps().value).toBe("next thread");
+    expect(promptBoxText()).toBe("next thread");
   });
 
   it("accepts overlapping uploads and stays busy until every batch settles", async () => {
@@ -2243,7 +2255,7 @@ describe("PluginNewThreadComposer seeding", () => {
       });
       await secondBatch;
     });
-    expect(latestPromptBoxProps().attachments.items).toHaveLength(1);
+    expect(promptBoxDraft().getCurrent().attachments).toHaveLength(1);
     expect(latestPromptBoxProps().attachments.pendingUploads).toHaveLength(1);
     expect(latestPromptBoxProps().attachments.isAttaching).toBe(true);
     await act(async () => {
@@ -2257,7 +2269,7 @@ describe("PluginNewThreadComposer seeding", () => {
     });
     expect(latestPromptBoxProps().attachments.isAttaching).toBe(false);
     expect(latestPromptBoxProps().attachments.pendingUploads).toHaveLength(0);
-    expect(latestPromptBoxProps().attachments.items).toHaveLength(1);
+    expect(promptBoxDraft().getCurrent().attachments).toHaveLength(1);
     expect(latestPromptBoxProps().attachments.error).toBe(
       "Could not reach the server. Check that it is running and try again.",
     );
@@ -2283,7 +2295,7 @@ describe("PluginNewThreadComposer seeding", () => {
       ]);
     });
     await waitFor(() => {
-      expect(latestPromptBoxProps().attachments.items).toHaveLength(1);
+      expect(promptBoxDraft().getCurrent().attachments).toHaveLength(1);
     });
     await act(async () => {
       await latestPromptBoxProps().project.onChange("proj_2");
@@ -2295,7 +2307,7 @@ describe("PluginNewThreadComposer seeding", () => {
       paths: [".bb/attachments/notes.txt"],
     });
     expect(latestPromptBoxProps().project.value).toBe("proj_1");
-    expect(latestPromptBoxProps().attachments.items).toHaveLength(1);
+    expect(promptBoxDraft().getCurrent().attachments).toHaveLength(1);
   });
 });
 
