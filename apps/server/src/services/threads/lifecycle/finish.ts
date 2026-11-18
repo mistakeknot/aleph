@@ -1,7 +1,9 @@
+import { pinThreadHistory } from "../event-cold-tier/pins.js";
 import { withHotSelectedThreadHistories } from "../event-cold-tier/service.js";
 import {
   getLatestThreadStopAim,
   getThread,
+  isThreadEventsCold,
   hasThreadStartTurnRequest,
   type DbQueryConnection,
 } from "@bb/db";
@@ -250,6 +252,15 @@ export async function finishThreadLifecycle(
   outcome: ThreadLifecycleOutcome,
   options: FinishThreadLifecycleOptions = {},
 ): Promise<void> {
+  if (!isThreadEventsCold(deps.db, outcome.threadId)) {
+    const releasePin = pinThreadHistory(outcome.threadId);
+    try {
+      await finishHotThreadLifecycle(deps, outcome, options);
+    } finally {
+      releasePin();
+    }
+    return;
+  }
   await withHotSelectedThreadHistories(
     deps,
     () => [outcome.threadId],
