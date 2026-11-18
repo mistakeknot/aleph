@@ -22,10 +22,13 @@ export const POST_ORACLE_UPSTREAM_TAGS = [
   "0154_thread_purges",
   "0155_declare_project_sources_default_index",
   "0156_plugin_failure_labels",
+  "0157_thread_run_state",
 ] as const;
 
 export function applyPostOracleSteps(sqlite: Database.Database): void {
-  for (const tag of POST_ORACLE_UPSTREAM_TAGS) {
+  for (const tag of POST_ORACLE_UPSTREAM_TAGS.filter(
+    (tag) => tag !== "0157_thread_run_state",
+  )) {
     const sql = readFileSync(
       join(sourceFolders.upstreamFolder, `${tag}.sql`),
       "utf8",
@@ -39,5 +42,12 @@ export function applyPostOracleSteps(sqlite: Database.Database): void {
     for (const statement of sql.split("--> statement-breakpoint")) {
       if (statement.trim() !== "") sqlite.exec(statement);
     }
+  }
+  const runStateSql = readFileSync(
+    join(sourceFolders.upstreamFolder, "0157_thread_run_state.sql"),
+    "utf8",
+  );
+  for (const statement of runStateSql.split("--> statement-breakpoint")) {
+    if (statement.trim() !== "") sqlite.exec(statement);
   }
 }

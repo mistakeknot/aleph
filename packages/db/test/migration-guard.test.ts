@@ -1355,7 +1355,10 @@ describe("guardPlan", () => {
     });
 
     it("refuses a control character in a new Aleph step", () => {
-      const input = extend([], [alephStep("A0017", "A0016", lastWhen + 1)]);
+      const input = extend(
+        [],
+        [alephStep("A0017", "0157_thread_run_state", lastWhen + 1)],
+      );
       expect(() =>
         guardInput(
           input,
@@ -1366,7 +1369,10 @@ describe("guardPlan", () => {
     });
 
     it("accepts a new Aleph step without control characters", () => {
-      const input = extend([], [alephStep("A0017", "A0016", lastWhen + 1)]);
+      const input = extend(
+        [],
+        [alephStep("A0017", "0157_thread_run_state", lastWhen + 1)],
+      );
       expect(() =>
         guardInput(input, "SELECT 1;", "CREATE TABLE intended_new_table(id);"),
       ).not.toThrow();
@@ -1419,7 +1425,7 @@ describe("guardPlan", () => {
         buildMigrationPlan(input)
           .steps.map((step) => step.id)
           .slice(-3),
-      ).toEqual(["A0016", "0148_first", "A0017"]);
+      ).toEqual(["0157_thread_run_state", "0148_first", "A0017"]);
       expect(() => guardInput(input)).not.toThrow();
     });
 
@@ -1451,7 +1457,7 @@ describe("guardPlan", () => {
         aleph: [
           ...base.aleph,
           {
-            ...alephStep("A0017", "A0016", lastWhen + 20),
+            ...alephStep("A0017", "0157_thread_run_state", lastWhen + 20),
             supersedes: "0148_first",
           },
         ],
