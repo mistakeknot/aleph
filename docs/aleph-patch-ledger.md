@@ -289,3 +289,7 @@ Adopt upstream 745474759b functional-test dependency preparation and real lazy-l
 ## Fixture child lifetime sync (mk-8lcd6.230)
 
 Adopt upstream c3464f9bfc through c9a3e8b241 fixture child-lifetime and restarted-worker identity checks. Keep the existing Aleph agent-runtime process-lifecycle test delta unchanged; the other six files match upstream exactly. Child exit and signal state replaces retired-PID liveness probes, and restarted workers are distinguished by their own fixture identity. No Aleph test adaptation, product implementation, workflow, lockfile, budget or patch retirement.
+
+## UI fixture timing sync (mk-8lcd6.232)
+
+Adopt upstream 8ce94003ba timing and shared-state fixture fixes. Replace Aleph's toast-wrapper drain wait with upstream's app-toast-title drain wait in the same plugin-toast test, after dismissal; that file now matches upstream exactly. Preserve the existing Aleph secondary-content test delta unchanged. No Aleph test adaptation, product implementation, workflow, dependency, budget or behavior patch retirement.
