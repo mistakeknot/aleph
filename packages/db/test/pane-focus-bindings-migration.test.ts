@@ -17,6 +17,7 @@ import {
   dropPluginFailureLabelColumns,
   dropQueueWakeColumns,
   dropThreadRolesTable,
+  dropThreadRunStateTables,
   dropThreadStatusChangedAtColumn,
   dropQueuedMessageEditHeldUntilColumn,
   rewindThreadPruningWork,
@@ -65,6 +66,7 @@ function upgradeDatabase(overrides: AppKeybindingOverrides | undefined) {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);

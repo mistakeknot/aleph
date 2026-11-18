@@ -19,6 +19,7 @@ import {
   dropPluginFailureLabelColumns,
   dropQueueWakeColumns,
   dropThreadRolesTable,
+  dropThreadRunStateTables,
   dropThreadStatusChangedAtColumn,
   dropQueuedMessageEditHeldUntilColumn,
   rewindThreadPruningWork,
@@ -120,6 +121,7 @@ describe.each(["project", "thread", "preference"] as const)(
           dropThreadParentNotificationsColumn(db);
           dropQueuedMessageDeliveryColumns(db);
           dropThreadStatusChangedAtColumn(db);
+          dropThreadRunStateTables(db);
           dropPluginFailureLabelColumns(db);
           dropQueueWakeColumns(db);
           dropThreadRolesTable(db);

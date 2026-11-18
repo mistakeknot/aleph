@@ -185,6 +185,12 @@ export function dropThreadRolesTable(db: DbConnection): void {
   db.$client.exec("DROP TABLE IF EXISTS thread_roles");
 }
 
+export function dropThreadRunStateTables(db: DbConnection): void {
+  db.$client.exec(
+    "DROP TABLE IF EXISTS thread_turn_requests; DROP TABLE IF EXISTS thread_run_states;",
+  );
+}
+
 export function dropPluginFailureLabelColumns(db: DbConnection): void {
   for (const [table, column] of [
     ["plugins", "last_failure_label"],

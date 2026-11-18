@@ -4,6 +4,7 @@ import {
   dropPluginFailureLabelColumns,
   dropQueueWakeColumns,
   dropThreadRolesTable,
+  dropThreadRunStateTables,
   restoreDiffViewedFilesTable,
 } from "./helpers/rewind.js";
 
@@ -15,6 +16,7 @@ function databaseBeforeHandoff(
   const db = createConnection(":memory:");
   migrate(db);
   restoreDiffViewedFilesTable(db);
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);

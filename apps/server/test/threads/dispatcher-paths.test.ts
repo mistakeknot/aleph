@@ -29,7 +29,7 @@ import {
   sendNextQueuedMessageIfPresent,
   transferQueuedMessage,
 } from "../../src/services/threads/queued-messages.js";
-import { applyLoggedThreadLifecycleEvent } from "../../src/services/threads/lifecycle-outcome.js";
+import { moveThreadStatus } from "../helpers/thread-status.js";
 import { runQueuedMessageDispatch } from "../../src/services/threads/queued-message-dispatch.js";
 import { createThreadFromRequest } from "../../src/services/threads/thread-create.js";
 import { toThreadQueuedMessage } from "../../src/services/threads/thread-queued-messages.js";
@@ -188,10 +188,7 @@ describe("first message of a pending thread", () => {
 
 describe("the plugin that sent a turn", () => {
   function failedTurnSender(harness: TestAppHarness, threadId: string) {
-    applyLoggedThreadLifecycleEvent(harness.deps, {
-      event: { type: "run.failed" },
-      threadId,
-    });
+    moveThreadStatus(harness.deps, { move: "run.failed", threadId });
     return buildTurnFailedEvent(harness.db, threadId)?.originPluginId;
   }
 

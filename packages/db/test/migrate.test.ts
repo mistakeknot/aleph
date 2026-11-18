@@ -16,6 +16,7 @@ import {
   dropPluginFailureLabelColumns,
   dropQueueWakeColumns,
   dropThreadRolesTable,
+  dropThreadRunStateTables,
   dropThreadStatusChangedAtColumn,
   restoreDiffViewedFilesTable,
   dropQueuedMessageEditHeldUntilColumn,
@@ -753,6 +754,7 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);
@@ -805,6 +807,7 @@ function dropQueuedMessageAttemptColumns(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);
@@ -912,6 +915,7 @@ function rewindMachineProvidersMigration(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);
@@ -2665,6 +2669,7 @@ describe("migrate", () => {
         providerId: "codex",
       });
       dropThreadStatusChangedAtColumn(db);
+      dropThreadRunStateTables(db);
       dropPluginFailureLabelColumns(db);
       dropQueueWakeColumns(db);
       dropThreadRolesTable(db);
@@ -3500,6 +3505,7 @@ describe("migrate", () => {
       dropThreadParentNotificationsColumn(db);
       dropQueuedMessageDeliveryColumns(db);
       dropThreadStatusChangedAtColumn(db);
+      dropThreadRunStateTables(db);
       dropPluginFailureLabelColumns(db);
       dropQueueWakeColumns(db);
       dropThreadRolesTable(db);
@@ -3919,6 +3925,7 @@ describe("migrate", () => {
           `,
         )
         .run(projectSourcesDefaultIndexMigrationWhen);
+      dropThreadRunStateTables(db);
       dropPluginFailureLabelColumns(db);
       dropQueueWakeColumns(db);
       dropThreadRolesTable(db);
