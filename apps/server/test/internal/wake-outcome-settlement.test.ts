@@ -1,7 +1,7 @@
 import { getThread, listEvents } from "@bb/db";
 import { turnScope } from "@bb/domain";
 import { describe, expect, it, vi } from "vitest";
-import { applyTurnCompletedEvent } from "../../src/internal/turn-completed-events.js";
+import { applyTurnCompletedEvent } from "../helpers/wake-turn-completion.js";
 import { appendThreadEvent } from "../../src/services/threads/thread-events.js";
 import {
   readWakeOutcomes,

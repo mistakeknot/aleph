@@ -1,3 +1,4 @@
+import { applyWakeTurnCompletion } from "../services/threads/wake-turn-completion.js";
 import { performance } from "node:perf_hooks";
 import { pinAndHydrateThreadHistories } from "../services/threads/event-cold-tier/service.js";
 import { Buffer } from "node:buffer";
@@ -432,8 +433,8 @@ async function applyEventEffects(
         if (aimedAtByStop && event.status !== "interrupted") {
           continue;
         }
-        const outcome = runThreadLifecycleTransaction(deps, entry.threadId, {
-          type: "turn.completed",
+        const outcome = applyWakeTurnCompletion(deps, {
+          threadId: entry.threadId,
           turnId,
           status: event.status,
         });
