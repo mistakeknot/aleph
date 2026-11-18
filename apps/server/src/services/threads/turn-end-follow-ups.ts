@@ -1,3 +1,4 @@
+import { withHotThreadHistory } from "./event-cold-tier/service.js";
 import { and, desc, eq, gt, lt, sql } from "drizzle-orm";
 import {
   events as storedEvents,
@@ -380,7 +381,7 @@ export function idleFollowUpForTurnEnd(
   };
 }
 
-export async function runReleasedTurnFollowUps(
+async function runHotReleasedTurnFollowUps(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: {
     status: HeldTurnCompletionStatus;
@@ -404,4 +405,13 @@ export async function runReleasedTurnFollowUps(
   if (followUp !== null) {
     await executeTurnEndFollowUpBestEffort(deps, followUp);
   }
+}
+
+export async function runReleasedTurnFollowUps(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: { status: HeldTurnCompletionStatus; threadId: string; turnId: string },
+): Promise<void> {
+  await withHotThreadHistory(deps, args.threadId, () =>
+    runHotReleasedTurnFollowUps(deps, args),
+  );
 }

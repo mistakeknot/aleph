@@ -1,5 +1,7 @@
 import {
   getActiveStoredTurnId,
+  assertThreadEventsNotCold,
+  isThreadEventsCold,
   getEnvironment,
   getLatestStoredThreadEventOfTypes,
   getLatestThreadSequence,
@@ -82,6 +84,7 @@ export function loadThreadLifecycleState(
   db: DbQueryConnection,
   thread: ThreadRow,
 ): { state: ThreadLifecycleState; stored: StoredThreadRunState } {
+  assertThreadEventsNotCold(db, [thread.id]);
   const stored = readThreadRunState(db, thread.id);
   return {
     state: {
@@ -192,6 +195,8 @@ function applyTransactionEffect(
       });
       return;
     case "settle-background-tasks":
+      if (thread.deletedAt !== null && isThreadEventsCold(deps.db, thread.id))
+        return;
       settleDanglingBackgroundTasksForStoppedThreadInTransaction(deps, {
         threadId: thread.id,
       });
@@ -243,7 +248,25 @@ export function runThreadLifecycleInTransaction(
       threadId,
     };
   }
-  const { state, stored } = loadThreadLifecycleState(deps.db, thread);
+  const deletedCold =
+    thread.deletedAt !== null && isThreadEventsCold(deps.db, threadId);
+  if (!deletedCold) assertThreadEventsNotCold(deps.db, [threadId]);
+  const { state, stored } = deletedCold
+    ? (() => {
+        const stored = readThreadRunState(deps.db, threadId);
+        return {
+          stored,
+          state: {
+            ...stored,
+            activeTurnId: null,
+            archived: thread.archivedAt !== null,
+            deleted: true,
+            provisioning: getThreadProvisionContext(deps.db, threadId) !== null,
+            status: thread.status,
+          },
+        };
+      })()
+    : loadThreadLifecycleState(deps.db, thread);
   const transition = transitionThreadLifecycle(state, input);
   if (transition.refusal !== null) {
     deps.logger.info(

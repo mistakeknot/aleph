@@ -1,3 +1,8 @@
+import { pinThreadHistories } from "./event-cold-tier/pins.js";
+import {
+  assertSelectionPinned,
+  withHotSelectedThreadHistories,
+} from "./event-cold-tier/service.js";
 import { isThreadEventsCold } from "@bb/db";
 import { withHotThreadHistory } from "./event-cold-tier/service.js";
 import {
@@ -504,10 +509,9 @@ export function settleThreadPlanCancelCommandResult(
   if (!args.report.ok || !args.report.result.cancelled) {
     return emptyCommandResultSideEffects();
   }
-  const activeTurnId = getActiveStoredTurnId(
-    args.deps.db,
-    args.command.threadId,
-  );
+  const activeTurnId = isThreadEventsCold(args.deps.db, args.command.threadId)
+    ? null
+    : getActiveStoredTurnId(args.deps.db, args.command.threadId);
   if (activeTurnId !== null && activeTurnId !== args.command.expectedTurnId) {
     return emptyCommandResultSideEffects();
   }
@@ -867,7 +871,7 @@ function requestThreadStopInTransaction(
   };
 }
 
-async function requestThreadStop(
+async function requestHotThreadStop(
   deps: LoggedPendingInteractionWorkSessionDeps,
   threadId: string,
   options: { skipSendStop: boolean },
@@ -911,10 +915,25 @@ async function requestThreadStop(
   return result.outcomes[0]!;
 }
 
+async function requestThreadStop(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  threadId: string,
+  options: { skipSendStop: boolean },
+): Promise<ThreadLifecycleOutcome> {
+  return withHotSelectedThreadHistories(
+    deps,
+    () => [threadId],
+    () => requestHotThreadStop(deps, threadId, options),
+    { deletedFastPath: true },
+  );
+}
+
 export function requestThreadStopForCurrentState(
   deps: LoggedPendingInteractionWorkSessionDeps,
   thread: Pick<StopTarget, "id">,
+  _environment?: StopEnvironment | null,
 ): void {
+  if (isThreadEventsCold(deps.db, thread.id)) return;
   void requestThreadStop(deps, thread.id, { skipSendStop: false }).catch(
     (error) =>
       deps.logger.warn(
@@ -1147,19 +1166,31 @@ export function interruptActiveThreadsForHost(
       ? "host-connection-lost"
       : args.reason;
   const results: InterruptedActiveThreadResult[] = [];
-  for (const threadId of threadIds) {
-    const interruptedTurnId = getActiveStoredTurnId(deps.db, threadId);
-    const outcome = runThreadLifecycleTransaction(deps, threadId, {
-      type: "daemon.lost",
-      reason,
-      resuming: args.resumingThreadIds.has(threadId),
-    });
-    finishThreadLifecycleInBackground(deps, outcome);
-    if (outcome.statusChanged) {
-      results.push({ interruptedTurnId, threadId });
+  const releasePins = pinThreadHistories(threadIds);
+  try {
+    for (const threadId of threadIds) {
+      if (isThreadEventsCold(deps.db, threadId)) {
+        deps.logger.error(
+          { threadId, reason },
+          "Cold thread selected for interruption; skipped",
+        );
+        continue;
+      }
+      const interruptedTurnId = getActiveStoredTurnId(deps.db, threadId);
+      const outcome = runThreadLifecycleTransaction(deps, threadId, {
+        type: "daemon.lost",
+        reason,
+        resuming: args.resumingThreadIds.has(threadId),
+      });
+      finishThreadLifecycleInBackground(deps, outcome);
+      if (outcome.statusChanged) {
+        results.push({ interruptedTurnId, threadId });
+      }
     }
+    return { threads: results };
+  } finally {
+    releasePins();
   }
-  return { threads: results };
 }
 
 interface FinalizeStoppedThreadArgs {
@@ -1270,53 +1301,65 @@ export async function reconcileDaemonReportedThreads(
   const running = new Set(args.activeThreadIds);
   const eventsPending = new Set(args.undeliveredEventThreadIds);
   const commandsPending = new Set(args.turnCommandThreadIds);
-  const candidates = deps.db
-    .select({ id: threads.id, status: threads.status })
-    .from(threads)
-    .innerJoin(environments, eq(threads.environmentId, environments.id))
-    .where(
-      and(
-        eq(environments.hostId, args.hostId),
-        isNull(threads.deletedAt),
-        inArray(threads.status, [
-          "active",
-          "starting",
-          "stopping",
-          "idle",
-          "error",
-        ]),
-      ),
-    )
-    .all()
-    .filter(
-      (thread) =>
-        running.has(thread.id) ||
-        thread.status === "active" ||
-        thread.status === "starting" ||
-        thread.status === "stopping",
-    );
-  const threadIds = new Set([
-    ...candidates.map((thread) => thread.id),
-    ...listThreadIdsWithTurnRequestsForHost(deps.db, { hostId: args.hostId }),
-    ...listThreadIdsWithOwedStopForHost(deps.db, { hostId: args.hostId }),
-  ]);
-  const revivalBlocked = new Set(
-    listThreadIdsWithLatestHostDaemonRestartInterruption(deps.db, {
-      threadIds: [...threadIds].filter((id) => running.has(id)),
-    }),
+  const selectCandidates = () => {
+    const candidates = deps.db
+      .select({ id: threads.id, status: threads.status })
+      .from(threads)
+      .innerJoin(environments, eq(threads.environmentId, environments.id))
+      .where(
+        and(
+          eq(environments.hostId, args.hostId),
+          isNull(threads.deletedAt),
+          inArray(threads.status, [
+            "active",
+            "starting",
+            "stopping",
+            "idle",
+            "error",
+          ]),
+        ),
+      )
+      .all()
+      .filter(
+        (thread) =>
+          running.has(thread.id) ||
+          thread.status === "active" ||
+          thread.status === "starting" ||
+          thread.status === "stopping",
+      );
+    const threadIds = new Set([
+      ...candidates.map((thread) => thread.id),
+      ...listThreadIdsWithTurnRequestsForHost(deps.db, { hostId: args.hostId }),
+      ...listThreadIdsWithOwedStopForHost(deps.db, { hostId: args.hostId }),
+    ]);
+    return [...threadIds];
+  };
+  await withHotSelectedThreadHistories(
+    deps,
+    selectCandidates,
+    async (pinned) => {
+      const threadIds = new Set(selectCandidates());
+      assertSelectionPinned([...threadIds], pinned);
+      const revivalBlocked = new Set(
+        listThreadIdsWithLatestHostDaemonRestartInterruption(deps.db, {
+          threadIds: [...threadIds].filter((id) => running.has(id)),
+        }),
+      );
+      const now = Date.now();
+      for (const threadId of threadIds) {
+        await runThreadLifecycle(deps, threadId, {
+          type: "daemon.reported",
+          commandsPending: commandsPending.has(threadId),
+          eventsPending: eventsPending.has(threadId),
+          now,
+          revivalBlocked: revivalBlocked.has(threadId),
+          running: running.has(threadId),
+          sameInstance: args.sameDaemonInstance,
+        });
+      }
+    },
+    { deletedFastPath: true },
   );
-  const now = Date.now();
-  for (const threadId of threadIds) {
-    await runThreadLifecycle(deps, threadId, {
-      type: "daemon.reported",
-      commandsPending: commandsPending.has(threadId),
-      eventsPending: eventsPending.has(threadId),
-      now,
-      revivalBlocked: revivalBlocked.has(threadId),
-      running: running.has(threadId),
-      sameInstance: args.sameDaemonInstance,
-    });
-  }
 }
 
 export function resendStopsAwaitingDaemon(
@@ -1327,12 +1370,14 @@ export function resendStopsAwaitingDaemon(
   for (const threadId of listThreadIdsWithOwedStopForHost(deps.db, {
     hostId,
   })) {
-    finishThreadLifecycleInBackground(
-      deps,
-      runThreadLifecycleTransaction(deps, threadId, {
-        type: "daemon.socket-opened",
-        now,
-      }),
+    void runThreadLifecycle(deps, threadId, {
+      type: "daemon.socket-opened",
+      now,
+    }).catch((error) =>
+      deps.logger.warn(
+        { err: error, threadId },
+        "Resending thread stop after daemon reconnect failed",
+      ),
     );
   }
 }

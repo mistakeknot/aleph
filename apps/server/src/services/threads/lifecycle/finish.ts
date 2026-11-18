@@ -1,3 +1,4 @@
+import { withHotSelectedThreadHistories } from "../event-cold-tier/service.js";
 import {
   getLatestThreadStopAim,
   getThread,
@@ -222,7 +223,7 @@ export function announceThreadStatusChange(
   }
 }
 
-export async function finishThreadLifecycle(
+async function finishHotThreadLifecycle(
   deps: FinishDeps,
   outcome: ThreadLifecycleOutcome,
   options: FinishThreadLifecycleOptions = {},
@@ -244,6 +245,19 @@ export async function finishThreadLifecycle(
   }
 }
 
+export async function finishThreadLifecycle(
+  deps: FinishDeps,
+  outcome: ThreadLifecycleOutcome,
+  options: FinishThreadLifecycleOptions = {},
+): Promise<void> {
+  await withHotSelectedThreadHistories(
+    deps,
+    () => [outcome.threadId],
+    () => finishHotThreadLifecycle(deps, outcome, options),
+    { deletedFastPath: true },
+  );
+}
+
 export function finishThreadLifecycleInBackground(
   deps: FinishDeps,
   outcome: ThreadLifecycleOutcome,
@@ -262,7 +276,14 @@ export async function runThreadLifecycle(
   input: ThreadLifecycleInput,
   options: FinishThreadLifecycleOptions = {},
 ): Promise<ThreadLifecycleOutcome> {
-  const outcome = runThreadLifecycleTransaction(deps, threadId, input);
-  await finishThreadLifecycle(deps, outcome, options);
-  return outcome;
+  return withHotSelectedThreadHistories(
+    deps,
+    () => [threadId],
+    async () => {
+      const outcome = runThreadLifecycleTransaction(deps, threadId, input);
+      await finishThreadLifecycle(deps, outcome, options);
+      return outcome;
+    },
+    { deletedFastPath: true },
+  );
 }

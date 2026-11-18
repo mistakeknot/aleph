@@ -1,3 +1,4 @@
+import { ColdThreadHistoryError, isThreadEventsCold } from "./event-cold-tier.js";
 import { and, asc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type {
   HeldTurnCompletionStatus,
@@ -150,6 +151,12 @@ export function writeThreadLifecycleStateInTransaction(
     .get();
   if (!current || current.status !== args.expectedStatus) {
     return { kind: "conflict" };
+  }
+  if (
+    ["starting", "active", "stopping"].includes(args.next.status) &&
+    isThreadEventsCold(tx, args.threadId)
+  ) {
+    throw new ColdThreadHistoryError([args.threadId]);
   }
   let thread: ThreadRow = current;
   const statusChanged = args.next.status !== current.status;

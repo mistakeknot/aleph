@@ -11,6 +11,7 @@ import {
   findColdEligibilityFailure,
   getEventColdSegment,
   getThread,
+  readThreadRunState,
   getThreadEventColdStateRow,
   getThreadEventHighWaterSequence,
   hashColdEventIds,
@@ -88,9 +89,20 @@ export function registerThreadHistoryMoveBlocker(
   };
 }
 
-function findMoveBlock(threadId: string): string | null {
+function findMoveBlock(
+  deps: Pick<EventColdTierDeps, "db">,
+  threadId: string,
+): string | null {
   if (getThreadHistoryPinCount(threadId) > 0) {
     return "pinned";
+  }
+  const state = readThreadRunState(deps.db, threadId);
+  if (
+    state.requests.length > 0 ||
+    state.heldCompletion !== null ||
+    (state.stop !== null && state.stop.ackedAt === null)
+  ) {
+    return "lifecycle_in_flight";
   }
   for (const blocker of moveBlockers) {
     const reason = blocker(threadId);
@@ -452,7 +464,7 @@ export function findColdMoveSkipReason(
       deps.db,
       threadId,
       eligibilityOptions(config, now),
-    ) ?? findMoveBlock(threadId)
+    ) ?? findMoveBlock(deps, threadId)
   );
 }
 
@@ -570,7 +582,7 @@ async function moveThreadNow(
   startedAt = performance.now();
   try {
     runColdTransition(deps.db, threadId, () => {
-      const block = findMoveBlock(threadId);
+      const block = findMoveBlock(deps, threadId);
       if (block !== null) {
         throw new ColdTransitionConflictError(block);
       }
