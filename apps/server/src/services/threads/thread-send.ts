@@ -1,8 +1,5 @@
 import { wakeAttribution, type WakeAttribution } from "@bb/domain";
-import {
-  getEnvironment,
-  getThread,
-} from "@bb/db";
+import { getEnvironment, getThread } from "@bb/db";
 import type { DbConnection, DbTransaction, EnvironmentRow } from "@bb/db";
 import {
   pinThreadHistory,
