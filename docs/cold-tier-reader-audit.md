@@ -282,3 +282,11 @@ The paged timeline added eight exported db functions that read `events`. Every c
 | findUnprunableThreadEventSequence            | R     | earliest retained event outside the pruning type set      | timeline-selection-memo.ts budget floor | yes                           | **HYDRATE** (timeline gates)                                                                                 |
 
 The head-state route hydrates and pins history before its direct state reads. The event-list and event-wait routes retain their existing gates; the wait holds its pin through every awaited loop iteration. Metadata-only plugin reads remain independent of archive availability.
+
+## Upstream sync additions
+
+| Function | Caller and eligibility | Class |
+| --- | --- | --- |
+| getLatestThreadStopAim | Only production caller: thread-lifecycle.ts `stopAimFor`; its synchronous `archivedAt !== null` and `deletedAt !== null` checks return before the read. Query-cost calls are fixtures. | **EXCLUDE**: dominating archived/deleted-thread check. |
+| listThreadIdsStoppedSinceLastTurnRequest | Only production caller: host-reconnect revival in thread-lifecycle.ts; candidates have status starting/idle, satisfy `liveThread` (`archivedAt IS NULL` and `deletedAt IS NULL`), and belong to the daemon's active thread IDs in the same synchronous section. Query-cost calls are fixtures. | **EXCLUDE**: bounded batch over daemon-active, non-archived threads, not a GLOBAL sweep. |
+| isTurnAimedAtByEarlierStop | internal/events.ts `applyEventEffects` for live turn/started and turn/completed ingestion, matching the existing `isStoredTurnContextCompactionOnly` live-completion row above; the ingestion boundary also holds `pinAndHydrateThreadHistories` through these effects. Query-cost calls are fixtures. | **EXCLUDE**: same live daemon-ingestion eligibility as `isStoredTurnContextCompactionOnly`. |

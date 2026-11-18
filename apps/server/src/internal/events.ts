@@ -8,6 +8,7 @@ import {
   getThread,
   getLatestThreadSequence,
   isStoredTurnContextCompactionOnly,
+  isTurnAimedAtByEarlierStop,
   listStoredTurnCompletedKeys,
   listThreadEnvironmentAssignmentsOnHost,
   MissingStoredTurnStartedError,
@@ -225,7 +226,7 @@ interface HasThreadCommandFailureSystemErrorForTurnArgs {
   turnId: string;
 }
 
-interface HasThreadStopBeforeTurnStartedArgs {
+interface StoredTurnArgs {
   threadId: string;
   turnId: string;
 }
@@ -434,7 +435,7 @@ async function applyEventEffects(
           scope: event.scope,
         });
         if (
-          hasThreadStopBeforeTurnStarted(deps, {
+          isTurnAimedAtByEarlierStop(deps.db, {
             threadId: entry.threadId,
             turnId,
           })
@@ -502,7 +503,7 @@ async function applyEventEffects(
         });
         if (
           event.status !== "interrupted" &&
-          hasThreadStopBeforeTurnStarted(deps, {
+          isTurnAimedAtByEarlierStop(deps.db, {
             threadId: entry.threadId,
             turnId,
           })
@@ -766,61 +767,9 @@ function hasThreadCommandFailureSystemErrorForTurn(
   );
 }
 
-function hasThreadStopBeforeTurnStarted(
-  deps: Pick<AppDeps, "db">,
-  args: HasThreadStopBeforeTurnStartedArgs,
-): boolean {
-  const turnStarted = deps.db
-    .select({ sequence: storedEvents.sequence })
-    .from(storedEvents)
-    .where(
-      and(
-        eq(storedEvents.threadId, args.threadId),
-        eq(storedEvents.turnId, args.turnId),
-        eq(storedEvents.type, "turn/started"),
-      ),
-    )
-    .limit(1)
-    .get();
-  if (!turnStarted) {
-    return false;
-  }
-
-  const latestTurnRequest = deps.db
-    .select({ sequence: storedEvents.sequence })
-    .from(storedEvents)
-    .where(
-      and(
-        eq(storedEvents.threadId, args.threadId),
-        eq(storedEvents.type, "client/turn/requested"),
-        lt(storedEvents.sequence, turnStarted.sequence),
-      ),
-    )
-    .orderBy(desc(storedEvents.sequence))
-    .limit(1)
-    .get();
-  const lowerSequence = latestTurnRequest?.sequence ?? 0;
-
-  return (
-    deps.db
-      .select({ id: storedEvents.id })
-      .from(storedEvents)
-      .where(
-        and(
-          eq(storedEvents.threadId, args.threadId),
-          eq(storedEvents.type, "system/thread/interrupted"),
-          gt(storedEvents.sequence, lowerSequence),
-          lt(storedEvents.sequence, turnStarted.sequence),
-        ),
-      )
-      .limit(1)
-      .get() !== undefined
-  );
-}
-
 function wasTurnManuallyStopped(
   deps: Pick<AppDeps, "db">,
-  args: HasThreadStopBeforeTurnStartedArgs,
+  args: StoredTurnArgs,
 ): boolean {
   const turnStarted = deps.db
     .select({ sequence: storedEvents.sequence })
@@ -855,7 +804,7 @@ function wasTurnManuallyStopped(
 
 function getTurnInterruption(
   deps: Pick<AppDeps, "db">,
-  args: HasThreadStopBeforeTurnStartedArgs,
+  args: StoredTurnArgs,
 ): ChildThreadOutcome["interruption"] {
   const turnStarted = deps.db
     .select({ sequence: storedEvents.sequence })
