@@ -257,3 +257,9 @@ Adopt upstream c5028d6966 lifecycle regression test unchanged. Keep Aleph linkAb
 ## Cross-machine provider icon sync (mk-8lcd6.199)
 
 Adopt upstream 968cbe5a9e provider directory and catalog cache for icons from other machines. Preserve Aleph wide-layout composer test setup, RPC abort-signal forwarding, and every Aleph-only API audit and frontend-core-slots reference entry. Their added/removed-line deltas against upstream remain identical before and after the auto-merge. No workflow or lockfile changes and no patch retired.
+
+## Composer draft-store sync (mk-8lcd6.203)
+
+Adopt upstream 51b7647500 draft-store composer API and keystroke isolation. Preserve model-picker in-place switching, target choice, command-only new-thread handoff, synchronous pill-rewrite guard, plugin-list availability, pending-interactions composer gate and thread-view timing. No whole-draft subscription is added to ThreadDetailPromptArea or FollowUpPromptBox. The harness uses upstream MockComposerInput, MockAttachmentCount, PluginComposerViewProvider and composer.draft, retaining Aleph plugin/switch mocks, target controls and rejected-submit catch. No additional Aleph-owned test setup changes, assertions or thresholds changed. No workflow or lockfile delta; no patch retired.
+
+Formatting exception (mk-8lcd6.203): docs/render-invariants.md and tests/render-invariants/src/render-invariants.test.ts fail oxfmt as upstream ships them at 51b7647500; retain both byte-identical until upstream reformats them. Harness-only formatting removes a blank line without changing behavior.
