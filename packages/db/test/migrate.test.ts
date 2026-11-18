@@ -16,6 +16,7 @@ import {
   dropPluginFailureLabelColumns,
   dropQueueWakeColumns,
   dropThreadRolesTable,
+  dropThreadRunStateTables,
   dropThreadStatusChangedAtColumn,
   restoreDiffViewedFilesTable,
   dropQueuedMessageEditHeldUntilColumn,
@@ -631,6 +632,7 @@ function migrateFromLegacyHistory(db: DbConnection): void {
 // 0150 as A0014, 0151, 0152). Rewind them so a ledger-less open
 // treats them as pending instead of as recorded-but-unledgered.
 function rewindPostOracleSteps(db: DbConnection): void {
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);
@@ -753,6 +755,7 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);
@@ -805,6 +808,7 @@ function dropQueuedMessageAttemptColumns(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);
@@ -912,6 +916,7 @@ function rewindMachineProvidersMigration(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
   dropPluginFailureLabelColumns(db);
   dropQueueWakeColumns(db);
   dropThreadRolesTable(db);
@@ -2665,6 +2670,7 @@ describe("migrate", () => {
         providerId: "codex",
       });
       dropThreadStatusChangedAtColumn(db);
+      dropThreadRunStateTables(db);
       dropPluginFailureLabelColumns(db);
       dropQueueWakeColumns(db);
       dropThreadRolesTable(db);
@@ -2680,7 +2686,7 @@ describe("migrate", () => {
         )
         .run(threadStatusChangedAtMigrationWhen);
       db.$client.exec(
-        "DELETE FROM __bb_migration_ledger WHERE tag IN ('A0016', 'A0015', 'A0014', '0150_thread_status_changed_at', '0151_hand_diff_viewed_files_to_git_plugin', '0152_small_storage_cleanups', '0153_sweep_item_failures', '0154_thread_purges', '0155_declare_project_sources_default_index', '0156_plugin_failure_labels')",
+        "DELETE FROM __bb_migration_ledger WHERE tag IN ('A0016', 'A0015', 'A0014', '0150_thread_status_changed_at', '0151_hand_diff_viewed_files_to_git_plugin', '0152_small_storage_cleanups', '0153_sweep_item_failures', '0154_thread_purges', '0155_declare_project_sources_default_index', '0156_plugin_failure_labels', '0157_thread_run_state')",
       );
 
       migrate(db);
@@ -3500,6 +3506,7 @@ describe("migrate", () => {
       dropThreadParentNotificationsColumn(db);
       dropQueuedMessageDeliveryColumns(db);
       dropThreadStatusChangedAtColumn(db);
+      dropThreadRunStateTables(db);
       dropPluginFailureLabelColumns(db);
       dropQueueWakeColumns(db);
       dropThreadRolesTable(db);
@@ -3919,6 +3926,7 @@ describe("migrate", () => {
           `,
         )
         .run(projectSourcesDefaultIndexMigrationWhen);
+      dropThreadRunStateTables(db);
       dropPluginFailureLabelColumns(db);
       dropQueueWakeColumns(db);
       dropThreadRolesTable(db);

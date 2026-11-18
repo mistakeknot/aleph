@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection } from "../src/connection.js";
 import { migrateWithFolders } from "../src/migrate.js";
+import { dropThreadRunStateTables } from "./helpers/rewind.js";
 import { sourceFolders } from "./helpers/plan-apply.js";
 import { describe, expect, it } from "vitest";
 import { PERSONAL_PROJECT_ID } from "@bb/domain";
@@ -42,6 +43,10 @@ describe("queue wake attribution", () => {
     const db = createConnection(":memory:");
     try {
       migrateWithFolders(db, { ...sourceFolders, alephFolder: folder });
+      dropThreadRunStateTables(db);
+      db.$client.exec(
+        "DELETE FROM __bb_migration_ledger WHERE namespace = 'upstream' AND tag = '0157_thread_run_state'; DELETE FROM __drizzle_migrations WHERE created_at = 1794642257433;",
+      );
       const thread = createThread(db, noopNotifier, {
         projectId: PERSONAL_PROJECT_ID,
         providerId: "test",

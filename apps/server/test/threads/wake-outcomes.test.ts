@@ -9,7 +9,7 @@ import { projectThreadTimelineEvents } from "@bb/thread-view";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { applyTurnCompletedEvent } from "../../src/internal/turn-completed-events.js";
+import { applyTurnCompletedEvent } from "../helpers/wake-turn-completion.js";
 import {
   appendClientTurnEvent,
   appendThreadEvent,

@@ -1,3 +1,4 @@
+import { loadMigrationPlan } from "../src/migration-plan.js";
 import { createHash } from "node:crypto";
 import {
   cpSync,
@@ -57,7 +58,10 @@ function alephFolderWithA0017(sql: string, checks?: object): string {
   manifest.steps.push({
     id: "A0017",
     file: "A0017_synthetic.sql",
-    after: last.id,
+    after:
+      last.when >= loadMigrationPlan(sourceFolders).steps.at(-1)!.when
+        ? last.id
+        : loadMigrationPlan(sourceFolders).steps.at(-1)!.id,
     when: Math.max(last.when, lastUpstream.when) + 1000,
   });
   writeFileSync(manifestPath, JSON.stringify(manifest));

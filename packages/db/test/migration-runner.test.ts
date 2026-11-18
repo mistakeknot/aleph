@@ -1,3 +1,4 @@
+import { loadMigrationPlan } from "../src/migration-plan.js";
 import {
   cpSync,
   mkdtempSync,
@@ -114,6 +115,7 @@ describe("delivery mode upgrade from the previous Aleph main", () => {
           "0154_thread_purges",
           "0155_declare_project_sources_default_index",
           "0156_plugin_failure_labels",
+          "0157_thread_run_state",
         ],
       ],
       [
@@ -136,6 +138,7 @@ describe("delivery mode upgrade from the previous Aleph main", () => {
           "0154_thread_purges",
           "0155_declare_project_sources_default_index",
           "0156_plugin_failure_labels",
+          "0157_thread_run_state",
         ],
       ],
     ];
@@ -187,7 +190,7 @@ describe("delivery mode upgrade from the previous Aleph main", () => {
             "SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1",
           )
           .get(),
-      ).toEqual({ created_at: 1794340346216 });
+      ).toEqual({ created_at: 1794642257433 });
       expect(
         db.$client
           .prepare(
@@ -401,8 +404,15 @@ describe("computeMigrationState history checks", () => {
     manifest.steps.push({
       id: "A0017",
       file: "A0017_synthetic.sql",
-      after: last.id,
-      when: last.when + 1000,
+      after:
+        last.when >= loadMigrationPlan(sourceFolders).steps.at(-1)!.when
+          ? last.id
+          : loadMigrationPlan(sourceFolders).steps.at(-1)!.id,
+      when:
+        Math.max(
+          last.when,
+          loadMigrationPlan(sourceFolders).steps.at(-1)!.when,
+        ) + 1000,
     });
     writeFileSync(manifestPath, JSON.stringify(manifest));
     writeFileSync(
@@ -736,7 +746,10 @@ function alephFolderWithSteps(
     manifest.steps.push({
       id: step.id,
       file: `${step.id}_synthetic.sql`,
-      after: last.id,
+      after:
+        last.when >= loadMigrationPlan(sourceFolders).steps.at(-1)!.when
+          ? last.id
+          : loadMigrationPlan(sourceFolders).steps.at(-1)!.id,
       when: Math.max(last.when, lastUpstream.when) + 1000,
     });
     writeFileSync(join(alephFolder, `${step.id}_synthetic.sql`), step.sql);
@@ -1274,7 +1287,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     ).toThrow(/targets no known table/);
   });
 
-  it("keeps the real plan at 29 guarded tables when a candidate only adds a table", () => {
+  it("keeps the real plan at 31 guarded tables when a candidate only adds a table", () => {
     const upstreamFolder = upstreamFolderWithCandidates(
       [
         {
@@ -1288,7 +1301,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
       upstreamFolder,
       alephFolder: sourceFolders.alephFolder,
     });
-    expect(aligned.guardedTables).toHaveLength(29);
+    expect(aligned.guardedTables).toHaveLength(31);
   });
 
   it("still tolerates a skipped Aleph statement on a candidate-created table", () => {

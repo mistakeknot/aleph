@@ -63,6 +63,24 @@ function alephFolderWithout(excludedId: string): string {
   >;
   delete checks[excludedId];
   writeFileSync(checksPath, JSON.stringify(checks));
+  const frozenPath = join(folder, "frozen-upstream.json");
+  const frozen = JSON.parse(readFileSync(frozenPath, "utf8"));
+  frozen.steps = frozen.steps.filter(
+    (step: { tag: string }) => step.tag !== "0157_thread_run_state",
+  );
+  writeFileSync(frozenPath, JSON.stringify(frozen));
+  return folder;
+}
+
+function upstreamBeforeRunState(): string {
+  const folder = tempDir("bb-roles-before-run-state-");
+  cpSync(sourceFolders.upstreamFolder, folder, { recursive: true });
+  const path = join(folder, "meta/_journal.json");
+  const journal = JSON.parse(readFileSync(path, "utf8"));
+  journal.entries = journal.entries.filter(
+    (step: { tag: string }) => step.tag !== "0157_thread_run_state",
+  );
+  writeFileSync(path, JSON.stringify(journal));
   return folder;
 }
 
@@ -127,7 +145,7 @@ describe("A0016 thread roles migration", () => {
     const before = createConnection(path);
     try {
       migrateWithFolders(before, {
-        upstreamFolder: sourceFolders.upstreamFolder,
+        upstreamFolder: upstreamBeforeRunState(),
         alephFolder: previousFolder,
       });
       expect(
@@ -173,7 +191,7 @@ describe("A0016 thread roles migration", () => {
     const before = createConnection(path);
     try {
       migrateWithFolders(before, {
-        upstreamFolder: sourceFolders.upstreamFolder,
+        upstreamFolder: upstreamBeforeRunState(),
         alephFolder: alephFolderWithout("A0016"),
       });
     } finally {
@@ -225,7 +243,7 @@ describe("A0016 thread roles migration", () => {
     try {
       migrate(db);
       const older = loadAlignedMigrationPlan({
-        upstreamFolder: sourceFolders.upstreamFolder,
+        upstreamFolder: upstreamBeforeRunState(),
         alephFolder: alephFolderWithout("A0016"),
       });
       expect(() => computeMigrationState(db.$client, older)).toThrow(
@@ -233,7 +251,7 @@ describe("A0016 thread roles migration", () => {
       );
       expect(() =>
         migrateWithFolders(db, {
-          upstreamFolder: sourceFolders.upstreamFolder,
+          upstreamFolder: upstreamBeforeRunState(),
           alephFolder: alephFolderWithout("A0016"),
         }),
       ).toThrow(MigrationStateUnknown);
@@ -321,7 +339,7 @@ describe("A0016 thread roles migration", () => {
     const before = createConnection(path);
     try {
       migrateWithFolders(before, {
-        upstreamFolder: sourceFolders.upstreamFolder,
+        upstreamFolder: upstreamBeforeRunState(),
         alephFolder: alephFolderWithout("A0016"),
       });
     } finally {

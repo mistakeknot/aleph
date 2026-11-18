@@ -172,6 +172,7 @@ export function dropThreadStatusChangedAtColumn(db: DbConnection): void {
 }
 
 export function dropQueueWakeColumns(db: DbConnection): void {
+  rewindThreadRunState(db);
   const columns = db.$client
     .prepare<[], { name: string }>("PRAGMA table_info(queued_thread_messages)")
     .all();
@@ -183,6 +184,12 @@ export function dropQueueWakeColumns(db: DbConnection): void {
 
 export function dropThreadRolesTable(db: DbConnection): void {
   db.$client.exec("DROP TABLE IF EXISTS thread_roles");
+}
+
+export function dropThreadRunStateTables(db: DbConnection): void {
+  db.$client.exec(
+    "DROP TABLE IF EXISTS thread_turn_requests; DROP TABLE IF EXISTS thread_run_states;",
+  );
 }
 
 export function dropPluginFailureLabelColumns(db: DbConnection): void {
@@ -211,4 +218,25 @@ export function restoreDiffViewedFilesTable(db: DbConnection): void {
       FOREIGN KEY (environment_id) REFERENCES environments(id) ON UPDATE no action ON DELETE cascade
     )
   `);
+}
+
+// Aleph's old-prefix fixtures must rewind both namespaces, not leave a future ledger gap.
+function rewindThreadRunState(db: DbConnection): void {
+  dropThreadRunStateTables(db);
+  for (const table of ["__bb_migration_ledger", "__drizzle_migrations"]) {
+    if (
+      !db.$client
+        .prepare("SELECT 1 FROM sqlite_master WHERE name = ?")
+        .get(table)
+    )
+      continue;
+    if (table === "__bb_migration_ledger")
+      db.$client.exec(
+        "DELETE FROM __bb_migration_ledger WHERE namespace = 'upstream' AND tag = '0157_thread_run_state'",
+      );
+    else
+      db.$client.exec(
+        "DELETE FROM __drizzle_migrations WHERE created_at = 1794642257433",
+      );
+  }
 }

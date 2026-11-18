@@ -32,7 +32,7 @@ import { acceptThreadSendRequest } from "../../src/services/threads/thread-send-
 import { attemptDispatch } from "../../src/services/threads/dispatch-attempt.js";
 import { runQueuedMessageDispatch } from "../../src/services/threads/queued-message-dispatch.js";
 import { createThreadFromRequest } from "../../src/services/threads/thread-create.js";
-import { applyLoggedThreadLifecycleEvent } from "../../src/services/threads/lifecycle-outcome.js";
+import { moveThreadStatus } from "../helpers/thread-status.js";
 import { createClientTurnRequestId } from "../../src/services/threads/thread-events.js";
 import { toThreadQueuedMessage } from "../../src/services/threads/thread-queued-messages.js";
 import { textInput } from "../helpers/prompt-input.js";
@@ -354,8 +354,8 @@ describe("thread status races under a send", () => {
         handler: () => {
           passes += 1;
           if (passes === 1) {
-            applyLoggedThreadLifecycleEvent(harness.deps, {
-              event: { type: "run.started" },
+            moveThreadStatus(harness.deps, {
+              move: "run.started",
               threadId: thread.id,
             });
             seedTurnStarted(harness.deps, {
@@ -366,8 +366,8 @@ describe("thread status races under a send", () => {
             });
           }
           if (passes === 2) {
-            applyLoggedThreadLifecycleEvent(harness.deps, {
-              event: { type: "run.succeeded" },
+            moveThreadStatus(harness.deps, {
+              move: "run.succeeded",
               threadId: thread.id,
             });
           }
@@ -1403,8 +1403,8 @@ describe("message.dispatch hooks on the queue drain", () => {
       });
       await entered.promise;
       try {
-        applyLoggedThreadLifecycleEvent(harness.deps, {
-          event: { type: "run.started" },
+        moveThreadStatus(harness.deps, {
+          move: "run.started",
           threadId: thread.id,
         });
         seedTurnStarted(harness.deps, {
