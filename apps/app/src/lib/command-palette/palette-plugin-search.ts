@@ -8,7 +8,8 @@ import type {
 import { getPluginPanelRoutePath } from "@/lib/route-paths";
 import type { PaletteAction } from "./palette-action";
 
-export const PLUGIN_SEARCH_ACTION_PREFIX = "plugin-search:";
+import { PLUGIN_SEARCH_ACTION_PREFIX } from "./palette-plugin-search-id";
+export { PLUGIN_SEARCH_ACTION_PREFIX } from "./palette-plugin-search-id";
 export const PLUGIN_SEARCH_DEBOUNCE_MS = 150;
 export const PLUGIN_SEARCH_TIMEOUT_MS = 3000;
 export const PLUGIN_SEARCH_RESULT_LIMIT = 8;

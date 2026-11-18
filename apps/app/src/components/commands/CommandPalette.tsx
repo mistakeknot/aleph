@@ -27,7 +27,7 @@ import {
   buildPluginComposerCommandActions,
   buildPluginPaletteActions,
 } from "@/lib/command-palette/palette-plugin-actions";
-import { PLUGIN_SEARCH_ACTION_PREFIX } from "@/lib/command-palette/palette-plugin-search";
+import { PLUGIN_SEARCH_ACTION_PREFIX } from "@/lib/command-palette/palette-plugin-search-id";
 import { usePluginSlotKind } from "@/lib/plugin-slots";
 import { getFocusedAppPanelController } from "@/lib/app-fixed-tab-navigation";
 import { pluginListQueryOptions } from "@/hooks/queries/plugin-settings-queries";
