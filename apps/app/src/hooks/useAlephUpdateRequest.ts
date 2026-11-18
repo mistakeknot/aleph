@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLatestRef } from "./useLatestRef";
 import { useQueryClient } from "@tanstack/react-query";
 import { BbHttpError } from "@bb/sdk/browser";
 import type { SystemAlephUpdateRun } from "@bb/server-contract";
@@ -45,6 +46,79 @@ function failureFrom(error: unknown): AlephRequestFailure {
 
 const UNKNOWN_TICK_MS = 1_000;
 
+async function sendAlephUpdateRequest(
+  request: AlephPendingRequest,
+  sending: { current: boolean },
+  store: ReturnType<typeof createAlephNonceStore>,
+  setPending: (value: AlephPendingRequest | null) => void,
+  setFailure: (value: AlephRequestFailure) => void,
+) {
+  if (sending.current) return;
+  sending.current = true;
+  try {
+    await postAlephUpdate(request.operation, {
+      ...request.body,
+      nonce: request.nonce,
+    });
+  } catch (error) {
+    if (!(error instanceof BbHttpError)) return;
+    const failed = failureFrom(error);
+    if (
+      error.code !== null &&
+      ALEPH_MANUAL_ERROR_CODES.has(error.code) &&
+      failed.command !== null
+    ) {
+      const manual = store.markManual(failed.command);
+      if (manual !== null) setPending(manual);
+      setFailure(failed);
+    } else if (!isAlephAmbiguousStatus(error.status)) {
+      store.resolve();
+      setPending(null);
+      setFailure(failed);
+    }
+  } finally {
+    sending.current = false;
+  }
+}
+
+function trackAlephPendingElapsed(
+  pendingNonce: string | null,
+  store: ReturnType<typeof createAlephNonceStore>,
+  elapsedNow: (request: AlephPendingRequest) => number,
+  elapsed: { current: { nonce: string; ms: number } | null },
+  setUnknownMessage: (message: string) => void,
+) {
+  if (pendingNonce === null) return;
+  const stored = store.read();
+  if (stored === null || stored.nonce !== pendingNonce) return;
+  let ms = alephClockWentBackward(stored, Date.now())
+    ? ALEPH_NONCE_UNKNOWN_MS
+    : elapsedNow(stored);
+  let last = performance.now();
+  elapsed.current = { nonce: pendingNonce, ms };
+  const check = () => {
+    const mono = performance.now();
+    ms = Math.max(
+      ms + Math.max(mono - last, UNKNOWN_TICK_MS),
+      elapsedNow(stored),
+    );
+    last = mono;
+    elapsed.current = { nonce: pendingNonce, ms };
+    store.recordElapsed(ms, Date.now());
+    if (ms < ALEPH_NONCE_UNKNOWN_MS) return false;
+    setUnknownMessage(alephOutcomeUnknownMessage(pendingNonce));
+    return true;
+  };
+  if (ms >= ALEPH_NONCE_UNKNOWN_MS) {
+    setUnknownMessage(alephOutcomeUnknownMessage(pendingNonce));
+    return;
+  }
+  const timer = setInterval(() => {
+    if (check()) clearInterval(timer);
+  }, UNKNOWN_TICK_MS);
+  return () => clearInterval(timer);
+}
+
 export function useAlephUpdateRequest(): AlephRequestState {
   const queryClient = useQueryClient();
   const store = useMemo(
@@ -73,8 +147,7 @@ export function useAlephUpdateRequest(): AlephRequestState {
   const run = useAlephUpdateRun(pending?.nonce ?? null);
   const [dismissedNonce, setDismissedNonce] = useState<string | null>(null);
   const sending = useRef(false);
-  const pendingRef = useRef(pending);
-  pendingRef.current = pending;
+  const pendingRef = useLatestRef(pending);
   const elapsed = useRef<{ nonce: string; ms: number } | null>(null);
 
   const elapsedNow = useCallback((request: AlephPendingRequest) => {
@@ -85,32 +158,13 @@ export function useAlephUpdateRequest(): AlephRequestState {
 
   const send = useCallback(
     async (request: AlephPendingRequest) => {
-      if (sending.current) return;
-      sending.current = true;
-      try {
-        await postAlephUpdate(request.operation, {
-          ...request.body,
-          nonce: request.nonce,
-        });
-      } catch (error) {
-        if (!(error instanceof BbHttpError)) return;
-        const failed = failureFrom(error);
-        if (
-          error.code !== null &&
-          ALEPH_MANUAL_ERROR_CODES.has(error.code) &&
-          failed.command !== null
-        ) {
-          const manual = store.markManual(failed.command);
-          if (manual !== null) setPending(manual);
-          setFailure(failed);
-        } else if (!isAlephAmbiguousStatus(error.status)) {
-          store.resolve();
-          setPending(null);
-          setFailure(failed);
-        }
-      } finally {
-        sending.current = false;
-      }
+      await sendAlephUpdateRequest(
+        request,
+        sending,
+        store,
+        setPending,
+        setFailure,
+      );
     },
     [store],
   );
@@ -125,7 +179,7 @@ export function useAlephUpdateRequest(): AlephRequestState {
       setPending(request);
       void send(request);
     },
-    [send, store],
+    [send, store, pendingRef],
   );
 
   const dismiss = useCallback(() => {
@@ -133,9 +187,9 @@ export function useAlephUpdateRequest(): AlephRequestState {
     setFinished(null);
     setUnknownMessage(null);
     setFailure(null);
-  }, []);
+  }, [pendingRef]);
 
-  useEffect(() => {
+  const reconcilePending = useLatestRef(() => {
     if (pending === null || run.data === undefined) return;
     const action = evaluateAlephPending(
       pending,
@@ -157,7 +211,11 @@ export function useAlephUpdateRequest(): AlephRequestState {
     } else if (action === "outcome-unknown") {
       setUnknownMessage(alephOutcomeUnknownMessage(pending.nonce));
     }
+  });
+  useEffect(() => {
+    reconcilePending.current();
   }, [
+    reconcilePending,
     elapsedNow,
     pending,
     queryClient,
@@ -168,37 +226,19 @@ export function useAlephUpdateRequest(): AlephRequestState {
   ]);
 
   const pendingNonce = pending?.nonce ?? null;
-  useEffect(() => {
-    if (pendingNonce === null) return;
-    const stored = store.read();
-    if (stored === null || stored.nonce !== pendingNonce) return;
-    let ms = alephClockWentBackward(stored, Date.now())
-      ? ALEPH_NONCE_UNKNOWN_MS
-      : elapsedNow(stored);
-    let last = performance.now();
-    elapsed.current = { nonce: pendingNonce, ms };
-    const check = () => {
-      const mono = performance.now();
-      ms = Math.max(
-        ms + Math.max(mono - last, UNKNOWN_TICK_MS),
-        elapsedNow(stored),
-      );
-      last = mono;
-      elapsed.current = { nonce: pendingNonce, ms };
-      store.recordElapsed(ms, Date.now());
-      if (ms < ALEPH_NONCE_UNKNOWN_MS) return false;
-      setUnknownMessage(alephOutcomeUnknownMessage(pendingNonce));
-      return true;
-    };
-    if (ms >= ALEPH_NONCE_UNKNOWN_MS) {
-      setUnknownMessage(alephOutcomeUnknownMessage(pendingNonce));
-      return;
-    }
-    const timer = setInterval(() => {
-      if (check()) clearInterval(timer);
-    }, UNKNOWN_TICK_MS);
-    return () => clearInterval(timer);
-  }, [elapsedNow, pendingNonce, store]);
+  const trackPendingElapsed = useLatestRef(() => {
+    return trackAlephPendingElapsed(
+      pendingNonce,
+      store,
+      elapsedNow,
+      elapsed,
+      setUnknownMessage,
+    );
+  });
+  useEffect(
+    () => trackPendingElapsed.current(),
+    [trackPendingElapsed, elapsedNow, pendingNonce, store],
+  );
 
   return {
     dismiss,
