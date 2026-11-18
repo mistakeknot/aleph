@@ -297,3 +297,7 @@ Adopt upstream 8ce94003ba timing and shared-state fixture fixes. Replace Aleph's
 ## Admitted work and fixture stability sync (mk-8lcd6.235)
 
 Adopt upstream e658d13cb7 through 5f5b37b005 test admission, shared native-plugin startup, Windows shim reaping and desktop/Git/parser fixture stability. Preserve Aleph's desktop dynamic bridge-import expectation, internal operation-event expectation and plugin-install job wait behavior. Format the existing install-job wait block without changing its TypeScript AST, assertions or timeout values; the other Aleph deltas remain exact. All other touched files match upstream exactly. No Aleph test adaptation, product implementation, workflow, dependency, budget or behavior patch retirement.
+
+## Keyed plugin CSS, subagent timeline and Pi scenario sync (mk-8lcd6.240)
+
+Adopt upstream d8b910e8c2 through cb627c8574 keyed plugin CSS experiment, delegated subagent timeline placement, reusable Git fixture topology, Pi bridge scenarios/recovery and upstream OpenCode 2.x session permission enforcement/session-local approval compatibility. Preserve all eight auto-merged Aleph file deltas exactly, including plugin panel navigation, settings entries, timeline additions, documentation, query-cost cases, replay-child handling and guide customization. keyedPluginCss defaults off; upstream enables it for early adopters. No Aleph adaptation, assertion or threshold change, workflow delta or patch retirement.

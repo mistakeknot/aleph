@@ -4,6 +4,7 @@ import { Component, type ReactNode } from "react";
 import type { PluginNavPanelChrome } from "@/lib/plugin-nav-panel-chrome";
 import type { PluginNavPanelSlot } from "@/lib/plugin-slots";
 import { usePluginCss } from "@/lib/plugin-css";
+import { pluginRootProps } from "@/lib/portal-scope";
 import { PluginItemIcon } from "./PluginIcon";
 import { PluginContext } from "./plugin-context";
 import { useOptionalPaneContext } from "@/views/thread-detail/PaneContext";
@@ -62,8 +63,7 @@ export function PluginPanelHeaderCenter({
     >
       <PluginContext.Provider value={panel.pluginId}>
         <div
-          data-bb-plugin-root=""
-          data-bb-plugin={panel.pluginId}
+          {...pluginRootProps(panel.pluginId)}
           className="flex min-w-0 flex-1 items-center"
         >
           <HeaderTitle subPath={subPath} />
@@ -123,8 +123,7 @@ export function PluginPanelHeaderActions({
         >
           <PluginContext.Provider value={panel.pluginId}>
             <div
-              data-bb-plugin-root=""
-              data-bb-plugin={panel.pluginId}
+              {...pluginRootProps(panel.pluginId)}
               className="flex shrink-0 items-center gap-2"
             >
               <HeaderContent subPath={subPath} />
