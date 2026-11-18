@@ -293,3 +293,7 @@ Adopt upstream c3464f9bfc through c9a3e8b241 fixture child-lifetime and restarte
 ## UI fixture timing sync (mk-8lcd6.232)
 
 Adopt upstream 8ce94003ba timing and shared-state fixture fixes. Replace Aleph's toast-wrapper drain wait with upstream's app-toast-title drain wait in the same plugin-toast test, after dismissal; that file now matches upstream exactly. Preserve the existing Aleph secondary-content test delta unchanged. No Aleph test adaptation, product implementation, workflow, dependency, budget or behavior patch retirement.
+
+## Admitted work and fixture stability sync (mk-8lcd6.235)
+
+Adopt upstream e658d13cb7 through 5f5b37b005 test admission, shared native-plugin startup, Windows shim reaping and desktop/Git/parser fixture stability. Preserve Aleph's desktop dynamic bridge-import expectation, internal operation-event expectation and plugin-install job wait behavior. Format the existing install-job wait block without changing its TypeScript AST, assertions or timeout values; the other Aleph deltas remain exact. All other touched files match upstream exactly. No Aleph test adaptation, product implementation, workflow, dependency, budget or behavior patch retirement.
