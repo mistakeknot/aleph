@@ -49,7 +49,10 @@ function resizeStrip(width: number) {
   act(() => {
     for (const callback of resizeCallbacks) {
       callback(
-        [{ contentRect: { width } } as ResizeObserverEntry],
+        observedElements.map(
+          (target) =>
+            ({ target, contentRect: { width } }) as ResizeObserverEntry,
+        ),
         {} as ResizeObserver,
       );
     }

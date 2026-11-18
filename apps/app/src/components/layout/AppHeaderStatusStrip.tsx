@@ -5,6 +5,8 @@ import { usePluginSlots } from "@/lib/plugin-slots";
 import { PluginSlotMount } from "@/components/plugin/PluginSlotMount";
 import { getPluginConfigurationRoutePath } from "@/lib/route-paths";
 
+import { observeSharedResize } from "@bb/shared-ui/lib/shared-resize-observer";
+
 const STRIP_GAP_PX = 8;
 
 export function AppHeaderStatusStrip({
@@ -36,12 +38,13 @@ export function AppHeaderStatusStrip({
       setAvailableWidth((current) => (current === width ? current : width));
     };
     measure(Math.floor(element.clientWidth));
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[entries.length - 1];
-      if (entry) measure(Math.floor(entry.contentRect.width));
+    return observeSharedResize(element, {
+      read: (entry) =>
+        entry
+          ? Math.floor(entry.contentRect.width)
+          : Math.floor(element.clientWidth),
+      write: measure,
     });
-    observer.observe(element);
-    return () => observer.disconnect();
   }, [hasStatuses]);
 
   if (!hasStatuses) return null;

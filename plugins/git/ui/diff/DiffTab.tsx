@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useResizeObserver } from "usehooks-ts";
 import {
   experimental_useFixedTabTarget as useFixedTabTarget,
   experimental_useTabVisible as useTabVisible,
@@ -8,6 +7,7 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import { Button } from "@bb/shared-ui/button";
 import { EmptyStatePanel } from "@bb/shared-ui/empty-state";
+import { useMeasuredValue } from "@bb/shared-ui/hooks/use-measured-value";
 import type { DiffPresentation } from "@bb/shared-ui/git-diff/renderers";
 import type { DiffFileEntry } from "../../contract.js";
 import { GIT_DIFF_TAB_REFERENCE } from "../diff-tab-target.js";
@@ -42,6 +42,10 @@ import { useGitDiffPanelState } from "./useGitDiffPanelState.js";
 import { useResponsiveGitDiffPanelDisplay } from "./useResponsiveGitDiffPanelDisplay.js";
 
 const EMPTY_DIFF_FILES: readonly DiffFileEntry[] = [];
+
+function readBorderBoxWidth(element: HTMLElement): number {
+  return element.getBoundingClientRect().width;
+}
 
 export function useDiffTabVisible({
   environment,
@@ -116,7 +120,11 @@ function EnvironmentDiffTab({
   onGitDiffFiltersChange: (filters: DiffFileFilters) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null!);
-  const { width } = useResizeObserver({ ref: rootRef, box: "border-box" });
+  const width = useMeasuredValue<HTMLDivElement, number | undefined>(
+    rootRef,
+    readBorderBoxWidth,
+    undefined,
+  );
   const { gitDiffDisplayMode, handleGitDiffDisplayModeChange } =
     useResponsiveGitDiffPanelDisplay(width);
   const navigate = useBbNavigate();

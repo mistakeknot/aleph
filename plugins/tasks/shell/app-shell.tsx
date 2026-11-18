@@ -19,6 +19,7 @@ import { ManagePanel } from "../views/manage/manage-panel.js";
 import { EmptyState } from "../components/empty-state.js";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { observeSharedResize } from "@/lib/shared-resize-observer";
 
 const BOARD_MIN_WIDTH = 448;
 const DETAIL_SPLIT_MIN_WIDTH = 768;
@@ -122,30 +123,30 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
   useEffect(() => {
     const root = rootRef.current;
     if (!root || typeof ResizeObserver === "undefined") return;
-    const update = () => {
+    const readFits = () => {
       const rootWidth = root.clientWidth;
-      setDetailSplitFits(
-        !(rootWidth > 0 && rootWidth < DETAIL_SPLIT_MIN_WIDTH),
-      );
+      return !(rootWidth > 0 && rootWidth < DETAIL_SPLIT_MIN_WIDTH);
     };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(root);
-    return () => observer.disconnect();
+    setDetailSplitFits(readFits());
+    return observeSharedResize(root, {
+      read: readFits,
+      write: setDetailSplitFits,
+    });
   }, []);
 
   const [browsePaneEl, setBrowsePaneEl] = useState<HTMLDivElement | null>(null);
   const [boardUsable, setBoardUsable] = useState(true);
   useEffect(() => {
     if (!browsePaneEl || typeof ResizeObserver === "undefined") return;
-    const update = () => {
+    const readUsable = () => {
       const paneWidth = browsePaneEl.clientWidth;
-      setBoardUsable(!(paneWidth > 0 && paneWidth < BOARD_MIN_WIDTH));
+      return !(paneWidth > 0 && paneWidth < BOARD_MIN_WIDTH);
     };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(browsePaneEl);
-    return () => observer.disconnect();
+    setBoardUsable(readUsable());
+    return observeSharedResize(browsePaneEl, {
+      read: readUsable,
+      write: setBoardUsable,
+    });
   }, [browsePaneEl]);
   const projects = useProjects();
 
