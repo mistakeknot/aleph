@@ -405,11 +405,18 @@ export function useDocumentSession(
   useEffect(() => {
     session.receiveError(error);
   }, [session, error]);
-  useEffect(
-    () => () => {
-      void session.flush();
-    },
-    [session],
-  );
+  useEffect(() => {
+    const flush = () => void session.flush();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      flush();
+    };
+  }, [session]);
   return state;
 }
