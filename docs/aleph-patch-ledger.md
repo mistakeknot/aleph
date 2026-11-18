@@ -253,3 +253,7 @@ Adopt upstream 64c272a16e timeline row mounting, shared resize observations and 
 ## Plugin call signal cleanup sync (mk-8lcd6.196)
 
 Adopt upstream c5028d6966 lifecycle regression test unchanged. Keep Aleph linkAbortSignals and linked?.dispose() in invokeWrapped finally; upstream linkCallSignal and call.unlink() are not taken because Aleph already has equivalent cleanup. Success and thrown errors reach finally; caller or lifetime abort disposes listeners in the helper; release rejects the caller race and reaches finally, including calls started during stopping using the released signal. Already-released calls return before linking. Exactly one signal-link implementation remains. No workflow or lockfile delta, and no Aleph patch retired.
+
+## Cross-machine provider icon sync (mk-8lcd6.199)
+
+Adopt upstream 968cbe5a9e provider directory and catalog cache for icons from other machines. Preserve Aleph wide-layout composer test setup, RPC abort-signal forwarding, and every Aleph-only API audit and frontend-core-slots reference entry. Their added/removed-line deltas against upstream remain identical before and after the auto-merge. No workflow or lockfile changes and no patch retired.
