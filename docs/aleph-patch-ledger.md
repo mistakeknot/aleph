@@ -309,3 +309,7 @@ Adopt upstream 1fa400dec7 lost-reply, stop and queue-drain fixes and interleavin
 ## Reconnect stop cold-history gate (mk-8lcd6.247)
 
 Gate each reconnect stop resend with withHotThreadHistory before the request-since predicate and stop-aim read. Re-read thread state inside the gate; retain the existing conditions, interruption reason and aim. Keep map admission/removal ordering and log asynchronous hydration/resend failures. Implementation-only adaptation; no test, assertion or threshold changes.
+
+## Subagent links, profiler clock and query frames sync (mk-8lcd6.255)
+
+Adopt upstream 99f9e55eb5 through 6034640f4e explicit subagent turn links, profiler clock calibration, replay ordering, query-audit frame handling and Windows missing-command errors. Preserve all four auto-merged Aleph deltas exactly in debugging documentation, replay child, timeline harness and Turbo configuration. Query-plan frame handling introduces no events readers or inventory changes. No Aleph adaptation, assertion/threshold/budget edit, workflow delta or retired patch.
