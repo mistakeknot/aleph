@@ -1079,7 +1079,7 @@ describe("host-daemon command schemas", () => {
   });
 
   it("uses the current host-daemon protocol version", () => {
-    expect(HOST_DAEMON_PROTOCOL_VERSION).toBe(269);
+    expect(HOST_DAEMON_PROTOCOL_VERSION).toBe(270);
     expect(HOST_ARTIFACT_MAX_BYTES).toBe(256 * 1024 * 1024);
   });
 
@@ -1108,7 +1108,8 @@ describe("host-daemon command schemas", () => {
     expect(contract.isCompatibleHostDaemonProtocolVersion(266)).toBe(false);
     expect(contract.isCompatibleHostDaemonProtocolVersion(267)).toBe(false);
     expect(contract.isCompatibleHostDaemonProtocolVersion(268)).toBe(false);
-    expect(contract.isCompatibleHostDaemonProtocolVersion(269)).toBe(true);
+    expect(contract.isCompatibleHostDaemonProtocolVersion(269)).toBe(false);
+    expect(contract.isCompatibleHostDaemonProtocolVersion(270)).toBe(true);
     expect(contract.hostDaemonSupportsConnectNext(246)).toBe(false);
     expect(contract.hostDaemonSupportsConnectNext(247)).toBe(true);
     expect(contract.hostDaemonSupportsDesktopBrokerProof(247)).toBe(false);
@@ -1213,7 +1214,7 @@ describe("host-daemon command schemas", () => {
     ).toBe(false);
   });
 
-  it("requires an explicit intent on a thread stop command", () => {
+  it("requires an explicit intent and aim on a thread stop command", () => {
     const base = {
       environmentId: "env_1",
       threadId: "thr_1",
@@ -1222,9 +1223,27 @@ describe("host-daemon command schemas", () => {
     expect(threadStopCommandSchema.safeParse(base).success).toBe(false);
     expect(
       threadStopCommandSchema.safeParse({ ...base, intent: "release" }).success,
+    ).toBe(false);
+    expect(
+      threadStopCommandSchema.safeParse({
+        ...base,
+        intent: "release",
+        aimedAt: null,
+      }).success,
     ).toBe(true);
     expect(
-      threadStopCommandSchema.safeParse({ ...base, intent: "pause" }).success,
+      threadStopCommandSchema.safeParse({
+        ...base,
+        intent: "interrupt",
+        aimedAt: { turnId: null, requestIds: ["creq_2222222222"] },
+      }).success,
+    ).toBe(true);
+    expect(
+      threadStopCommandSchema.safeParse({
+        ...base,
+        intent: "pause",
+        aimedAt: null,
+      }).success,
     ).toBe(false);
   });
 

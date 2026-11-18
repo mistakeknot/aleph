@@ -301,3 +301,7 @@ Adopt upstream e658d13cb7 through 5f5b37b005 test admission, shared native-plugi
 ## Keyed plugin CSS, subagent timeline and Pi scenario sync (mk-8lcd6.240)
 
 Adopt upstream d8b910e8c2 through cb627c8574 keyed plugin CSS experiment, delegated subagent timeline placement, reusable Git fixture topology, Pi bridge scenarios/recovery and upstream OpenCode 2.x session permission enforcement/session-local approval compatibility. Preserve all eight auto-merged Aleph file deltas exactly, including plugin panel navigation, settings entries, timeline additions, documentation, query-cost cases, replay-child handling and guide customization. keyedPluginCss defaults off; upstream enables it for early adopters. No Aleph adaptation, assertion or threshold change, workflow delta or patch retirement.
+
+## Dispatch interleaving and reconnect sync (mk-8lcd6.246)
+
+Adopt upstream 1fa400dec7 lost-reply, stop and queue-drain fixes and interleaving tests. Preserve Aleph cold-history selection gates/pins, rules receipts, queue transfer, runtime options and every auto-merged fork delta. Resolve live-command imports as a union with HostConnectionLostApiError; keep upstream host_connection_lost handling. Preserve the protocol offset of four: upstream 266 becomes Aleph 270, accepting 270 and rejecting 265 through 269 while retaining earlier incompatibility and Aleph account-pool/page-note assertions. No other Aleph adaptation, assertion/threshold/budget change, workflow delta or retired patch.
