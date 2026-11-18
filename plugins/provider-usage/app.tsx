@@ -1004,55 +1004,57 @@ export function ProviderUsageStatusContent({
                     activeProvider.displayName +
                     " usage"
           }
-          className="@container min-h-0 overflow-y-auto overflow-x-hidden p-2.5"
+          className="min-h-0 overflow-y-auto overflow-x-hidden p-2.5"
         >
-          {notice !== null && notice.kind !== "loading" ? (
-            <UsageNotice
-              notice={notice}
-              onRetry={reload}
-              className={notice.kind === "stale" ? "mb-2" : undefined}
-            />
-          ) : null}
-          {notice?.kind === "empty" ? null : notice?.kind === "loading" ? (
-            <UsageSkeleton rows={3} />
-          ) : isAllTab ? (
-            <div className={cn(USAGE_GRID_CLASS_NAME, "gap-y-2.5")}>
-              {sortMode === "exhaustion" ? (
+          <div className="@container">
+            {notice !== null && notice.kind !== "loading" ? (
+              <UsageNotice
+                notice={notice}
+                onRetry={reload}
+                className={notice.kind === "stale" ? "mb-2" : undefined}
+              />
+            ) : null}
+            {notice?.kind === "empty" ? null : notice?.kind === "loading" ? (
+              <UsageSkeleton rows={3} />
+            ) : isAllTab ? (
+              <div className={cn(USAGE_GRID_CLASS_NAME, "gap-y-2.5")}>
+                {sortMode === "exhaustion" ? (
+                  <ProviderAccounts
+                    accounts={sortedActiveAccounts}
+                    loading={snapshot.isRefreshing}
+                    unavailable={unavailable}
+                    showProvider
+                    now={now}
+                  />
+                ) : (
+                  providers.map((provider) => (
+                    <div
+                      key={provider.id}
+                      className="col-span-full grid grid-cols-subgrid gap-y-2 border-t border-sidebar-border pt-2.5 first:border-t-0 first:pt-0"
+                    >
+                      <ProviderAccounts
+                        accounts={provider.accounts}
+                        loading={snapshot.isRefreshing}
+                        unavailable={unavailable}
+                        showProvider
+                        now={now}
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : activeProvider === null ? null : (
+              <div className={cn(USAGE_GRID_CLASS_NAME, "gap-y-2")}>
                 <ProviderAccounts
                   accounts={sortedActiveAccounts}
                   loading={snapshot.isRefreshing}
                   unavailable={unavailable}
-                  showProvider
+                  showProvider={false}
                   now={now}
                 />
-              ) : (
-                providers.map((provider) => (
-                  <div
-                    key={provider.id}
-                    className="col-span-full grid grid-cols-subgrid gap-y-2 border-t border-sidebar-border pt-2.5 first:border-t-0 first:pt-0"
-                  >
-                    <ProviderAccounts
-                      accounts={provider.accounts}
-                      loading={snapshot.isRefreshing}
-                      unavailable={unavailable}
-                      showProvider
-                      now={now}
-                    />
-                  </div>
-                ))
-              )}
-            </div>
-          ) : activeProvider === null ? null : (
-            <div className={cn(USAGE_GRID_CLASS_NAME, "gap-y-2")}>
-              <ProviderAccounts
-                accounts={sortedActiveAccounts}
-                loading={snapshot.isRefreshing}
-                unavailable={unavailable}
-                showProvider={false}
-                now={now}
-              />
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </TooltipProvider>
