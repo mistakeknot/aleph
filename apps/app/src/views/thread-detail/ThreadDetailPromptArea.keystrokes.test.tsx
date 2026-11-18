@@ -21,7 +21,6 @@ import {
 import {
   afterAll,
   afterEach,
-  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -178,7 +177,7 @@ function getBottomComposerInput(): HTMLInputElement {
 let threadCounter = 0;
 let threadId = "";
 
-beforeAll(() => LazyQueuedMessagesList.preload());
+await LazyQueuedMessagesList.preload();
 
 beforeEach(() => {
   threadCounter += 1;
