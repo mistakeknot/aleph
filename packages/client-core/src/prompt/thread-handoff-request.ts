@@ -3,10 +3,13 @@ import type {
   PromptTextMention,
   ReasoningLevel,
   ServiceTier,
+  ThreadEventRow,
 } from "@bb/domain";
 import type { AppCreateThreadRequest } from "../api-types.js";
 import type { ProviderCommandSuggestion } from "./mentions/types.js";
 import { promptDraftToInput, type PromptDraftState } from "./prompt-draft.js";
+
+import { buildHandoffHistoryPacket } from "./handoff-excerpt.js";
 
 export interface ThreadHandoffCreateSeed {
   environmentId: string | null;
@@ -51,6 +54,11 @@ interface BuildThreadHandoffCreateRequestArgs {
   execution: ThreadHandoffExecutionSelection;
   seed: ThreadHandoffCreateSeed;
   sendAt?: number;
+  historyExcerpt?: {
+    enabled: boolean;
+    sourceEvents: readonly ThreadEventRow[];
+    existingPacketIds?: readonly string[];
+  };
 }
 
 function threadHandoffPrefixLength(
@@ -131,8 +139,30 @@ export function buildThreadHandoffCreateRequest({
   execution,
   seed,
   sendAt,
+  historyExcerpt,
 }: BuildThreadHandoffCreateRequestArgs): AppCreateThreadRequest | null {
-  const input = promptDraftToInput(draft);
+  if (execution.model.length === 0 || promptDraftToInput(draft).length === 0)
+    return null;
+  let excerptDraft = draft;
+  if (historyExcerpt?.enabled) {
+    const attachmentBytes = draft.attachments.reduce(
+      (total, attachment) =>
+        total + (attachment.sizeBytes ?? Number.POSITIVE_INFINITY),
+      0,
+    );
+    const packet = buildHandoffHistoryPacket({
+      sourceThreadId: seed.sourceThreadId,
+      sourceEvents: historyExcerpt.sourceEvents,
+      reservedBytes:
+        new TextEncoder().encode(JSON.stringify(promptDraftToInput(draft)))
+          .length + attachmentBytes,
+      existingPacketIds: historyExcerpt.existingPacketIds,
+    });
+    if (packet && !draft.text.includes(packet.marker)) {
+      excerptDraft = { ...draft, text: draft.text + packet.text };
+    }
+  }
+  const input = promptDraftToInput(excerptDraft);
   if (execution.model.length === 0 || input.length === 0) {
     return null;
   }
