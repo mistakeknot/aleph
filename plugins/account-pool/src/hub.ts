@@ -298,25 +298,34 @@ export class AccountPoolHub {
         evidence.state = "finished";
         return response;
       }
+      const settledState = (fallback: "finished" | "cancelled" | "error") => {
+        const lastHop = evidence.hops.at(-1);
+        return lastHop?.state === "complete"
+          ? "finished"
+          : lastHop?.state === "truncated"
+            ? "error"
+            : fallback;
+      };
       return new Response(
         new ReadableStream<Uint8Array>({
           async pull(controller) {
             try {
               const chunk = await reader.read();
               if (chunk.done) {
-                evidence.state = request.signal.aborted
-                  ? "cancelled"
-                  : "finished";
+                evidence.state = settledState(
+                  request.signal.aborted ? "cancelled" : "finished",
+                );
                 controller.close();
               } else controller.enqueue(chunk.value);
             } catch (error) {
-              evidence.state = "error";
+              evidence.state = settledState("error");
               controller.error(error);
             }
           },
           async cancel() {
             evidence.state = "cancelled";
             await reader.cancel().catch(() => undefined);
+            evidence.state = settledState("cancelled");
           },
         }),
         {

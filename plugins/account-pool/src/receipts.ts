@@ -449,7 +449,7 @@ export class ResponseEvidence {
     if (this.finished) return;
     this.finished = true;
     try {
-      this.buffer += this.decoder.decode();
+      if (state === undefined) this.buffer += this.decoder.decode();
       if (
         !this.eventStream &&
         this.billable &&
@@ -457,14 +457,19 @@ export class ResponseEvidence {
         (this.hop.status ?? 500) < 400
       )
         this.observe(JSON.parse(this.buffer));
-      if (this.eventStream && this.buffer.trim()) this.invalid = true;
+      if (state === undefined && this.eventStream && this.buffer.trim())
+        this.invalid = true;
     } catch {
       this.invalid = true;
     }
     this.buffer = "";
     this.hop.model = this.observedModel;
     this.hop.state =
-      state ??
+      (this.invalid
+        ? "truncated"
+        : state === "cancelled" && this.terminal
+          ? "complete"
+          : state) ??
       ((this.hop.status ?? 500) >= 400
         ? "rejected"
         : this.invalid || (this.billable && !this.terminal)
