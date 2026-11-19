@@ -97,9 +97,8 @@ describe("layout profiles", () => {
 
   it("the real sidebar atom is class-scoped and seeds wide from the legacy key", async () => {
     window.localStorage.setItem("bb.sidebar.open", "false");
-    const { sidebarOpenAtom } = await import(
-      "@/components/layout/sidebar-open-atom"
-    );
+    const { sidebarOpenAtom } =
+      await import("@/components/layout/sidebar-open-atom");
     const store = createStore();
     store.set(widthClassAtom, 2200);
     expect(store.get(sidebarOpenAtom)).toBe(false); // legacy seeds wide
@@ -179,7 +178,7 @@ describe("layout profiles", () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <Provider store={store}>{children}</Provider>
     );
-    window.localStorage.setItem(
+    window.sessionStorage.setItem(
       "aleph.layout.wide.secondaryPanelWidthPercent",
       "33",
     );
@@ -192,12 +191,12 @@ describe("layout profiles", () => {
     store.set(widthClassAtom, 2200); // class flips mid-drag
     act(() => result.current.commit(41)); // mouseup
     expect(
-      window.localStorage.getItem(
+      window.sessionStorage.getItem(
         "aleph.layout.wide.secondaryPanelWidthPercent",
       ),
     ).toBe("33");
     expect(
-      window.localStorage.getItem(
+      window.sessionStorage.getItem(
         "aleph.layout.narrow.secondaryPanelWidthPercent",
       ),
     ).toBe("41");

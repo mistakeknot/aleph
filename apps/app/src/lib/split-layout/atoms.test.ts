@@ -121,9 +121,9 @@ describe("closePanesForThreadsAtom", () => {
     const store = createStore();
     store.set(maximizedPaneIdAtom, "pane-2");
 
-    expect(localStorage.getItem(MAXIMIZED_PANE_STORAGE_KEY)).toBe("pane-2");
+    expect(sessionStorage.getItem(MAXIMIZED_PANE_STORAGE_KEY)).toBe("pane-2");
 
-    localStorage.setItem(MAXIMIZED_PANE_STORAGE_KEY, "");
+    sessionStorage.setItem(MAXIMIZED_PANE_STORAGE_KEY, "");
     const rehydrated = createStore();
     expect(rehydrated.get(maximizedPaneIdAtom)).toBeNull();
   });

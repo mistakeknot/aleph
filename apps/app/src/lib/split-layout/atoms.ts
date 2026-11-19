@@ -2,7 +2,7 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import {
   createBooleanPreferenceAtom,
-  createTabScopedStorage,
+  createWindowScopedStorage,
   type SyncStorage,
 } from "@/lib/browser-storage";
 import type { ThreadRoutePathArgs } from "@/lib/route-paths";
@@ -15,7 +15,7 @@ import {
 import type { SplitLayout } from "./types";
 
 function createSplitLayoutStorage(): SyncStorage<SplitLayout | null> {
-  return createTabScopedStorage<SplitLayout | null>({
+  return createWindowScopedStorage<SplitLayout | null>({
     parse: (storedValue) => deserializeSplitLayout(storedValue),
     serialize: (value) => (value === null ? "" : serializeSplitLayout(value)),
   });
@@ -38,7 +38,7 @@ export const MAXIMIZED_PANE_STORAGE_KEY = "bb.splitLayout.maximizedPaneId";
 export const maximizedPaneIdAtom = atomWithStorage<string | null>(
   MAXIMIZED_PANE_STORAGE_KEY,
   null,
-  createTabScopedStorage<string | null>({
+  createWindowScopedStorage<string | null>({
     parse: (storedValue, initialValue) =>
       storedValue !== null && storedValue.length > 0
         ? storedValue

@@ -8,7 +8,7 @@ import {
 } from "jotai";
 import { atomWithStorage, RESET } from "jotai/utils";
 import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
-import { booleanLocalStorage, type SyncStorage } from "@/lib/browser-storage";
+import { booleanWindowStorage, type SyncStorage } from "@/lib/browser-storage";
 
 // Aleph: per-window-width layout profiles. Each width class remembers its own
 // sidebar and right-panel layout so shrinking the window on a laptop never
@@ -194,7 +194,7 @@ export const SECONDARY_PANEL_SUPPRESSED_DEFAULTS: Record<WidthClass, boolean> =
 
 export const secondaryPanelSuppressedAtom = createClassScopedAtom<boolean>({
   field: "secondaryPanelSuppressed",
-  storage: booleanLocalStorage,
+  storage: booleanWindowStorage,
   defaults: SECONDARY_PANEL_SUPPRESSED_DEFAULTS,
 });
 
