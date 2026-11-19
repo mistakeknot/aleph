@@ -1,12 +1,24 @@
 import { type BbPluginApi } from "@get-bb/plugin-sdk";
 import type { AccountSummary } from "./contracts.js";
 import type { AccountPoolHub } from "./hub.js";
+import { z } from "zod";
 import {
   usageSourceRpcContract,
   usageListMethod,
   usageFetchMethod,
   type UsageResource,
 } from "./usage-contract.js";
+
+export function usageFailureReason(
+  error: string | null,
+): "needs_sign_in" | "unavailable" | undefined {
+  if (error === null) return undefined;
+  return /\binvalid_grant\b|refresh[_\s-]*token[_\s-]*(?:expired|revoked|reused|invalidated)|(?:expired|invalid)[_\s-]*refresh[_\s-]*token/iu.test(
+    error,
+  )
+    ? "needs_sign_in"
+    : "unavailable";
+}
 
 export function usageWindowLabel(
   minutes: number | null,
@@ -55,7 +67,15 @@ async function subscriptionAccounts(
 
 export function registerUsageSource(bb: BbPluginApi, hub: AccountPoolHub) {
   bb.rpc.register(
-    usageSourceRpcContract,
+    {
+      ...usageSourceRpcContract,
+      [usageFetchMethod]: {
+        ...usageSourceRpcContract[usageFetchMethod],
+        output: usageSourceRpcContract[usageFetchMethod].output.extend({
+          failureReason: z.enum(["needs_sign_in", "unavailable"]).optional(),
+        }),
+      },
+    },
     {
       async [usageListMethod]() {
         const accounts = await subscriptionAccounts(hub);
@@ -161,10 +181,12 @@ export function registerUsageSource(bb: BbPluginApi, hub: AccountPoolHub) {
           };
         });
         const resource = resources[0]!;
+        const failureReason = usageFailureReason(accounts[0]!.error);
         return {
           accountKey: resource.accountKey,
           observedAt: resource.observedAt,
           usage: resource.usage,
+          ...(failureReason === undefined ? {} : { failureReason }),
         };
       },
     },

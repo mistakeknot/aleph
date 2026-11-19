@@ -90,6 +90,7 @@ export const usageResourceListSchema = z.object({
   resources: z.array(usageResourceSchema),
 });
 export const usageMeasurementSchema = z.object({
+  failureReason: z.enum(["needs_sign_in", "unavailable"]).optional(),
   accountKey: usageAccountKeySchema,
   observedAt: z
     .number()
