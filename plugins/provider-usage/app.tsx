@@ -414,6 +414,10 @@ function UsageWindow({
 }
 
 function accountStatusMessage(account: UsageProvider): string | null {
+  if (account.refreshFailure !== undefined)
+    return account.refreshFailure === "needs_sign_in"
+      ? "Signed out: sign in again."
+      : "Couldn’t refresh this account. Quota unavailable.";
   const usage = account.usage;
   switch (usage?.status) {
     case undefined:
@@ -451,11 +455,13 @@ function AccountUsage({
   const title = account.accountLabel ?? email ?? account.displayName;
   const plan = usage?.status === "ok" ? usage.planLabel : null;
   const message =
-    usage === null && loading
-      ? usageFeedbackMessages.loading
-      : usage === null && unavailable
-        ? usageFeedbackMessages.unavailable
-        : accountStatusMessage(account);
+    account.refreshFailure !== undefined
+      ? accountStatusMessage(account)
+      : usage === null && loading
+        ? usageFeedbackMessages.loading
+        : usage === null && unavailable
+          ? usageFeedbackMessages.unavailable
+          : accountStatusMessage(account);
   return (
     <section
       aria-label={showProvider ? `${account.displayName} ${title}` : title}
@@ -498,6 +504,13 @@ function AccountUsage({
         usage.windows.map((window) => (
           <UsageWindow key={window.label} window={window} now={now} />
         ))
+      ) : null}
+      {account.refreshFailure !== undefined && account.accountLabel !== null ? (
+        <p className="col-span-full text-2xs text-subtle-foreground">
+          {account.id.startsWith("bb--account-pool:")
+            ? "Open Account Pooler settings, select this account, then choose “Sign in again”."
+            : "Open the source plugin’s settings and use its sign-in action."}
+        </p>
       ) : null}
     </section>
   );

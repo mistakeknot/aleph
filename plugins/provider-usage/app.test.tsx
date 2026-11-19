@@ -14,6 +14,7 @@ import {
   loadPluginApp,
   mountPluginContentScripts,
   renderSlot,
+  installTestPluginRuntime,
 } from "@get-bb/plugin-sdk/testing/app";
 
 afterEach(() => {
@@ -23,6 +24,88 @@ afterEach(() => {
   vi.unstubAllGlobals();
   window.localStorage.clear();
 });
+
+it.each([
+  ["needs_sign_in", true, false],
+  ["unavailable", true, false],
+  ["needs_sign_in", false, true],
+  ["unavailable", false, true],
+] as const)(
+  "marks the failed row for %s with cached quota %s and machine failure %s",
+  (refreshFailure, cached, machineFailure) => {
+    installTestPluginRuntime();
+    const account = (label: string, failed: boolean) => ({
+      id: `bb--account-pool:${label}`,
+      providerId: "claude-code",
+      accountLabel: label,
+      displayName: "Claude Code",
+      logoUrl: null,
+      icon: null,
+      strings: { iconTint: null },
+      signInHint: "Sign in.",
+      expiredHint: "Sign in again.",
+      ...(failed ? { refreshFailure } : {}),
+      usage:
+        failed && !cached
+          ? null
+          : {
+              status: "ok" as const,
+              accountEmail: null,
+              planLabel: null,
+              windows: [
+                {
+                  label: "Weekly",
+                  usedPercent: failed ? 80 : 20,
+                  resetsAt: null,
+                  cost: null,
+                },
+              ],
+            },
+    });
+    const view = render(
+      <ProviderUsageStatusContent
+        dismiss={vi.fn()}
+        pluginId="bb--provider-usage"
+        threadMachineId={null}
+        refreshEnabled={false}
+        snapshot={{
+          error: null,
+          isRefreshing: false,
+          data: {
+            machines: [
+              {
+                id: "source:pool",
+                displayName: "Pool",
+                status: "connected",
+                error: machineFailure
+                  ? "Some usage could not be refreshed."
+                  : null,
+                providers: [
+                  account("Primary", true),
+                  account("Secondary", false),
+                ],
+              },
+            ],
+          },
+        }}
+      />,
+    );
+    const failed = within(view.getByRole("region", { name: "Primary" }));
+    expect(failed.queryByText("20% left")).toBeNull();
+    expect(
+      failed.getByText(
+        refreshFailure === "needs_sign_in"
+          ? "Signed out: sign in again."
+          : "Couldn’t refresh this account. Quota unavailable.",
+      ),
+    ).toBeTruthy();
+    expect(failed.getByText(/Account Pooler settings/)).toBeTruthy();
+    expect(view.getByText("80% left")).toBeTruthy();
+    expect(
+      view.queryByText("Couldn’t refresh. Showing last update.") !== null,
+    ).toBe(machineFailure);
+  },
+);
 
 function threadOnMachine(
   hostId: string,

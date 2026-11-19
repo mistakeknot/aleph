@@ -36,6 +36,7 @@ const iconTintSchema = z.strictObject({
 });
 
 export const usageProviderSchema = z.strictObject({
+  refreshFailure: z.optional(z.enum(["needs_sign_in", "unavailable"])),
   id: nonemptyStringSchema,
   providerId: nonemptyStringSchema,
   accountLabel: z.nullable(nonemptyStringSchema),
@@ -74,7 +75,8 @@ export type UsageSnapshot = z.infer<typeof usageSnapshotSchema>;
 export function providerUsageTone(
   provider: UsageProvider,
 ): "warning" | "critical" | null {
-  if (provider.usage?.status !== "ok") return null;
+  if (provider.refreshFailure !== undefined || provider.usage?.status !== "ok")
+    return null;
   const usedPercent = Math.max(
     0,
     ...provider.usage.windows.map((window) => window.usedPercent),

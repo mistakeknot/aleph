@@ -162,7 +162,7 @@ export default function providerUsagePlugin(bb: BbPluginApi): void {
     string,
     { value: UsageMeasurement; loadedAt: number }
   >();
-  const failures = new Set<string>();
+  const failures = new Map<string, "needs_sign_in" | "unavailable">();
   const pending = new Map<
     string,
     { force: boolean; promise: Promise<UsageMeasurement> }
@@ -191,8 +191,22 @@ export default function providerUsagePlugin(bb: BbPluginApi): void {
       })
       .then((raw) => {
         const value = normalizeUsageMeasurement(raw);
-        if (value.usage.status === "error")
-          throw new Error("Usage could not be refreshed.");
+        if (
+          value.usage.status === "error" ||
+          value.usage.status === "expired" ||
+          value.usage.status === "unauthenticated" ||
+          value.failureReason !== undefined
+        ) {
+          failures.set(
+            key,
+            value.failureReason ??
+              (value.usage.status === "expired" ||
+              value.usage.status === "unauthenticated"
+                ? "needs_sign_in"
+                : "unavailable"),
+          );
+          return value;
+        }
         measurements.set(key, { value, loadedAt: Date.now() });
         failures.delete(key);
         return value;
@@ -300,7 +314,7 @@ export default function providerUsagePlugin(bb: BbPluginApi): void {
           try {
             await fetchResource(source.pluginId, resource.id, request.force);
           } catch {
-            failures.add(key);
+            failures.set(key, "unavailable");
           }
         }),
       );
@@ -355,12 +369,37 @@ export default function providerUsagePlugin(bb: BbPluginApi): void {
       for (const { source, resource } of visible) {
         const key = keyOf(source.pluginId, resource.id);
         const cached = measurements.get(key);
-        machine.providers.push(
-          resourceProvider(resource, cached?.value, source.pluginId, providers),
+        const provider = resourceProvider(
+          resource,
+          cached?.value,
+          source.pluginId,
+          providers,
         );
-        if (source.error !== null || failures.has(key))
+        const failure =
+          failures.get(key) ??
+          (source.error !== null ? "unavailable" : undefined);
+        if (failure !== undefined) provider.refreshFailure = failure;
+        machine.providers.push(provider);
+        if (source.error !== null)
           machine.error = "Some usage could not be refreshed.";
       }
+      const requested = selected.filter(
+        ({ source, resource }) =>
+          (resource.scope.kind === "shared"
+            ? `source:${source.pluginId}`
+            : resource.scope.hostId) === machine.id,
+      );
+      if (
+        requested.length > 0
+          ? requested.every(({ source, resource }) =>
+              failures.has(keyOf(source.pluginId, resource.id)),
+            )
+          : machine.providers.length > 0 &&
+            machine.providers.every(
+              (provider) => provider.refreshFailure !== undefined,
+            )
+      )
+        machine.error = "Some usage could not be refreshed.";
     }
     const providerOrder = new Map(
       providers.map((provider, index) => [provider.id, index]),

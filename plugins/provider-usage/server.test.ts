@@ -4,7 +4,96 @@ import {
   makeHostResponse,
 } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.js";
-import { usageListMethod, usageFetchMethod } from "./usage-source-contract.js";
+import {
+  usageListMethod,
+  usageFetchMethod,
+  usageFetchInputSchema,
+} from "./usage-source-contract.js";
+
+it("isolates failed accounts and clears the row failure after recovery", async () => {
+  let failing = false;
+  const host = createFakePluginHost({
+    pluginId: "provider-usage",
+    sdk: {
+      system: { config: async () => ({ primaryHostId: null }) },
+      hosts: { list: async () => [] },
+      providers: { list: async () => [] },
+      plugins: {
+        experimental_discoverRpc: async () => [
+          { pluginId: "pool", displayName: "Pool", method: usageListMethod },
+        ],
+        callRpc: async ({ method, input }) =>
+          method === usageListMethod
+            ? {
+                label: "Pool",
+                resources: ["Primary", "Secondary"].map((label) => ({
+                  id: label,
+                  label,
+                  providerId: "claude-code",
+                  scope: { kind: "shared" },
+                })),
+              }
+            : failing &&
+                usageFetchInputSchema.parse(input).resourceId === "Primary"
+              ? {
+                  observedAt: 123,
+                  failureReason: "needs_sign_in",
+                  usage: {
+                    status: "error",
+                    accountEmail: null,
+                    planLabel: null,
+                    message: "Usage could not be collected.",
+                  },
+                }
+              : {
+                  observedAt: 123,
+                  usage: {
+                    status: "ok",
+                    accountEmail: null,
+                    planLabel: null,
+                    windows: [],
+                  },
+                },
+      },
+    },
+  });
+  plugin(host.bb);
+  const request = {
+    force: true,
+    machineIds: null,
+    providerIds: ["claude-code"],
+    maxAgeMs: 0,
+  };
+  try {
+    await host.harness.behavior.callRpc("getUsage", request);
+    failing = true;
+    const mixed = await host.harness.behavior.callRpc("getUsage", request);
+    expect(mixed).toMatchObject({
+      machines: [
+        {
+          error: null,
+          providers: [
+            {
+              accountLabel: "Primary",
+              refreshFailure: "needs_sign_in",
+              usage: { status: "ok" },
+            },
+            { accountLabel: "Secondary", usage: { status: "ok" } },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(mixed)).not.toContain(
+      "Usage could not be collected.",
+    );
+    failing = false;
+    const recovered = await host.harness.behavior.callRpc("getUsage", request);
+    expect(recovered).toMatchObject({ machines: [{ error: null }] });
+    expect(JSON.stringify(recovered)).not.toContain("refreshFailure");
+  } finally {
+    await host.harness.lifecycle.dispose();
+  }
+});
 
 it("lists cheaply, fetches only the selected source/provider, preserves failed measurements, and evicts removed resources", async () => {
   let enabled = true;
