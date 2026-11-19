@@ -203,3 +203,20 @@ it("times out an active capture and includes staged-only ignored files", async (
     "ignored/cache.txt",
   );
 });
+
+it("excludes an ignored file after the user stages its removal from tracking", async () => {
+  const { root, path, input } = await fixture();
+  git(path, "rm", "--cached", "ignored/tracked.txt");
+  await writeFile(
+    join(path, "ignored/tracked.txt"),
+    "now ignored untracked content\n",
+  );
+  const expected = await state(path);
+  const result = await captureSnapshot(input, root);
+  expect(await state(path)).toEqual(expected);
+  expect(result.status).toBe("captured");
+  if (result.status !== "captured") throw new Error("Capture failed");
+  expect(git(path, "ls-tree", "-r", result.tree).toString()).not.toContain(
+    "ignored/tracked.txt",
+  );
+});

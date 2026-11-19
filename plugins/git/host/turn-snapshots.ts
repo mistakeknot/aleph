@@ -265,9 +265,9 @@ export async function captureSnapshot(
         await git.run(["read-tree", "HEAD"]);
         const userIndex = runner(input, signal);
         const inventory = [
-          ...new Set([
-            ...paths(
-              await git.run([
+          ...new Set(
+            paths(
+              await userIndex.run([
                 "ls-files",
                 "-z",
                 "--cached",
@@ -275,12 +275,12 @@ export async function captureSnapshot(
                 "--exclude-standard",
               ]),
             ),
-            ...paths(await userIndex.run(["ls-files", "-z", "--cached"])),
-          ]),
+          ),
         ];
         if (inventory.length > limits.maxFiles)
           throw new SnapshotFailure("snapshot file cap");
         let bytes = 0;
+        const present: string[] = [];
         for (const path of inventory) {
           signal.throwIfAborted();
           if (
@@ -293,6 +293,7 @@ export async function captureSnapshot(
             const info = await fs.lstat(join(input.path, path));
             if (!info.isFile() && !info.isSymbolicLink())
               throw new SnapshotFailure("unsupported file kind");
+            present.push(path);
             bytes += info.size;
             if (bytes > limits.maxBytes)
               throw new SnapshotFailure("snapshot byte cap");
@@ -307,9 +308,21 @@ export async function captureSnapshot(
               throw error;
           }
         }
-        if (inventory.length) {
+        const included = new Set(present);
+        const removed = paths(
+          await git.run(["ls-files", "-z", "--cached"]),
+        ).filter((path) => !included.has(path));
+        for (let offset = 0; offset < removed.length; offset += 32) {
+          await git.run([
+            "update-index",
+            "--force-remove",
+            "--",
+            ...removed.slice(offset, offset + 32),
+          ]);
+        }
+        if (present.length) {
           const pathList = join(dir, "paths");
-          await fs.writeFile(pathList, inventory.join("\0") + "\0");
+          await fs.writeFile(pathList, present.join("\0") + "\0");
           await git.run([
             "add",
             "-A",
