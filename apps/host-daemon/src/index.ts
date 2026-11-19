@@ -4,11 +4,13 @@ import { fileURLToPath } from "node:url";
 import { loadHostDaemonStartConfig } from "@bb/config/host-daemon";
 import { loadHostDaemonEntrypointConfig } from "@bb/config/host-daemon-entrypoint";
 import { isLogTransportFailure } from "@bb/logger/transport-failure";
+import { HOST_DAEMON_AUTH_REJECTED_EXIT_CODE } from "@bb/config/machine-service";
 import {
   installSafeProcessDiagnostics,
   installSocketTypeOfServiceGuard,
   writeSafeProcessDiagnosticReport,
 } from "@bb/process-utils";
+import { PersistedHostAuthRejectedError } from "./persisted-auth-rejection.js";
 import { hasMachineSuspensionMarker } from "./suspension-marker.js";
 
 interface ReportStartupFailureArgs {
@@ -46,7 +48,11 @@ function reportStartupFailure(args: ReportStartupFailureArgs): void {
     args.error instanceof Error
       ? (args.error.stack ?? args.error.message)
       : String(args.error);
-  process.stderr.write(`${message}\n`, () => process.exit(1));
+  const exitCode =
+    args.error instanceof PersistedHostAuthRejectedError
+      ? HOST_DAEMON_AUTH_REJECTED_EXIT_CODE
+      : 1;
+  process.stderr.write(`${message}\n`, () => process.exit(exitCode));
 }
 
 async function runHostDaemonEntrypoint(): Promise<void> {
