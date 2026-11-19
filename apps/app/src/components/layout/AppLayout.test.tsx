@@ -549,7 +549,7 @@ describe("AppLayout sidebar state is scoped to this tab", () => {
   }
 
   it("keeps this tab expanded when another tab collapses the sidebar", () => {
-    window.localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, "true");
+    window.sessionStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, "true");
     renderLayout();
     expect(sidebarRoot().getAttribute("data-state")).toBe("expanded");
 
@@ -559,7 +559,7 @@ describe("AppLayout sidebar state is scoped to this tab", () => {
   });
 
   it("keeps this tab's width when another tab resizes the sidebar", () => {
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, "320");
+    window.sessionStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, "320");
     renderLayout();
     const gap = document.querySelector('[data-sidebar="gap"]');
     expect(widthVar(gap)).toBe("320px");
@@ -611,7 +611,7 @@ describe("AppLayout sidebar resize drag", () => {
   );
 
   it("writes the live width on the sidebar gap and panel only, never on the app root or body", () => {
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, "320");
+    window.sessionStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, "320");
     renderLayout();
 
     const root = getRoot();
@@ -638,7 +638,9 @@ describe("AppLayout sidebar resize drag", () => {
     expect(root.getAttribute("style")).toBe(rootStyleBefore);
     expect(document.body.style.cursor).toBe("");
     expect(document.body.style.userSelect).toBe("");
-    expect(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe("320");
+    expect(window.sessionStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe(
+      "320",
+    );
 
     act(() => {
       fireEvent.mouseUp(window);
@@ -647,7 +649,9 @@ describe("AppLayout sidebar resize drag", () => {
     expect(widthVar(gap)).toBe("360px");
     expect(widthVar(panel)).toBe("360px");
     expect(widthVar(root)).toBe("");
-    expect(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe("360");
+    expect(window.sessionStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)).toBe(
+      "360",
+    );
     expect(document.body.classList.contains("sidebar-resizing")).toBe(false);
   });
 

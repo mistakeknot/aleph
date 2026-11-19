@@ -74,7 +74,7 @@ import {
   type PluginNavPanelChrome,
 } from "@/lib/plugin-nav-panel-chrome";
 import type { PluginNavPanelSlot } from "@/lib/plugin-slots";
-import { createTabScopedStorage } from "@/lib/browser-storage";
+import { createWindowScopedStorage } from "@/lib/browser-storage";
 import {
   BROWSER_SIDEBAR_TRIGGER_INSET_CLASS,
   CHROME_ROW_CLASS,
@@ -151,7 +151,7 @@ function clampSidebarWidth(value: number) {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, value));
 }
 
-const sidebarWidthStorage = createTabScopedStorage<number>(
+const sidebarWidthStorage = createWindowScopedStorage<number>(
   {
     parse: (storedValue, initialValue) => {
       if (storedValue === null) {

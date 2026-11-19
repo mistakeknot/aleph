@@ -3,8 +3,8 @@ import { atom, type WritableAtom } from "jotai";
 import { atomWithStorage, RESET } from "jotai/utils";
 import { atomFamily } from "jotai-family";
 import {
-  booleanLocalStorage,
-  createLocalStorageSyncStorage,
+  booleanWindowStorage,
+  createWindowScopedStorage,
 } from "@/lib/browser-storage";
 import {
   createClassScopedAtom,
@@ -29,12 +29,12 @@ function parseSecondaryPanelWidthPercent(storedValue: string | null) {
   return Number.isFinite(parsed) && parsed > 0 && parsed <= 100 ? parsed : null;
 }
 
-const secondaryPanelWidthStorage = createLocalStorageSyncStorage<number>({
+const secondaryPanelWidthStorage = createWindowScopedStorage<number>({
   parse: (storedValue, initialValue) =>
     parseSecondaryPanelWidthPercent(storedValue) ?? initialValue,
   serialize: (value) => String(value),
 });
-const threadSecondaryPanelWidthOverrideStorage = createLocalStorageSyncStorage<
+const threadSecondaryPanelWidthOverrideStorage = createWindowScopedStorage<
   number | null
 >({
   parse: (storedValue, initialValue) =>
@@ -156,7 +156,7 @@ const threadConversationCollapsedAtomFamily = atomFamily(
     atomWithStorage<boolean>(
       `${THREAD_CONVERSATION_COLLAPSED_STORAGE_PREFIX}-${encodeURIComponent(threadId)}`,
       false,
-      booleanLocalStorage,
+      booleanWindowStorage,
       { getOnInit: true },
     ),
 );

@@ -76,12 +76,14 @@ function setup() {
 describe("width-class secondary panel suppression", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     resetFixedPanelTabsStateForTest();
     seedOpenPanel();
   });
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   it("hides an open panel in narrow and shows it in wide", () => {
@@ -107,9 +109,11 @@ describe("width-class secondary panel suppression", () => {
     setWidth(1000);
     toggle();
     expect(hook.result.current.state.secondary.isOpen).toBe(true);
-    expect(window.localStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe("false");
-    expect(window.localStorage.getItem(SUPPRESSED_KEY("wide"))).toBeNull();
-    expect(window.localStorage.getItem(SUPPRESSED_KEY("medium"))).toBeNull();
+    expect(window.sessionStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe(
+      "false",
+    );
+    expect(window.sessionStorage.getItem(SUPPRESSED_KEY("wide"))).toBeNull();
+    expect(window.sessionStorage.getItem(SUPPRESSED_KEY("medium"))).toBeNull();
   });
 
   it("closing in narrow suppresses without touching per-thread state", () => {
@@ -118,7 +122,9 @@ describe("width-class secondary panel suppression", () => {
     toggle(); // show
     toggle(); // hide again
     expect(hook.result.current.state.secondary.isOpen).toBe(false);
-    expect(window.localStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe("true");
+    expect(window.sessionStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe(
+      "true",
+    );
     expect(persistedOpen()).toBe(true);
     setWidth(2200);
     expect(hook.result.current.state.secondary.isOpen).toBe(true);
@@ -130,7 +136,9 @@ describe("width-class secondary panel suppression", () => {
     expect(hook.result.current.state.secondary.isOpen).toBe(false);
     act(() => hook.result.current.setTab("thread-info"));
     expect(hook.result.current.state.secondary.isOpen).toBe(true);
-    expect(window.localStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe("false");
+    expect(window.sessionStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe(
+      "false",
+    );
   });
 
   it("wide behavior is unchanged: close writes per-thread state, no suppression", () => {
@@ -140,12 +148,13 @@ describe("width-class secondary panel suppression", () => {
     act(() => hook.result.current.close());
     expect(persistedOpen()).toBe(false);
     expect(hook.result.current.state.secondary.isOpen).toBe(false);
-    expect(window.localStorage.getItem(SUPPRESSED_KEY("wide"))).toBeNull();
+    expect(window.sessionStorage.getItem(SUPPRESSED_KEY("wide"))).toBeNull();
   });
 
   describe("panel stored closed (single-action reveal)", () => {
     beforeEach(() => {
       window.localStorage.clear();
+      window.sessionStorage.clear();
       resetFixedPanelTabsStateForTest();
       seedOpenPanel(false);
     });
@@ -156,7 +165,7 @@ describe("width-class secondary panel suppression", () => {
       toggle();
       expect(hook.result.current.state.secondary.isOpen).toBe(true);
       expect(persistedOpen()).toBe(true);
-      expect(window.localStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe(
+      expect(window.sessionStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe(
         "false",
       );
     });
@@ -173,7 +182,7 @@ describe("width-class secondary panel suppression", () => {
       setWidth(1500);
       act(() => hook.result.current.setTerminal("term-1"));
       expect(hook.result.current.state.secondary.isOpen).toBe(true);
-      expect(window.localStorage.getItem(SUPPRESSED_KEY("medium"))).toBe(
+      expect(window.sessionStorage.getItem(SUPPRESSED_KEY("medium"))).toBe(
         "false",
       );
     });
