@@ -181,11 +181,12 @@ export function registerUsageSource(bb: BbPluginApi, hub: AccountPoolHub) {
           };
         });
         const resource = resources[0]!;
+        const failureReason = usageFailureReason(accounts[0]!.error);
         return {
           accountKey: resource.accountKey,
           observedAt: resource.observedAt,
           usage: resource.usage,
-          failureReason: usageFailureReason(accounts[0]!.error),
+          ...(failureReason === undefined ? {} : { failureReason }),
         };
       },
     },
