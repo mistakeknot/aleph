@@ -1,3 +1,4 @@
+import { selectThreadTimelineResponse } from "./timeline-response-selection.js";
 import { performance } from "node:perf_hooks";
 import {
   getAppSettings,
@@ -14,7 +15,6 @@ import {
   type ThreadTimelineSubscriptionTarget,
 } from "@bb/domain";
 import {
-  computeThreadTimelineDelta,
   isThreadTimelineDelta,
   type ThreadTimelineReadResponse,
   type ThreadTimelineResponse,
@@ -43,7 +43,7 @@ import { forgetTimelineGroupingContexts } from "./timeline-context-order.js";
 import { forgetTimelineProjectionFolds } from "./timeline-projection-fold.js";
 import { forgetLatestTimelineSelections } from "./timeline-selection-memo.js";
 import { createTimelineServedWindowsCache } from "./timeline-served-windows-cache.js";
-import { timelineRowHash, timelineWindowTag } from "./timeline-window-tag.js";
+import { timelineWindowTag } from "./timeline-window-tag.js";
 import { resolveThreadHeadStateOptions } from "./thread-head-state.js";
 import { reuseUnchangedTimelineWindowParts } from "./timeline-window-reuse.js";
 import {
@@ -303,7 +303,7 @@ export function createThreadTimelineWindows(
         timeline:
           baseline === undefined
             ? response
-            : computeThreadTimelineDelta(baseline, response, timelineRowHash),
+            : selectThreadTimelineResponse(baseline, response),
       },
     }));
     return { pushes, response, windowKey };
@@ -451,7 +451,7 @@ export function createThreadTimelineWindows(
       }
       return previous === undefined
         ? response
-        : computeThreadTimelineDelta(previous, response, timelineRowHash);
+        : selectThreadTimelineResponse(previous, response);
     },
   };
 }
