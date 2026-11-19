@@ -1,5 +1,10 @@
 import { execFile } from "node:child_process";
 
+export const VERIFIED_CLAUDE_VERSIONS = {
+  legacy: ["2.1.323 (Claude Code)", "2.1.327 (Claude Code)"],
+  restricted: ["2.1.325 (Claude Code)", "2.1.327 (Claude Code)"],
+} as const;
+
 const RUNTIME_NAMES = new Set([
   "PATH",
   "HOME",
@@ -51,14 +56,17 @@ export async function verifyClaudeScrub(
   probe: Probe = runProbe,
   platform: NodeJS.Platform = process.platform,
   profile: "legacy" | "restricted" = "legacy",
+  onVersion?: (version: string) => void,
 ): Promise<boolean> {
   if (platform !== "linux") return false;
   const env = claudeEnvironment(source);
   try {
     const version = (await probe("claude", ["--version"], env)).trim();
+    onVersion?.(version);
     if (
-      version !==
-      `${profile === "restricted" ? "2.1.325" : "2.1.323"} (Claude Code)`
+      !VERIFIED_CLAUDE_VERSIONS[profile].some(
+        (verified) => verified === version,
+      )
     )
       return false;
     if (profile === "restricted") {
