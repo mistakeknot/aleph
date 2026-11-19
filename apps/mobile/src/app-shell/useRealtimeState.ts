@@ -28,7 +28,8 @@ export function useConnectionBannerState(): {
   kind: ConnectionBannerKind;
   diagnosis: ConnectionDiagnosis | null;
 } {
-  const { connection, activeProfile, status } = useProfiles();
+  const { connection, activeProfile, status, profiles, loadError } =
+    useProfiles();
   const realtimeState = useRealtimeConnectionState();
   const clientKey = connection?.client.profileId ?? null;
   const [graceElapsedFor, setGraceElapsedFor] = useState<string | null>(null);
@@ -45,6 +46,7 @@ export function useConnectionBannerState(): {
   const evidence = observeConnectionHops({
     profileReady: status === "ready",
     hasProfile: activeProfile !== null,
+    hasSavedProfileEvidence: profiles.length > 0 || loadError !== null,
     session: connection?.session ?? null,
     realtime: connection ? realtimeState : null,
   });

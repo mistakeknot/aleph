@@ -99,6 +99,7 @@ describe("connection hop diagnosis", () => {
     const input = {
       profileReady: true,
       hasProfile: true,
+      hasSavedProfileEvidence: true,
       session: { status: "auth-required" as const, detail: "Expired" },
       realtime: "connecting" as const,
     };
@@ -119,5 +120,32 @@ describe("connection hop diagnosis", () => {
     expect(
       observeConnectionHops({ ...input, hasProfile: false }).profile.status,
     ).toBe("checked-failed");
+  });
+});
+
+it("does not diagnose first-run onboarding as a profile failure", () => {
+  const evidence = observeConnectionHops({
+    profileReady: true,
+    hasProfile: false,
+    hasSavedProfileEvidence: false,
+    session: null,
+    realtime: null,
+  });
+  expect(evidence.profile.status).toBe("unchecked");
+  expect(diagnoseConnection(evidence)).toBeNull();
+});
+
+it("diagnoses a missing saved selection when other saved profiles exist", () => {
+  const evidence = observeConnectionHops({
+    profileReady: true,
+    hasProfile: false,
+    hasSavedProfileEvidence: true,
+    session: null,
+    realtime: null,
+  });
+  expect(diagnoseConnection(evidence)).toMatchObject({
+    hop: "profile",
+    headline: "Server profile needs attention",
+    action: "Choose a server profile",
   });
 });

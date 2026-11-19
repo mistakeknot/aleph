@@ -57,11 +57,13 @@ export function diagnoseConnection(
 export function observeConnectionHops({
   profileReady,
   hasProfile,
+  hasSavedProfileEvidence,
   session,
   realtime,
 }: {
   profileReady: boolean;
   hasProfile: boolean;
+  hasSavedProfileEvidence: boolean;
   session: SessionState | null;
   realtime: MobileRealtimeConnectionState | null;
 }): ConnectionHopEvidence {
@@ -83,7 +85,9 @@ export function observeConnectionHops({
       ? unchecked
       : hasProfile
         ? { status: "checked-ok" }
-        : { status: "checked-failed", reason: "No active server profile" },
+        : hasSavedProfileEvidence
+          ? { status: "checked-failed", reason: "No active server profile" }
+          : unchecked,
     session: sessionEvidence,
     tunnel: unchecked,
     socket:
