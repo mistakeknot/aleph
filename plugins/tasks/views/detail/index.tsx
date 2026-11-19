@@ -332,9 +332,19 @@ function TaskDetail({ task }: { task: Task }) {
   };
 
   useEffect(() => {
-    return () => {
+    const flush = () => {
       saverRef.current?.flush(task.id);
       reportSaverRef.current?.flush(task.id);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      flush();
     };
   }, [task.id]);
 
