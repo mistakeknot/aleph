@@ -172,9 +172,11 @@ in the skill, including empty settings and MCP configuration. Its host-built arg
 has no user-settings fallback. It refuses `--allowedTools` so a blanket allow
 rule cannot override directory confinement. Duplicate security options, incomplete
 profiles, write/shell tools and restricted values outside the profile are refused.
-The Linux host qualifies this profile against exactly Claude Code 2.1.325 or 2.1.327,
-including its advertised restricted capabilities; the existing legacy qualifier
-accepts exactly 2.1.323 or 2.1.327. Restricted reviews require prompt-file exclusively;
+The Linux host's exact-output allowlist includes Claude Code 2.1.325 and 2.1.327
+for this profile, including checks for advertised restricted capabilities; the
+legacy allowlist includes exactly 2.1.323 and 2.1.327. The restricted-runtime canary
+for Claude Code 2.1.327 has not run. Allowlist membership does not establish that
+runtime qualification. Restricted reviews require prompt-file exclusively;
 positional prompts, private stdin sources and add-dir grants are refused. The
 host opens the validated cwd with directory/nofollow flags, checks the descriptor
 path and workspace containment, and takes its device/inode identity from fstat.
