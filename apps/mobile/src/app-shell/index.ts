@@ -12,6 +12,7 @@ export { ShareIntentHandler } from "./ShareIntentHandler";
 export { useAppBoot } from "./useAppBoot";
 export {
   useConnectionBanner,
+  useConnectionBannerState,
   useRealtimeConnectionState,
 } from "./useRealtimeState";
 export { QuickActionsHandler } from "./QuickActionsHandler";

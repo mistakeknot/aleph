@@ -28,6 +28,7 @@ import { getActiveProfileConnector } from "./connector";
 
 export interface ProfilesContextValue {
   status: ProfileStoreStatus;
+  loadError: string | null;
   profiles: readonly ServerProfile[];
   activeProfile: ServerProfile | null;
   connection: ActiveProfileConnection | null;
@@ -76,6 +77,7 @@ export function ProfilesProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ProfilesContextValue>(
     () => ({
       status: storeState.status,
+      loadError: storeState.loadError,
       profiles: storeState.profiles,
       activeProfile,
       connection,

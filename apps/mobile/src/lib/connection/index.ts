@@ -8,3 +8,10 @@ export {
   deriveConnectionBanner,
   type ConnectionBannerKind,
 } from "./connection-banner";
+
+export {
+  diagnoseConnection,
+  observeConnectionHops,
+  type ConnectionDiagnosis,
+  type ConnectionHopEvidence,
+} from "./connection-diagnosis";
