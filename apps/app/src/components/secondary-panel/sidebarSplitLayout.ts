@@ -982,7 +982,8 @@ export function pruneSidebarSplitStorage({
       threadId: panelStateId,
     });
     const lastUsedAt = getFixedPanelTabsLastUsedAt(
-      storage.getItem(fixedPanelTabsKey),
+      storage.getItem(`${fixedPanelTabsKey}.content`) ??
+        storage.getItem(fixedPanelTabsKey),
     );
     if (
       panelStateId.length === 0 ||
