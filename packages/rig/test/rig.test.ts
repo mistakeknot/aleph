@@ -512,3 +512,12 @@ it("refuses a placeholder Codex hook event before writing", async () => {
     applyRig(rig, { ...f, target: f.dataDir, dryRun: false }),
   ).rejects.toThrow("Unsupported native hook");
 });
+it("skips dangling skill aliases and aliases to ordinary files", async () => {
+  const f = await fixture();
+  const root = join(f.agentHome, ".agents/skills");
+  await mkdir(root, { recursive: true });
+  await symlink(join(f.root, "missing"), join(root, "dangling"));
+  await writeFile(join(f.root, "ordinary.txt"), "Fixture text.");
+  await symlink(join(f.root, "ordinary.txt"), join(root, "ordinary"));
+  expect((await exportRig(f)).rig.skills).toEqual([]);
+});

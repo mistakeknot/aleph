@@ -8,6 +8,7 @@ import {
   readFile,
   realpath,
   writeFile,
+  stat,
   rename,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -201,7 +202,12 @@ async function exists(p: string): Promise<boolean> {
     await access(p, constants.F_OK);
     return true;
   } catch (e) {
-    if (e && typeof e === "object" && "code" in e && e.code === "ENOENT")
+    if (
+      e &&
+      typeof e === "object" &&
+      "code" in e &&
+      (e.code === "ENOENT" || e.code === "ENOTDIR")
+    )
       return false;
     throw new Error("Cannot inspect install");
   }
@@ -737,7 +743,9 @@ export async function applyRig(
       connection.$client.close();
     }
   }
-  const db = new DatabaseSync(join(target, "bb.db"));
+  const { createConnection, upsertInstalledPlugin } = await import("@bb/db");
+  const connection = createConnection(join(target, "bb.db"));
+  const db = connection.$client;
   try {
     db.exec("BEGIN IMMEDIATE");
     for (const plugin of rig.plugins) {
@@ -770,20 +778,30 @@ export async function applyRig(
           source: plugin.source,
           digest: await treeDigest(root),
         });
-        db.prepare(
-          "INSERT INTO plugins(id,source,source_kind,source_builtin_name,source_path,root_dir,version,enabled,installed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,source_kind=excluded.source_kind,source_builtin_name=excluded.source_builtin_name,source_path=excluded.source_path,root_dir=excluded.root_dir,version=excluded.version,enabled=excluded.enabled,removed_at=NULL,updated_at=excluded.updated_at",
-        ).run(
-          plugin.id,
-          JSON.stringify(plugin.source),
-          kind,
-          "builtin" in plugin.source ? plugin.source.builtin : null,
-          root,
-          root,
-          plugin.version,
-          plugin.enabled ? 1 : 0,
-          Date.now(),
-          Date.now(),
-        );
+        upsertInstalledPlugin(connection, {
+          id: plugin.id,
+          source:
+            kind === "builtin"
+              ? `builtin:${"builtin" in plugin.source ? plugin.source.builtin : plugin.id}`
+              : `path:${root}`,
+          provenance: { kind: kind === "builtin" ? "builtin" : "direct" },
+          sourceIntent:
+            "builtin" in plugin.source
+              ? { kind: "builtin", name: plugin.source.builtin }
+              : { kind: "path", canonicalPath: root },
+          exactResolution: { kind: kind === "builtin" ? "builtin" : "path" },
+          updateState: {
+            lastCheckAt: null,
+            availableCompatibleVersion: null,
+            newestIncompatibleVersion: null,
+            statusDetail: null,
+          },
+          activeArtifactId: null,
+          rootDir: root,
+          version: plugin.version,
+          enabled: plugin.enabled,
+          enabledFollowsDefault: false,
+        });
       }
       db.prepare("UPDATE plugins SET enabled=?,updated_at=? WHERE id=?").run(
         plugin.enabled ? 1 : 0,
@@ -1007,10 +1025,7 @@ async function skillDirectories(
     if (await exists(join(child, "SKILL.md"))) found.push(rel);
     else {
       try {
-        if (
-          (await lstat(child)).isDirectory() ||
-          (await lstat(child)).isSymbolicLink()
-        )
+        if ((await exists(child)) && (await stat(child)).isDirectory())
           found.push(...(await skillDirectories(child, rel, seen, depth + 1)));
       } catch {
         throw new Error("Cannot inspect skill directory");
