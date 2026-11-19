@@ -505,7 +505,8 @@ function AccountUsage({
           <UsageWindow key={window.label} window={window} now={now} />
         ))
       ) : null}
-      {account.refreshFailure !== undefined && account.accountLabel !== null ? (
+      {account.refreshFailure === "needs_sign_in" &&
+      account.accountLabel !== null ? (
         <p className="col-span-full text-2xs text-subtle-foreground">
           {account.id.startsWith("bb--account-pool:")
             ? "Open Account Pooler settings, select this account, then choose “Sign in again”."
@@ -728,11 +729,20 @@ export function ProviderUsageStatusContent({
             retry: false,
           }
         : snapshot.error !== null || activeMachine.error !== null
-          ? hasActiveUsage
+          ? hasActiveUsage ||
+            activeAccounts.some(
+              (account) => account.refreshFailure !== undefined,
+            )
             ? {
                 kind: "stale",
                 icon: "AlertTriangle",
-                message: usageFeedbackMessages.refreshFailed,
+                message: hasReportedUsage(
+                  activeAccounts.filter(
+                    (account) => account.refreshFailure === undefined,
+                  ),
+                )
+                  ? usageFeedbackMessages.refreshFailed
+                  : usageFeedbackMessages.loadFailed,
                 retry: true,
               }
             : {

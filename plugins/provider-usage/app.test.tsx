@@ -26,13 +26,16 @@ afterEach(() => {
 });
 
 it.each([
-  ["needs_sign_in", true, false],
-  ["unavailable", true, false],
-  ["needs_sign_in", false, true],
-  ["unavailable", false, true],
+  ["needs_sign_in", true, false, false],
+  ["unavailable", true, false, false],
+  ["needs_sign_in", false, true, false],
+  ["unavailable", false, true, false],
+  ["unavailable", true, true, true],
+  ["needs_sign_in", false, true, true],
+  ["unavailable", false, true, true],
 ] as const)(
   "marks the failed row for %s with cached quota %s and machine failure %s",
-  (refreshFailure, cached, machineFailure) => {
+  (refreshFailure, cached, machineFailure, allFailed) => {
     installTestPluginRuntime();
     const account = (label: string, failed: boolean) => ({
       id: `bb--account-pool:${label}`,
@@ -82,7 +85,7 @@ it.each([
                   : null,
                 providers: [
                   account("Primary", true),
-                  account("Secondary", false),
+                  account("Secondary", allFailed),
                 ],
               },
             ],
@@ -99,11 +102,14 @@ it.each([
           : "Couldn’t refresh this account. Quota unavailable.",
       ),
     ).toBeTruthy();
-    expect(failed.getByText(/Account Pooler settings/)).toBeTruthy();
-    expect(view.getByText("80% left")).toBeTruthy();
+    expect(failed.queryByText(/Account Pooler settings/) !== null).toBe(
+      refreshFailure === "needs_sign_in",
+    );
+    expect(view.queryByText("80% left") !== null).toBe(!allFailed);
     expect(
       view.queryByText("Couldn’t refresh. Showing last update.") !== null,
-    ).toBe(machineFailure);
+    ).toBe(machineFailure && !allFailed);
+    if (allFailed) expect(view.getByText("Couldn’t load usage.")).toBeTruthy();
   },
 );
 
