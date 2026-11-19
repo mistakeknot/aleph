@@ -41,7 +41,7 @@ still point at the daemon user's real home and Claude configuration directory;
 other credentials stored in files there are outside this guarantee. This is
 the same home/configuration boundary used by dispatch.sh today.
 
-Tool-capable launches require Linux, the verified Claude Code 2.1.323 release,
+Tool-capable launches require Linux, a verified Claude Code 2.1.323 or 2.1.327 release,
 working socat and ripgrep executables, and a successful bubblewrap user/PID/network
 namespace probe with nested user namespaces disabled. Unknown versions fail
 closed until verified. The check runs before passing a pool token to Claude;
@@ -121,9 +121,12 @@ and positional prompts, and require prompt-file as the only input source. Stage
 everything the seat reads beneath cwd. Input-format overrides, partial-message and
 session-ID flags remain refused; budgeted usage-wrapper execution is separate.
 
-The restricted profile qualifies exactly Claude Code 2.1.325 on Linux with the
+The restricted profile qualifies exactly Claude Code 2.1.325 or 2.1.327 on Linux with the
 required capabilities and isolation dependencies. Legacy tool-capable seats
-retain their 2.1.323 qualification. Restricted model-visible tools are confined
+qualify exactly 2.1.323 or 2.1.327. See the reference's re-verification procedure
+before adding a release. From 2.1.327, scrubbing forces the default permission
+mode; legacy pooled callers must declare `--allowedTools` explicitly for tools
+that need permission. Restricted model-visible tools are confined
 to their working directories and cannot read process/device files; the host
 pins the validated cwd by descriptor and uses it for spawn and file access, then
 checks the child's identity before supplying the prompt. Provider credentials

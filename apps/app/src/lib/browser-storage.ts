@@ -181,6 +181,47 @@ export function createTabScopedStorage<T>(
   };
 }
 
+export function createWindowScopedStorage<T>(
+  codec: StoredValueCodec<T>,
+  { persistInitialValue = false }: { persistInitialValue?: boolean } = {},
+): SyncStorage<T> {
+  return {
+    getItem: (key, initialValue) =>
+      withSessionStorage((storage) => {
+        let storedValue = storage.getItem(key);
+        if (storedValue === null) {
+          const legacyValue = localStorageStringStorage.getItem(key);
+          if (legacyValue !== null) {
+            storage.setItem(key, legacyValue);
+            localStorageStringStorage.removeItem(key);
+            storedValue = legacyValue;
+          }
+        }
+        const value = codec.parse(storedValue, initialValue);
+        if (persistInitialValue) storage.setItem(key, codec.serialize(value));
+        return value;
+      }, initialValue),
+    setItem: (key, value) => {
+      withSessionStorage(
+        (storage) => storage.setItem(key, codec.serialize(value)),
+        undefined,
+      );
+    },
+    removeItem: (key) => {
+      withSessionStorage((storage) => storage.removeItem(key), undefined);
+    },
+  };
+}
+
+export const booleanWindowStorage = createWindowScopedStorage<boolean>({
+  parse: (storedValue, initialValue) => {
+    if (storedValue === "true") return true;
+    if (storedValue === "false") return false;
+    return initialValue;
+  },
+  serialize: String,
+});
+
 export function createLocalStorageSyncStorage<T>(
   codec: StoredValueCodec<T>,
 ): SyncStorage<T> {

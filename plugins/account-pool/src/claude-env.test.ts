@@ -4,6 +4,77 @@ import { claudeEnvironment, verifyClaudeScrub } from "./claude-env.js";
 describe("Claude pool environment", () => {
   const restrictedHelp =
     "--restricted --safe-mode --tools --permission-mode --strict-mcp-config --no-chrome --no-session-persistence --disable-slash-commands";
+  it.each([
+    ["legacy", "2.1.323", true],
+    ["legacy", "2.1.327", true],
+    ["restricted", "2.1.325", true],
+    ["restricted", "2.1.327", true],
+    ["legacy", "2.1.325", false],
+    ["legacy", "2.1.326", false],
+    ["legacy", "2.1.328", false],
+    ["restricted", "2.1.326", false],
+    ["restricted", "2.1.328", false],
+  ] as const)(
+    "qualifies %s exact version %s: %s",
+    async (profile, version, accepted) => {
+      expect(
+        await verifyClaudeScrub(
+          {},
+          async (command, args) =>
+            command === "claude"
+              ? args[0] === "--version"
+                ? `${version} (Claude Code)`
+                : restrictedHelp
+              : "",
+          "linux",
+          profile,
+        ),
+      ).toBe(accepted);
+    },
+  );
+  it.each(["legacy", "restricted"] as const)(
+    "keeps dependency checks for 2.1.327 in %s",
+    async (profile) => {
+      for (const missing of ["socat", "rg", "bwrap"]) {
+        expect(
+          await verifyClaudeScrub(
+            {},
+            async (command, args) => {
+              if (command === missing) throw new Error("unavailable");
+              return command === "claude"
+                ? args[0] === "--version"
+                  ? "2.1.327 (Claude Code)"
+                  : restrictedHelp
+                : "";
+            },
+            "linux",
+            profile,
+          ),
+        ).toBe(false);
+      }
+    },
+  );
+  it.each(restrictedHelp.split(" "))(
+    "requires 2.1.327 restricted capability %s",
+    async (missing) => {
+      expect(
+        await verifyClaudeScrub(
+          {},
+          async (command, args) =>
+            command === "claude"
+              ? args[0] === "--version"
+                ? "2.1.327 (Claude Code)"
+                : restrictedHelp
+                    .split(" ")
+                    .filter((flag) => flag !== missing)
+                    .join(" ")
+              : "",
+          "linux",
+          "restricted",
+        ),
+      ).toBe(false);
+    },
+  );
   it("qualifies the restricted runtime separately from legacy", async () => {
     const probe = async (command: string, args: string[]) =>
       command === "claude"

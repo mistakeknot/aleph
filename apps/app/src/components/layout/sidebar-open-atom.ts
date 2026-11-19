@@ -1,9 +1,9 @@
 import { createClassScopedAtom } from "@/aleph/layoutProfiles";
-import { createTabScopedStorage } from "@/lib/browser-storage";
+import { createWindowScopedStorage } from "@/lib/browser-storage";
 
 export const SIDEBAR_OPEN_KEY = "bb.sidebar.open";
 
-const sidebarOpenStorage = createTabScopedStorage<boolean>(
+const sidebarOpenStorage = createWindowScopedStorage<boolean>(
   {
     parse: (storedValue, initialValue) => {
       if (storedValue === "true") return true;
