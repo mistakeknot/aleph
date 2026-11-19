@@ -15,6 +15,7 @@ import { experimental_createHostEntryHarness } from "@get-bb/plugin-sdk/testing/
 import { describe, expect, it, vi } from "vitest";
 import { createAccountPoolHostEntry as actualHostEntry } from "./host.js";
 import { RESTRICTED_CLAUDE_CONTROLS } from "./exec-args.js";
+import { verifyClaudeScrub } from "./claude-env.js";
 
 function createAccountPoolHostEntry(
   deps: Parameters<typeof actualHostEntry>[0],
@@ -37,6 +38,63 @@ function fakeChild() {
 }
 
 describe("Account Pooler host exec", () => {
+  it.each(["legacy", "restricted"] as const)(
+    "reports found and verified versions on %s refusal",
+    async (profile) => {
+      for (const version of ["2.1.326", "2.1.328"]) {
+        const spawn = vi.fn(() => fakeChild());
+        const harness = experimental_createHostEntryHarness(
+          createAccountPoolHostEntry({
+            spawn,
+            env: {},
+            checkClaudeScrub: async (
+              env,
+              _probe,
+              platform,
+              selected,
+              onVersion,
+            ) =>
+              verifyClaudeScrub(
+                env,
+                async () => `${version} (Claude Code)`,
+                platform,
+                selected,
+                onVersion,
+              ),
+          }),
+        );
+        const result = await harness.experimental_call("run", {
+          provider: "claude",
+          args:
+            profile === "restricted"
+              ? [...RESTRICTED_CLAUDE_CONTROLS, "-p"]
+              : ["--print", "--allowedTools=Bash", "--permission-mode=dontAsk"],
+          cwd: process.cwd(),
+          workspacePath: process.cwd(),
+          stdinDir: null,
+          stdinPath: null,
+          token: "synthetic-secret",
+          baseUrl: "http://127.0.0.1",
+        });
+        expect(result.started).toBe(false);
+        expect(spawn).not.toHaveBeenCalled();
+        expect(result.stderr).toContain(
+          `Found version: "${version} (Claude Code)".`,
+        );
+        expect(result.stderr).toContain(
+          `Verified versions (${profile}): ${profile === "legacy" ? "2.1.323" : "2.1.325"} (Claude Code), 2.1.327 (Claude Code).`,
+        );
+        expect(result.stderr).toContain(
+          "subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation",
+        );
+        if (profile === "legacy")
+          expect(result.stderr).toContain(
+            "Tool-free --print --tools= without project/local settings may still run.",
+          );
+        await harness.experimental_dispose();
+      }
+    },
+  );
   it("selects the restricted runtime qualifier without changing legacy qualification", async () => {
     const child = Object.assign(fakeChild(), { pid: process.pid });
     child.stdin.on("finish", () => child.emit("close", 0, null));

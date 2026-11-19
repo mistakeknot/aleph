@@ -11,7 +11,11 @@ import {
   RESTRICTED_CLAUDE_CONTROLS,
 } from "./exec-args.js";
 import { readPoolInput } from "./exec-input.js";
-import { claudeEnvironment, verifyClaudeScrub } from "./claude-env.js";
+import {
+  claudeEnvironment,
+  verifyClaudeScrub,
+  VERIFIED_CLAUDE_VERSIONS,
+} from "./claude-env.js";
 import {
   createExecOutput,
   readExecPrompt,
@@ -126,6 +130,8 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
               .split(",")
               .some((source) => source === "project" || source === "local"),
         );
+        let claudeVersion = "unknown";
+        const claudeProfile = restricted ? "restricted" : "legacy";
         if (
           input.provider === "claude" &&
           (!permittedArgs.includes("--tools=") || usesProjectSettings) &&
@@ -133,7 +139,10 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             deps.env,
             undefined,
             process.platform,
-            restricted ? "restricted" : "legacy",
+            claudeProfile,
+            (version) => {
+              claudeVersion = version;
+            },
           ))
         ) {
           return {
@@ -141,9 +150,11 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             providerPinned: false,
             exitCode: 1,
             stdout: "",
-            stderr: restricted
-              ? "Pool exec refused: restricted review requires verified Claude Code 2.1.325 restricted capabilities, subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation.\n"
-              : "Pool exec refused: Claude with tools or project/local settings requires verified Claude Code 2.1.323 subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation. Tool-free --print --tools= without project/local settings may still run.\n",
+            stderr:
+              (restricted
+                ? "Pool exec refused: restricted review requires verified Claude Code restricted capabilities, subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation. "
+                : "Pool exec refused: Claude with tools or project/local settings requires verified Claude Code subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation. Tool-free --print --tools= without project/local settings may still run. ") +
+              `Found version: ${JSON.stringify(claudeVersion)}. Verified versions (${claudeProfile}): ${VERIFIED_CLAUDE_VERSIONS[claudeProfile].join(", ")}.\n`,
           };
         }
         let cwd: string;

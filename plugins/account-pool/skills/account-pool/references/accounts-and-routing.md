@@ -172,9 +172,9 @@ in the skill, including empty settings and MCP configuration. Its host-built arg
 has no user-settings fallback. It refuses `--allowedTools` so a blanket allow
 rule cannot override directory confinement. Duplicate security options, incomplete
 profiles, write/shell tools and restricted values outside the profile are refused.
-The Linux host qualifies this profile against exactly Claude Code 2.1.325,
+The Linux host qualifies this profile against exactly Claude Code 2.1.325 or 2.1.327,
 including its advertised restricted capabilities; the existing legacy qualifier
-continues to require 2.1.323. Restricted reviews require prompt-file exclusively;
+accepts exactly 2.1.323 or 2.1.327. Restricted reviews require prompt-file exclusively;
 positional prompts, private stdin sources and add-dir grants are refused. The
 host opens the validated cwd with directory/nofollow flags, checks the descriptor
 path and workspace containment, and takes its device/inode identity from fstat.
@@ -183,6 +183,42 @@ the prompt the host checks the child's cwd identity and the pinned path again.
 Synthetic runtime checks cover process/device files, credential-directory
 symlinks, hostile instruction imports and directory replacements. This profile's
 model-visible tool boundary does not change the broader legacy profiles.
+
+### Re-verifying a Claude Code release
+
+Keep the per-profile exact-output lists in `src/claude-env.ts`; never use version
+ranges or infer safety from a newer version number.
+
+1. Record `claude --version`, the executable hash and its scrub implementation.
+   Confirm `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` still removes
+   `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_API_KEY` from tool environments and
+   requires bubblewrap. Keep the runtime environment allowlist intact.
+2. Run the existing socat, ripgrep and bubblewrap user/PID/network namespace
+   checks, including `--disable-userns`. For restricted qualification, confirm
+   every flag required by `verifyClaudeScrub` is advertised by `claude --help`.
+3. Run a local synthetic-token API fixture with an isolated HOME/configuration
+   directory and the pooled environment. Authenticate its requests with a fresh
+   synthetic token and verify that token exists in Claude's parent environment.
+   Have the fixture request a Bash tool that counts token names in its environment,
+   synthetic-token matches in readable `/proc/*/environ`, and access to Claude's
+   and the fixture driver's parent processes. Require zero exposures, positive
+   readable-process coverage, no tool errors and a successful child exit.
+   Retain redacted raw tool results and counts; never use a real account token.
+4. From 2.1.327, scrubbing forces the default permission mode, overriding
+   `--permission-mode=dontAsk`. Declare an explicit Bash allowance for the canary,
+   such as `Bash(bash ./probe.sh)`. Legacy pooled callers must supply an explicit
+   `--allowedTools` value supported by the pool argument allowlist; the host
+   preserves it and adds no default allowance. The restricted profile retains
+   its fixed read-only tool controls and refuses caller allowances.
+   Use a short `TMPDIR`: sandbox Unix socket paths must fit Linux's 108-byte
+   path limit. The host inherits the daemon's `TMPDIR` without shortening it,
+   so a long production value can also prevent sandbox initialization.
+5. Only after every applicable check passes, append the complete exact
+   `claude --version` output to that profile's list. Preserve previous entries
+   and all dependency/capability checks. Add acceptance and adjacent-unlisted-version
+   rejection tests, update the documented lists, and run package tests, typecheck
+   and formatting. A failed or unverified check leaves the version unlisted.
+
 The exact caller source list `project,local` replaces the user default; other non-empty source lists and `--settings` are rejected: host-managed routing prevents settings from replacing the endpoint or provider. Selecting project/local settings enables their hooks and helpers, as in dispatch; these are trusted caller code. The host also sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1` to prevent
 settings-file provider/auth/endpoint variables from overriding its route, and
 sets inherited Bedrock, Vertex and Foundry selectors to `0`.
