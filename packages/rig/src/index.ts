@@ -191,7 +191,8 @@ export function formatRig(rig: Rig): string {
   return stringifyYaml(parseRig(rig));
 }
 export function schemaJson(): object {
-  return z.toJSONSchema(rigSchema);
+  const { $schema: _dialect, ...schema } = z.toJSONSchema(rigSchema);
+  return schema;
 }
 function safeRelative(p: string): void {
   if (isAbsolute(p) || p.split(/[\\/]/u).includes("..") || p.includes("\0"))
