@@ -68,6 +68,115 @@ const cleanups: Array<() => Promise<void>> = [];
 const NEW_ACCOUNT = { kind: "add", label: null, priority: 100 } as const;
 
 describe("attempt receipts", () => {
+  it.each(["terminal", "early", "malformed", "wrong-content-type"])(
+    "records synthetic Codex metadata and %s stream cancellation",
+    async (mode) => {
+      const created =
+        'data: {"type":"response.created","response":{"model":"synthetic-model"}}\n\n';
+      const completed =
+        'data: {"type":"response.completed","response":{"status":"completed","model":"synthetic-model","usage":{"input_tokens":24159,"output_tokens":196,"input_tokens_details":{"cached_tokens":12032}}}}\n\n';
+      const fixture = await createOAuthRequestFixture(
+        "codex",
+        async (input) => {
+          if (String(input).includes("/models"))
+            return Response.json({ data: [] });
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                if (mode !== "early")
+                  controller.enqueue(
+                    new TextEncoder().encode(
+                      (mode === "malformed" ? "data: {broken}\n\n" : "") +
+                        created +
+                        completed,
+                    ),
+                  );
+              },
+            }),
+            {
+              headers: {
+                "content-type":
+                  mode === "wrong-content-type"
+                    ? "application/json"
+                    : "text/event-stream",
+              },
+            },
+          );
+        },
+        Date.now,
+      );
+      const lease = leaseSchema.parse(
+        await (await begin(fixture, "codex")).json(),
+      );
+      for (let i = 0; i < 2; i++) {
+        const response = await fixture.host.harness.behavior.fetchHttp(
+          "GET",
+          "/v1/models",
+          { headers: { authorization: `Bearer ${lease.token}` } },
+        );
+        await response.text();
+      }
+      const response = await fixture.host.harness.behavior.fetchHttp(
+        "POST",
+        "/v1/responses",
+        { headers: { authorization: `Bearer ${lease.token}` }, body: "{}" },
+      );
+      const reader = response.body!.getReader();
+      if (mode !== "early") {
+        const first = await reader.read();
+        expect(new TextDecoder().decode(first.value)).toContain(
+          "response.completed",
+        );
+      }
+      await reader.cancel();
+      const sealed = await (await seal(fixture, lease.id)).json();
+      const statuses = z
+        .object({
+          requests: z.array(
+            z.object({ hops: z.array(z.object({ status: z.number() })) }),
+          ),
+        })
+        .parse(sealed);
+      expect(
+        statuses.requests.map((request) =>
+          request.hops.map((hop) => hop.status),
+        ),
+      ).toEqual([[200], [200], [200]]);
+      const receipt = receiptSchema.parse(sealed);
+      expect(receipt.requests.slice(0, 2)).toMatchObject([
+        {
+          kind: "metadata",
+          state: "finished",
+          hops: [{ state: "unknown", model: null, usage: null }],
+        },
+        {
+          kind: "metadata",
+          state: "finished",
+          hops: [{ state: "unknown", model: null, usage: null }],
+        },
+      ]);
+      const inference = receipt.requests[2];
+      expect(inference?.hops[0]).toMatchObject(
+        mode === "terminal"
+          ? {
+              state: "complete",
+              model: "synthetic-model",
+              usage: { input_tokens: 12127, output_tokens: 196 },
+            }
+          : {
+              state: mode === "malformed" ? "truncated" : "cancelled",
+              model: null,
+              usage: null,
+            },
+      );
+      if (mode === "terminal") expect(inference?.state).toBe("finished");
+      else
+        expect(inference?.state).toBe(
+          mode === "malformed" ? "error" : "cancelled",
+        );
+    },
+  );
+
   it("waits for each concurrent stream without sharing same-host evidence", async () => {
     const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
     const fixture = await createFixture({

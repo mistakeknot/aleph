@@ -47,9 +47,15 @@ quota failover and transport failure, adds a hop before connecting. Hops contain
   subtracted from input before assigning the cache category; reasoning tokens are
   already included in output. Counts are disjoint and can be summed.
 
-Terminal provider usage is retained if a transport failure or cancellation occurs
-after it arrived. The hop's failure state still prevents acceptance; known usage
-does not turn a failed or incomplete transport into success.
+Successful metadata hops remain `unknown` with null model and usage; they have
+no inference terminal to attribute.
+
+A valid observed terminal remains complete if the client cancels after it arrived.
+A cancellation before a terminal remains cancelled; model and usage are never
+inferred from the request or client output. An observed decoding or parsing failure
+remains truncated even if the client subsequently cancels. Partial frames cut short
+by cancellation do not by themselves prove a parsing failure. Terminal usage is
+retained after a transport error, but that transport failure still prevents acceptance.
 
 `complete` means sealed, valid, nonempty and all correlated activity has ended.
 It does **not** mean all usage is known or the task succeeded. Accounting acceptance
