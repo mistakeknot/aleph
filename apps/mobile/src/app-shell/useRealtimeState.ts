@@ -2,6 +2,9 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   CONNECTING_BANNER_GRACE_MS,
   deriveConnectionBanner,
+  diagnoseConnection,
+  observeConnectionHops,
+  type ConnectionDiagnosis,
   type ConnectionBannerKind,
 } from "@/lib/connection";
 import type { MobileRealtimeConnectionState } from "@/lib/realtime";
@@ -18,7 +21,14 @@ export function useRealtimeConnectionState(): MobileRealtimeConnectionState {
 }
 
 export function useConnectionBanner(): ConnectionBannerKind {
-  const { connection } = useProfiles();
+  return useConnectionBannerState().kind;
+}
+
+export function useConnectionBannerState(): {
+  kind: ConnectionBannerKind;
+  diagnosis: ConnectionDiagnosis | null;
+} {
+  const { connection, activeProfile, status } = useProfiles();
   const realtimeState = useRealtimeConnectionState();
   const clientKey = connection?.client.profileId ?? null;
   const [graceElapsedFor, setGraceElapsedFor] = useState<string | null>(null);
@@ -32,12 +42,23 @@ export function useConnectionBanner(): ConnectionBannerKind {
     return () => clearTimeout(timer);
   }, [realtimeState, clientKey]);
 
-  if (!connection) return "hidden";
-  return deriveConnectionBanner({
-    session: connection.session,
-    realtime: realtimeState,
-    suspended: connection.client.realtime.isSuspended(),
-    connectingForMs:
-      graceElapsedFor === clientKey ? CONNECTING_BANNER_GRACE_MS : 0,
+  const evidence = observeConnectionHops({
+    profileReady: status === "ready",
+    hasProfile: activeProfile !== null,
+    session: connection?.session ?? null,
+    realtime: connection ? realtimeState : null,
   });
+  const suspended = connection?.client.realtime.isSuspended() ?? false;
+  const diagnosis = suspended ? null : diagnoseConnection(evidence);
+  if (!connection) return { kind: "hidden", diagnosis };
+  return {
+    diagnosis,
+    kind: deriveConnectionBanner({
+      session: connection.session,
+      realtime: realtimeState,
+      suspended,
+      connectingForMs:
+        graceElapsedFor === clientKey ? CONNECTING_BANNER_GRACE_MS : 0,
+    }),
+  };
 }

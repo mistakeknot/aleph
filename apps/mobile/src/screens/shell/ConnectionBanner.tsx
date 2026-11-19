@@ -6,7 +6,7 @@ import Animated, {
   FadeOutUp,
   LinearTransition,
 } from "react-native-reanimated";
-import { useConnectionBanner, useProfiles } from "@/app-shell";
+import { useConnectionBannerState, useProfiles } from "@/app-shell";
 import type { ConnectionBannerKind } from "@/lib/connection";
 import { haptic } from "@/lib/haptics";
 import { useTheme } from "@/theme";
@@ -49,7 +49,7 @@ const CARD_RADIUS = 12;
 
 export function ConnectionBanner() {
   const router = useRouter();
-  const kind = useConnectionBanner();
+  const { kind, diagnosis } = useConnectionBannerState();
   const { activeProfile } = useProfiles();
   const { tokens } = useTheme();
 
@@ -57,14 +57,16 @@ export function ConnectionBanner() {
     if (kind === "auth-required") haptic("warning");
   }, [kind]);
 
-  if (kind === "hidden" || !activeProfile) return null;
-  const copy = COPY[kind];
+  if (kind === "hidden" && !diagnosis) return null;
+  const copy = COPY[kind === "hidden" ? "auth-error" : kind];
   const color = copy.destructive ? tokens.destructiveText : tokens.warningText;
   const reauth =
-    kind === "auth-required" && activeProfile.mode === "connect"
+    diagnosis?.canSignIn && activeProfile?.mode === "connect"
       ? () => router.push(connectEnrollHref({ profileId: activeProfile.id }))
       : null;
-  const message = copy.message(activeProfile.label);
+  const message = diagnosis
+    ? diagnosis.headline + (reauth ? "" : "\n" + diagnosis.action)
+    : copy.message(activeProfile?.label ?? "Server");
   const cardStyle: ViewStyle = {
     flexDirection: "row",
     alignItems: "center",
@@ -83,7 +85,7 @@ export function ConnectionBanner() {
       <Text
         variant="footnote"
         weight="medium"
-        numberOfLines={2}
+        numberOfLines={diagnosis ? 3 : 2}
         className="flex-1"
         style={{ color }}
         testID={`connection-banner-${kind}`}
