@@ -1,3 +1,4 @@
+import { turnSnapshotDiffSchema } from "./turn-snapshot-contract.js";
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
@@ -197,7 +198,10 @@ const unavailableSchema = z
 
 export const gitStatusResultSchema = z.discriminatedUnion("outcome", [
   z
-    .object({ outcome: z.literal("available"), workspace: workspaceStatusSchema })
+    .object({
+      outcome: z.literal("available"),
+      workspace: workspaceStatusSchema,
+    })
     .strict(),
   notApplicableSchema,
   unavailableSchema,
@@ -214,7 +218,10 @@ export type GitStatusRow = z.infer<typeof gitStatusRowSchema>;
 
 export const gitDiffResultSchema = z.discriminatedUnion("outcome", [
   z
-    .object({ outcome: z.literal("available"), diff: threadGitDiffResponseSchema })
+    .object({
+      outcome: z.literal("available"),
+      diff: threadGitDiffResponseSchema,
+    })
     .strict(),
   notApplicableSchema,
   unavailableSchema,
@@ -333,7 +340,11 @@ export const gitFileSideQuerySchema = z.discriminatedUnion("target", [
     })
     .strict(),
   z
-    .object({ target: z.literal("commit"), sha: gitObjectIdSchema, ...fileSideShape })
+    .object({
+      target: z.literal("commit"),
+      sha: gitObjectIdSchema,
+      ...fileSideShape,
+    })
     .strict(),
 ]);
 export type GitFileSideQuery = z.infer<typeof gitFileSideQuerySchema>;
@@ -377,7 +388,41 @@ const hostReadFreshnessSchema = z
 
 export type GitReadFreshness = z.infer<typeof hostReadFreshnessSchema>;
 
+const turnSnapshotTargetSchema = z.object({
+  path: z.string().min(1),
+  repositoryPath: z.string().min(1),
+  branch: z.string().min(1),
+});
+export const turnSnapshotCaptureSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("captured"),
+    tree: z.string().regex(/^[0-9a-f]{40,64}$/u),
+  }),
+  z.object({ status: z.literal("incomplete"), reason: z.string() }),
+  z.object({ status: z.literal("not-captured"), reason: z.string() }),
+]);
+
 export const gitHostContract = defineRpcContract({
+  captureTurnSnapshot: {
+    input: turnSnapshotTargetSchema
+      .extend({
+        threadId: z.string().min(1),
+        token: z.string().regex(/^[0-9a-z-]+$/u),
+        phase: z.enum(["before", "after"]),
+      })
+      .strict(),
+    output: turnSnapshotCaptureSchema,
+  },
+  diffTurnSnapshots: {
+    experimental_retryable: true,
+    input: turnSnapshotTargetSchema
+      .extend({
+        before: z.string().regex(/^[0-9a-f]{40,64}$/u),
+        after: z.string().regex(/^[0-9a-f]{40,64}$/u),
+      })
+      .strict(),
+    output: turnSnapshotDiffSchema,
+  },
   status: {
     experimental_retryable: true,
     input: hostPathSchema

@@ -1,3 +1,7 @@
+import {
+  threadTurnSnapshots,
+  turnSnapshotsEnabled,
+} from "../services/threads/turn-snapshot-diff.js";
 import { applyWakeTurnCompletion } from "../services/threads/wake-turn-completion.js";
 import { performance } from "node:perf_hooks";
 import { pinAndHydrateThreadHistories } from "../services/threads/event-cold-tier/service.js";
@@ -352,6 +356,8 @@ async function applyEventEffects(
           type: event.type,
           scope: event.scope,
         });
+        if (turnSnapshotsEnabled())
+          threadTurnSnapshots(deps).started(entry.threadId, turnId);
         const outcome = runThreadLifecycleTransaction(deps, entry.threadId, {
           type: "turn.started",
           aimedAtByStop: isTurnAimedAtByEarlierStop(deps.db, {

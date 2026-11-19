@@ -1,3 +1,4 @@
+import type { TurnSnapshotDiff } from "./api/turn-snapshot-diff.js";
 import {
   wakeOutcomesQuerySchema,
   type WakeOutcomesQuery,
@@ -1975,6 +1976,12 @@ export const publicApiRoutes = {
       method: "post",
       request: noRequest<PathId>(),
       response: jsonResponse<ThreadResponse>(),
+    }),
+    turnSnapshotDiff: defineRoute({
+      path: "/threads/:id/turns/:turnId/snapshot-diff",
+      method: "get",
+      request: noRequest<PathId & { turnId: string }>(),
+      response: jsonResponse<TurnSnapshotDiff>(),
     }),
     timeline: defineRoute({
       path: "/threads/:id/timeline",

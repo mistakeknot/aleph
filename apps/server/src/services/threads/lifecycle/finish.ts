@@ -1,3 +1,7 @@
+import {
+  threadTurnSnapshots,
+  turnSnapshotsEnabled,
+} from "../turn-snapshot-diff.js";
 import { pinThreadHistory } from "../event-cold-tier/pins.js";
 import { withHotSelectedThreadHistories } from "../event-cold-tier/service.js";
 import {
@@ -230,6 +234,16 @@ async function finishHotThreadLifecycle(
   outcome: ThreadLifecycleOutcome,
   options: FinishThreadLifecycleOptions = {},
 ): Promise<void> {
+  if (turnSnapshotsEnabled()) {
+    for (const effect of outcome.effects) {
+      if (effect.kind === "turn-ended") {
+        await threadTurnSnapshots(deps).completed(
+          outcome.threadId,
+          effect.turnId,
+        );
+      }
+    }
+  }
   const thread = outcome.thread;
   if (outcome.statusChanged && thread !== null) {
     announceThreadStatusChange(deps, thread);
