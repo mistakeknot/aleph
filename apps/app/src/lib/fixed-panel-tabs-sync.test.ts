@@ -82,6 +82,7 @@ afterEach(() => {
   apiMocks.updateThreadTabs.mockReset();
   vi.restoreAllMocks();
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe("fixed panel tab server sync", () => {

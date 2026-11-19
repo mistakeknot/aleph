@@ -267,6 +267,18 @@ describe("sidebar split layout", () => {
     expect(storage.has("unrelated")).toBe(true);
   });
 
+  it("retains splits whose tab content was migrated out of the visibility key", () => {
+    const now = Date.now();
+    const splitKey = sidebarSplitStorageKey("migrated");
+    const contentKey = `${getFixedPanelTabsStateStorageKey({ threadId: "migrated" })}.content`;
+    const storage = createMemoryStorage({
+      [splitKey]: "layout",
+      [contentKey]: JSON.stringify({ lastUsedAt: now }),
+    });
+    pruneSidebarSplitStorage({ storage, now });
+    expect(storage.getItem(splitKey)).toBe("layout");
+  });
+
   it("rejects persisted layouts that exceed the shared pane cap", () => {
     const oversized = persistedStateWithPaneCount(MAX_PANES + 1);
     const availableTabIds = Array.from(

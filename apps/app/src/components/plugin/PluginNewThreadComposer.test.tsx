@@ -1,3 +1,4 @@
+import { readFixedPanelStorage } from "@/test/read-fixed-panel-storage";
 // @vitest-environment jsdom
 
 import {
@@ -1732,7 +1733,7 @@ describe("PluginNewThreadComposer seeding", () => {
     const panel = parseFixedPanelTabsState({
       initialValue: createEmptyFixedPanelTabsState(),
       now: Date.now(),
-      storedValue: window.localStorage.getItem(
+      storedValue: readFixedPanelStorage(
         getFixedPanelTabsStateStorageKey({
           threadId: ROOT_COMPOSE_FIXED_PANEL_STATE_ID,
         }),

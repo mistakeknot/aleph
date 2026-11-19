@@ -1,3 +1,4 @@
+import { readFixedPanelStorage } from "@/test/read-fixed-panel-storage";
 import {
   markPluginFrontendsSettled,
   resetPluginFrontendBootStateForTest,
@@ -310,7 +311,12 @@ it.each(cases)(
     );
     if (availability === "action")
       expect(saved[0].paramsJson).toBe('{"item":"one"}');
-    const stored = window.localStorage.getItem(
+    expect(
+      window.localStorage.getItem(
+        getFixedPanelTabsStateStorageKey({ threadId: "tab-contract" }),
+      ),
+    ).toBeNull();
+    const stored = readFixedPanelStorage(
       getFixedPanelTabsStateStorageKey({ threadId: "tab-contract" }),
     );
     expect(stored).not.toBeNull();

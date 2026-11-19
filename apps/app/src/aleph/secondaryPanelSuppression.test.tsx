@@ -59,7 +59,7 @@ function setup() {
   );
   const setWidth = (w: number) => act(() => store.set(widthClassAtom, w));
   const persistedOpen = () =>
-    JSON.parse(window.localStorage.getItem(PANEL_KEY) ?? "{}").secondary
+    JSON.parse(window.sessionStorage.getItem(PANEL_KEY) ?? "{}").secondary
       ?.isOpen;
   // Mirrors panel.toggle: close when visible, otherwise open.
   const toggle = () =>

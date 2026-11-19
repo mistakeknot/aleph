@@ -9,8 +9,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { atom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { atomFamily } from "jotai-family";
+import { z } from "zod";
 import type { TerminalCreateTarget } from "@bb/server-contract";
-import { createLocalStorageSyncStorage } from "./browser-storage";
+import {
+  createLocalStorageSyncStorage,
+  createWindowScopedStorage,
+  withLocalStorage,
+} from "./browser-storage";
 import {
   useIsSecondaryPanelSuppressed,
   useSecondaryPanelSuppressionActions,
@@ -84,7 +89,7 @@ function touchFixedPanelTabsState(
   };
 }
 
-const fixedPanelTabsStateStorage =
+const fixedPanelTabsContentStorage =
   createLocalStorageSyncStorage<FixedPanelTabsState>({
     parse: (storedValue, initialValue) =>
       parseFixedPanelTabsState({
@@ -92,8 +97,79 @@ const fixedPanelTabsStateStorage =
         now: Date.now(),
         storedValue,
       }),
-    serialize: (state) => serializeFixedPanelTabsState({ state }),
+    serialize: (state) =>
+      serializeFixedPanelTabsState({
+        state: {
+          ...state,
+          secondary: { ...state.secondary, isOpen: false },
+        },
+      }),
   });
+
+const panelVisibilitySchema = z.object({
+  secondary: z.object({ isOpen: z.boolean() }),
+});
+
+const fixedPanelVisibilityStorage = createWindowScopedStorage<boolean>(
+  {
+    parse: (storedValue, initialValue) => {
+      if (storedValue === null) return initialValue;
+      try {
+        const result = panelVisibilitySchema.safeParse(JSON.parse(storedValue));
+        return result.success ? result.data.secondary.isOpen : initialValue;
+      } catch {
+        return initialValue;
+      }
+    },
+    serialize: (isOpen) => JSON.stringify({ secondary: { isOpen } }),
+  },
+  { persistInitialValue: true },
+);
+
+const fixedPanelTabsStateStorage = {
+  getItem: (key: string, initialValue: FixedPanelTabsState) => {
+    const contentKey = `${key}.content`;
+    const legacyValue = withLocalStorage(
+      (storage) => storage.getItem(key),
+      null,
+    );
+    if (legacyValue !== null) {
+      const preserved = withLocalStorage((storage) => {
+        if (storage.getItem(contentKey) === null) {
+          storage.setItem(contentKey, legacyValue);
+        }
+        return true;
+      }, false);
+      if (!preserved) {
+        return parseFixedPanelTabsState({
+          initialValue,
+          now: Date.now(),
+          storedValue: legacyValue,
+        });
+      }
+    }
+    const content = fixedPanelTabsContentStorage.getItem(
+      contentKey,
+      initialValue,
+    );
+    const isOpen = fixedPanelVisibilityStorage.getItem(
+      key,
+      initialValue.secondary.isOpen,
+    );
+    return ensureOpenFixedPanelHasActiveTab({
+      ...content,
+      secondary: { ...content.secondary, isOpen },
+    });
+  },
+  setItem: (key: string, state: FixedPanelTabsState) => {
+    fixedPanelTabsContentStorage.setItem(`${key}.content`, state);
+    fixedPanelVisibilityStorage.setItem(key, state.secondary.isOpen);
+  },
+  removeItem: (key: string) => {
+    fixedPanelTabsContentStorage.removeItem(`${key}.content`);
+    fixedPanelVisibilityStorage.removeItem(key);
+  },
+};
 
 const disabledFixedPanelTabsStateAtom = atom(EMPTY_FIXED_PANEL_TABS_STATE);
 

@@ -1,3 +1,4 @@
+import { readFixedPanelStorage } from "@/test/read-fixed-panel-storage";
 // @vitest-environment jsdom
 
 import { CompactViewportOverrideProvider } from "@bb/shared-ui/hooks/use-compact-viewport";
@@ -75,7 +76,7 @@ function seedBrowseTabs(
 
 function browseTabs(): { tabs: string[]; activePluginId: string | null } {
   const state = JSON.parse(
-    window.localStorage.getItem(
+    readFixedPanelStorage(
       getFixedPanelTabsStateStorageKey({ threadId: "plugins-browse" }),
     ) ?? "null",
   ) as {
