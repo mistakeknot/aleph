@@ -11,7 +11,7 @@ import {
   TURN_SNAPSHOT_MAX_PATCH_BYTES,
   TURN_SNAPSHOT_KEEP_TURNS,
   type TurnSnapshotDiff,
-} from "@bb/server-contract";
+} from "../turn-snapshot-contract.js";
 
 const exec = promisify(execFile);
 const NAMESPACE = "refs/bb/turn-snapshots/";

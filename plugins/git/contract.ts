@@ -1,4 +1,4 @@
-import { turnSnapshotDiffSchema } from "@bb/server-contract";
+import { turnSnapshotDiffSchema } from "./turn-snapshot-contract.js";
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
