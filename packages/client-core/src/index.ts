@@ -26,6 +26,7 @@ export * from "./prompt/mentions/prompt-mention-link.js";
 export * from "./prompt/mentions/prompt-mention-display.js";
 export * from "./prompt/fork-thread-request.js";
 export * from "./prompt/thread-handoff-request.js";
+export * from "./prompt/handoff-excerpt.js";
 
 export * from "./timeline/thread-runtime-status.js";
 export * from "./timeline/timeline-auto-expand.js";
