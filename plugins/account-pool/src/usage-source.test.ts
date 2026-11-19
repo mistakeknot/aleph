@@ -8,6 +8,39 @@ import {
   usageWindowLabel,
 } from "./usage-source.js";
 
+it("omits the failure reason from a healthy usage RPC result", async () => {
+  const account = {
+    id: "fixture",
+    provider: "claude",
+    kind: "oauth",
+    accountUuid: null,
+    email: null,
+    label: "Primary",
+    subscriptionType: null,
+    rateLimitTier: null,
+    limitWindows: [],
+    familyWeekly: {},
+    observedAt: 123,
+    error: null,
+  };
+  const hub = {
+    status: async () => ({ accounts: [account] }),
+    refreshUsage: vi.fn(async () => undefined),
+  };
+  const host = createFakePluginHost({ pluginId: "pool" });
+  registerUsageSource(host.bb, hub as unknown as AccountPoolHub);
+  try {
+    const result = await host.harness.behavior.callRpc(
+      "provider-usage.v1.getResource",
+      { resourceId: "fixture", refresh: false },
+    );
+    expect(result).toMatchObject({ usage: { status: "ok" } });
+    expect(result).not.toHaveProperty("failureReason");
+  } finally {
+    await host.harness.lifecycle.dispose();
+  }
+});
+
 it.each([
   ["invalid_grant: private upstream detail", "needs_sign_in"],
   ["private upstream connection detail", "unavailable"],

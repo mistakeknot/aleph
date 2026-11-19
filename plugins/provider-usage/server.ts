@@ -193,18 +193,9 @@ export default function providerUsagePlugin(bb: BbPluginApi): void {
         const value = normalizeUsageMeasurement(raw);
         if (
           value.usage.status === "error" ||
-          value.usage.status === "expired" ||
-          value.usage.status === "unauthenticated" ||
           value.failureReason !== undefined
         ) {
-          failures.set(
-            key,
-            value.failureReason ??
-              (value.usage.status === "expired" ||
-              value.usage.status === "unauthenticated"
-                ? "needs_sign_in"
-                : "unavailable"),
-          );
+          failures.set(key, value.failureReason ?? "unavailable");
           return value;
         }
         measurements.set(key, { value, loadedAt: Date.now() });
@@ -375,9 +366,7 @@ export default function providerUsagePlugin(bb: BbPluginApi): void {
           source.pluginId,
           providers,
         );
-        const failure =
-          failures.get(key) ??
-          (source.error !== null ? "unavailable" : undefined);
+        const failure = failures.get(key);
         if (failure !== undefined) provider.refreshFailure = failure;
         machine.providers.push(provider);
         if (source.error !== null)

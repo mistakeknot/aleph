@@ -4,11 +4,162 @@ import {
   makeHostResponse,
 } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.js";
+import { usageSnapshotSchema } from "./usage-schema.js";
 import {
   usageListMethod,
   usageFetchMethod,
   usageFetchInputSchema,
 } from "./usage-source-contract.js";
+
+it.each(["expired", "unauthenticated"] as const)(
+  "caches the existing %s state without a refresh failure",
+  async (status) => {
+    const rpc = vi.fn(async ({ method }: { method: string }) =>
+      method === usageListMethod
+        ? {
+            label: "Source",
+            resources: [
+              {
+                id: "Primary",
+                label: "Primary",
+                providerId: "claude-code",
+                scope: { kind: "shared" },
+              },
+            ],
+          }
+        : {
+            observedAt: null,
+            usage: { status, accountEmail: null, planLabel: null },
+          },
+    );
+    const host = createFakePluginHost({
+      pluginId: "provider-usage",
+      sdk: {
+        system: { config: async () => ({ primaryHostId: null }) },
+        hosts: { list: async () => [] },
+        providers: { list: async () => [] },
+        plugins: {
+          experimental_discoverRpc: async () => [
+            {
+              pluginId: "source",
+              displayName: "Source",
+              method: usageListMethod,
+            },
+          ],
+          callRpc: rpc,
+        },
+      },
+    });
+    plugin(host.bb);
+    const request = {
+      force: false,
+      machineIds: null,
+      providerIds: ["claude-code"],
+      maxAgeMs: 60_000,
+    };
+    try {
+      const first = await host.harness.behavior.callRpc("getUsage", request);
+      expect(first).toMatchObject({
+        machines: [{ error: null, providers: [{ usage: { status } }] }],
+      });
+      expect(JSON.stringify(first)).not.toContain("refreshFailure");
+      expect(await host.harness.behavior.callRpc("getUsage", request)).toEqual(
+        first,
+      );
+      expect(
+        rpc.mock.calls.filter(([args]) => args.method === usageFetchMethod),
+      ).toHaveLength(1);
+    } finally {
+      await host.harness.lifecycle.dispose();
+    }
+  },
+);
+
+it("preserves cached rows on source-list failure and marks all requested fetch failures", async () => {
+  let listFails = false;
+  let fetchFails = false;
+  const host = createFakePluginHost({
+    pluginId: "provider-usage",
+    sdk: {
+      system: { config: async () => ({ primaryHostId: null }) },
+      hosts: { list: async () => [] },
+      providers: { list: async () => [] },
+      plugins: {
+        experimental_discoverRpc: async () => [
+          {
+            pluginId: "source",
+            displayName: "Source",
+            method: usageListMethod,
+          },
+        ],
+        callRpc: async ({ method }) => {
+          if (method === usageListMethod) {
+            if (listFails) throw new Error("List unavailable");
+            return {
+              label: "Source",
+              resources: ["Primary", "Secondary"].map((label) => ({
+                id: label,
+                label,
+                providerId: "claude-code",
+                scope: { kind: "shared" },
+              })),
+            };
+          }
+          if (fetchFails) throw new Error("Fetch unavailable");
+          return {
+            observedAt: 123,
+            usage: {
+              status: "ok",
+              accountEmail: null,
+              planLabel: null,
+              windows: [],
+            },
+          };
+        },
+      },
+    },
+  });
+  plugin(host.bb);
+  const request = {
+    force: false,
+    machineIds: null,
+    providerIds: ["claude-code"],
+    maxAgeMs: 60_000,
+  };
+  try {
+    const initial = usageSnapshotSchema.parse(
+      await host.harness.behavior.callRpc("getUsage", request),
+    );
+    listFails = true;
+    const stale = usageSnapshotSchema.parse(
+      await host.harness.behavior.callRpc("getUsage", request),
+    );
+    expect(stale.machines[0]?.error).not.toBeNull();
+    expect(stale.machines[0]?.providers).toEqual(
+      initial.machines[0]?.providers,
+    );
+    listFails = false;
+    fetchFails = true;
+    expect(
+      await host.harness.behavior.callRpc("getUsage", {
+        ...request,
+        force: true,
+      }),
+    ).toMatchObject({
+      machines: [
+        {
+          error: "Some usage could not be refreshed.",
+          providers: [
+            { refreshFailure: "unavailable", usage: { status: "ok" } },
+            { refreshFailure: "unavailable", usage: { status: "ok" } },
+          ],
+        },
+      ],
+    });
+  } finally {
+    await host.harness.lifecycle.dispose();
+  }
+});
 
 it("isolates failed accounts and clears the row failure after recovery", async () => {
   let failing = false;
