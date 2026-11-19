@@ -1,3 +1,4 @@
+import { readFixedPanelStorage } from "@/test/read-fixed-panel-storage";
 import {
   markPluginFrontendsSettled,
   resetPluginFrontendBootStateForTest,
@@ -1338,7 +1339,7 @@ describe("PluginPanelRightPanelHost", () => {
       pluginId: "demo",
     });
     await waitFor(() => {
-      const storedValue = localStorage.getItem(
+      const storedValue = readFixedPanelStorage(
         getFixedPanelTabsStateStorageKey({ threadId: panelStateId }),
       );
       expect(storedValue).not.toBeNull();
@@ -1445,7 +1446,7 @@ describe("PluginPanelRightPanelHost", () => {
       panelPath: "board",
       pluginId: "demo",
     });
-    const storedValue = localStorage.getItem(
+    const storedValue = readFixedPanelStorage(
       getFixedPanelTabsStateStorageKey({ threadId: panelStateId }),
     );
     if (storedValue === null) {
@@ -1517,7 +1518,7 @@ describe("PluginPanelRightPanelHost", () => {
     );
 
     expect(await screen.findByTestId("plugin-page-terminal")).toBeTruthy();
-    const storedValue = localStorage.getItem(
+    const storedValue = readFixedPanelStorage(
       getFixedPanelTabsStateStorageKey({ threadId: panelStateId }),
     );
     if (storedValue === null) {
@@ -1545,7 +1546,7 @@ describe("PluginPanelRightPanelHost", () => {
     );
 
     expect(screen.queryByTestId("plugin-page-terminal")).toBeNull();
-    const storedValue = localStorage.getItem(
+    const storedValue = readFixedPanelStorage(
       getFixedPanelTabsStateStorageKey({ threadId: panelStateId }),
     );
     const storedTabs =
@@ -1590,7 +1591,7 @@ describe("PluginPanelRightPanelHost", () => {
     expect(await screen.findByTestId("plugin-page-terminal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Terminal 2" }));
     await waitFor(() => {
-      const storedValue = localStorage.getItem(
+      const storedValue = readFixedPanelStorage(
         getFixedPanelTabsStateStorageKey({ threadId: panelStateId }),
       );
       if (storedValue === null) {
