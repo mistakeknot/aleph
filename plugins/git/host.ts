@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { captureSnapshot, diffSnapshots } from "./host/turn-snapshots.js";
 
 process.env.GIT_OPTIONAL_LOCKS = "0";
 import {
@@ -12,9 +13,7 @@ import {
 } from "./host/diff-tiering.js";
 import { WorkspaceReads } from "./host/workspace-reads.js";
 import { gitPriority, withGitPriority } from "./host/git.js";
-import type {
-  WorkspaceResolutionFailure,
-} from "bb-environment-provider-host/git-types";
+import type { WorkspaceResolutionFailure } from "bb-environment-provider-host/git-types";
 import {
   listBranchOptions,
   refreshRemoteBranches,
@@ -139,6 +138,9 @@ export default experimental_defineHostEntry({
     await Promise.all(reads.map((entry) => entry.dispose()));
   },
   handlers: {
+    captureTurnSnapshot: (input, context) =>
+      captureSnapshot(input, context.experimental_paths.tempDir),
+    diffTurnSnapshots: (input) => diffSnapshots(input),
     status: ({ path, freshness, mergeBaseBranch }, context) =>
       read(path, context, (reads) =>
         reads.getStatus({
@@ -149,7 +151,10 @@ export default experimental_defineHostEntry({
           maxUntrackedLineStatBytes: STATUS_MAX_UNTRACKED_LINE_STAT_BYTES,
         }),
       ),
-    diff: ({ path, freshness, target, maxDiffBytes, maxFileListBytes }, context) =>
+    diff: (
+      { path, freshness, target, maxDiffBytes, maxFileListBytes },
+      context,
+    ) =>
       interactive(() =>
         read(path, context, (reads) =>
           reads.getDiff({
