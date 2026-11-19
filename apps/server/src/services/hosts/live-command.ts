@@ -1,3 +1,7 @@
+import {
+  prepareTurnSnapshotCommand,
+  abandonTurnSnapshotCommand,
+} from "../threads/turn-snapshot-diff.js";
 import { getEnvironment } from "@bb/db";
 import { resolveHostEnvironment } from "./host-environment.js";
 import { randomUUID } from "node:crypto";
@@ -297,6 +301,7 @@ async function runPinnedLiveHostCommand<
   try {
     const call = callHostOnlineRpcForWork;
     const sourceCommand: HostDaemonCommand = args.command;
+    await prepareTurnSnapshotCommand(deps, sourceCommand);
     const command = {
       ...args.command,
       ...(sourceCommand.type === "environment.attach"
@@ -336,6 +341,7 @@ async function runPinnedLiveHostCommand<
     });
     return result;
   } catch (error) {
+    abandonTurnSnapshotCommand(deps, args.command);
     const normalized =
       error instanceof Error ? error : new Error(String(error));
     noteTurnTraceCommandFailed(args.command);

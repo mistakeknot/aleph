@@ -139,6 +139,7 @@ function runner(target: Target, signal: AbortSignal, index?: string) {
         keys = (
           await run([
             "config",
+            "--null",
             "--name-only",
             "--get-regexp",
             "^filter\\..*\\.(clean|process|required)$",
@@ -149,7 +150,7 @@ function runner(target: Target, signal: AbortSignal, index?: string) {
           throw error;
         keys = "";
       }
-      for (const key of keys.trim().split("\n").filter(Boolean)) {
+      for (const key of keys.split("\0").filter(Boolean)) {
         const driver = key.slice("filter.".length, key.lastIndexOf("."));
         disabledFilters.push(
           "-c",

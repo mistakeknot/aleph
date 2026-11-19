@@ -173,3 +173,15 @@ The SDK uses `threads.tabs.get({ threadId })` and
 `threads.tabs.update({ threadId, expectedRevision, tabs })` for the same state.
 Selection stays local to each client. Plugin authors can find registration and
 navigation details in the Plugin Guide's Thread side-panel tabs surface.
+
+Experimental interval snapshots:
+
+  The server-side BB_TURN_SNAPSHOT_DIFF flag defaults to off. The HTTP-only
+  prototype exposes GET /api/v1/threads/:id/turns/:turnId/snapshot-diff under
+  normal thread access. It returns captured, incomplete with a reason, or
+  not-captured with a reason, plus the name-status list and bounded patch.
+  A read never starts capture. Captures require a thread-owned, exclusively
+  assigned managed worktree and describe interval changes, not agent
+  authorship. Results are temporary, capped and unavailable after server
+  restart or eviction. There is no restore, SDK convenience method, CLI
+  command or UI. See docs/configuration.md for limits and retention.

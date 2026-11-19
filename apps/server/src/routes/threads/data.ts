@@ -1,3 +1,4 @@
+import { threadTurnSnapshots } from "../../services/threads/turn-snapshot-diff.js";
 import {
   InvalidWakeOutcomeCursorError,
   readWakeOutcomes,
@@ -272,6 +273,13 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
         ),
       );
     });
+  });
+
+  get(routes.turnSnapshotDiff, (context) => {
+    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    return context.json(
+      threadTurnSnapshots(deps).read(thread.id, context.req.param("turnId")),
+    );
   });
 
   get(routes.timeline, (context, query) => {

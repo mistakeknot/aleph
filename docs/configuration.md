@@ -2027,3 +2027,36 @@ update message. Web browsers control their own handoff and may show a second
 prompt; BB cannot reliably detect missing apps in a browser. Executable web
 schemes, local-file launch schemes, and reserved editor-action schemes remain
 blocked.
+
+## Experimental turn snapshot diffs
+
+BB_TURN_SNAPSHOT_DIFF is off unless the server receives the value 1.
+When off, this prototype starts no Git capture process. It records interval
+diffs only for an exclusively assigned, provider-created worktree owned by
+the thread; adopted worktrees and ordinary checkouts are not captured.
+
+Before dispatching a new turn, the server asks the Git host plugin for a
+scratch-index snapshot. Root turn completion takes the second snapshot.
+Tracked files and non-ignored untracked files are included; ignored
+untracked files are excluded. Captures never stage into the user's index.
+Hooks, external clean filters, fsmonitor and automatic maintenance are
+disabled for capture commands. This can differ from normal attribute-filtered
+Git content.
+
+The prototype caps each snapshot at 20,000 paths, 64 MiB and two seconds.
+Patches are capped at 2 MiB. A failed cap or capture returns incomplete
+with a reason and no patch or file list. Results describe worktree changes
+during an interval, not proof of agent authorship.
+
+GET /api/v1/threads/:id/turns/:turnId/snapshot-diff returns status,
+reason, label, a names array and patch under normal thread access.
+Reads do not capture or run Git. The server retains at most ten results per
+thread and 32 results globally in memory; a restart or eviction returns
+not-captured. This is an HTTP prototype without a dedicated SDK method,
+CLI command or UI.
+
+The host retains only the latest ten pairs of private snapshot refs per
+thread under refs/bb/turn-snapshots/. Ref deletion does not reclaim objects;
+normal Git maintenance handles that later. Capture never runs GC or pruning
+of objects. Non-ignored secrets can become retained Git objects. No restore,
+rewind, provider-native diff change, or automatic flag activation is included.
