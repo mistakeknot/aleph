@@ -1011,25 +1011,28 @@ export function createServerMoveCoordinator(
     grant: ServerMoveGrant,
     message: string,
   ): void {
-    deps.logger.warn(
-      {
-        err: message,
-        moveId: move.status.moveId,
-        targetHostId: move.status.targetHostId,
-      },
-      "Server move target did not confirm activation; keeping this server up until it does",
-    );
-    move.status.state = "recovery_required";
-    move.status.cancellable = true;
-    move.status.error = { step: "switch", message };
-    setStep(
-      move,
-      "switch",
-      "running",
-      `Waiting for ${move.status.targetHostName} to confirm it took over`,
-    );
-    void persistRun(move).catch(() => undefined);
-    startRecovery(move, grant);
+    try {
+      deps.logger.warn(
+        {
+          err: message,
+          moveId: move.status.moveId,
+          targetHostId: move.status.targetHostId,
+        },
+        "Server move target did not confirm activation; keeping this server up until it does",
+      );
+    } finally {
+      move.status.state = "recovery_required";
+      move.status.cancellable = true;
+      move.status.error = { step: "switch", message };
+      setStep(
+        move,
+        "switch",
+        "running",
+        `Waiting for ${move.status.targetHostName} to confirm it took over`,
+      );
+      void persistRun(move).catch(() => undefined);
+      startRecovery(move, grant);
+    }
   }
 
   function startRecovery(move: MoveRun, grant: ServerMoveGrant): void {
