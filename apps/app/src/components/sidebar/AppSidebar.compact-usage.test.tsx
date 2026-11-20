@@ -314,6 +314,7 @@ describe("collapsed sidebar usage", () => {
     const usage = screen.getByRole("button", { name: "Provider usage" });
     for (const token of SIDEBAR_RAIL_BUTTON_CLASS.split(" "))
       expect(usage.classList.contains(token)).toBe(true);
+    expect(usage.classList.contains("justify-center")).toBe(true);
     act(() => usage.focus());
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.closest("[data-side]")?.getAttribute("data-side")).toBe(

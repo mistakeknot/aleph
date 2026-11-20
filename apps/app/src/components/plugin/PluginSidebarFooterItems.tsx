@@ -559,7 +559,7 @@ export function PluginSidebarFooterItems({
                       }}
                       className={cn(
                         usagePlacement === "rail"
-                          ? SIDEBAR_RAIL_BUTTON_CLASS
+                          ? cn(SIDEBAR_RAIL_BUTTON_CLASS, "justify-center")
                           : SIDEBAR_FOOTER_ACTION_CLASS,
                         active &&
                           "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-inset ring-sidebar-ring [&>[data-icon-root]]:opacity-100",
