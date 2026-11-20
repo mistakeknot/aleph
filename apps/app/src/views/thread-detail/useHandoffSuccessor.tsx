@@ -88,7 +88,7 @@ export function useHandoffSuccessor(
   const [notice, setNotice] = useState<Notice | null>(null);
   useEffect(() => {
     let disposed = false;
-    let generation = 0;
+    const generation = { current: 0 };
     let followed = false;
     const follow = (target: NonNullable<z.infer<typeof successorSchema>>) => {
       if (
@@ -165,10 +165,10 @@ export function useHandoffSuccessor(
     };
     localSwitchListeners.add(localSwitch);
     const refresh = () => {
-      const current = ++generation;
+      const current = ++generation.current;
       void lookupHandoffSuccessor(threadId)
         .then((target) => {
-          if (current === generation && target) follow(target);
+          if (current === generation.current && target) follow(target);
         })
         .catch(() => {});
     };
