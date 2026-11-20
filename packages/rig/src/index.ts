@@ -17,6 +17,13 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { z } from "zod";
 import {
+  sanitizeConfig,
+  assertSafeConfig,
+  publicCommand,
+  safeReferenceName,
+  credentialLike,
+} from "./secret-policy.js";
+import {
   prepareSource,
   sourceManifest,
   copySkill,
@@ -28,7 +35,8 @@ const name = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u);
 const reference = z.strictObject({
   secretRef: z
     .string()
-    .regex(/^(env:[A-Z_][A-Z0-9_]*|store:[A-Za-z0-9._/-]+)$/u),
+    .regex(/^(env:[A-Z_][A-Z0-9_]*|store:[A-Za-z0-9._/-]+)$/u)
+    .refine(safeReferenceName),
 });
 type Value =
   | null
@@ -115,18 +123,16 @@ export interface Result {
 }
 const sensitiveKey =
   /(?:secret|password|passwd|credential|authorization|cookie|(?:^|[_-])auth(?:$|[_-])|token$|key$|api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret)/iu;
-const suspicious =
-  /(?:\bBearer\s+\S+|\b(?:sk|ghp|gho|github_pat|xox[baprs])[-_][A-Za-z0-9_-]+|-----BEGIN.*PRIVATE KEY|[A-Za-z0-9+/=_-]{48,}|(?:password|token|secret|api[_-]?key)\s*[=:]\s*\S+)/iu;
+const suspicious = /[A-Za-z0-9+_=-]{48,}/u;
 function isRef(v: Value): v is { secretRef: string } {
   return reference.safeParse(v).success;
 }
 function unsafeString(v: string, key = ""): boolean {
+  if (credentialLike(v)) return true;
   if (
     suspicious.test(v) &&
-    !(
-      key === "path" &&
-      !/(?:Bearer|(?:sk|ghp|github_pat)[-_]|password=|token=)/iu.test(v)
-    )
+    key !== "path" &&
+    !(key === "command" && publicCommand(v, key))
   )
     return true;
   try {
@@ -167,6 +173,14 @@ export function parseRig(input: unknown): Rig {
   rig.accountPool.accounts.sort((a, b) => a.id.localeCompare(b.id));
   for (const skill of rig.skills) skill.targets.sort();
   verifyValues(rig);
+  for (const plugin of rig.plugins) assertSafeConfig(plugin.settings, "plugin");
+  for (const provider of [rig.agents.claude, rig.agents.codex]) {
+    assertSafeConfig(provider.settings, "agent");
+    assertSafeConfig(provider.hooks, "hooks");
+  }
+  assertSafeConfig(rig.accountPool.settings, "pool");
+  for (const account of rig.accountPool.accounts)
+    assertSafeConfig(account.config, "account");
   for (const entries of [rig.plugins, rig.skills, rig.accountPool.accounts]) {
     if (new Set(entries.map((e) => e.id)).size !== entries.length)
       throw new Error("Duplicate identity");
@@ -230,6 +244,13 @@ function refName(path: string): string {
   return `store:rig/${createHash("sha256").update(path).digest("hex").slice(0, 24)}`;
 }
 function sanitize(v: Value, path: string, refs: string[], key = ""): Value {
+  if (
+    /^rig\/agents\/(claude|codex)\/(settings|hooks)$/u.test(path) ||
+    /^rig\/plugins\/\d+\/settings$/u.test(path) ||
+    path === "rig/accountPool/settings" ||
+    /^rig\/accountPool\/accounts\/\d+\/config$/u.test(path)
+  )
+    return sanitizeConfig(v, path, refs);
   if (isRef(v)) return v;
   if (
     (sensitiveKey.test(key) && v !== null) ||
@@ -379,11 +400,15 @@ export async function exportRig(
         for (const entry of await readdir(secrets, { withFileTypes: true })) {
           if (!entry.isFile()) continue;
           const key = entry.name;
-          if (!/^[A-Za-z0-9._-]+$/u.test(key))
-            throw new Error("Unsafe secret name");
           const ref = refName(`plugins/${id}/${key}`);
+          if (!/^[A-Za-z0-9._-]+$/u.test(key)) {
+            refs.push(
+              `warning: skipped an unsafe secret filename at ${ref} (name suppressed)`,
+            );
+            continue;
+          }
           settings[key] = { secretRef: ref };
-          refs.push(`plugins/${id}/${key} -> ${ref}`);
+          refs.push(`plugins/${id}/secret-setting -> ${ref}`);
         }
       let saved = managed.plugins.find(
         (p) => p.id === id && p.root === row.root_dir,
@@ -1055,7 +1080,7 @@ function validateHooks(rig: Rig): void {
       const normalized = event.slice(0, 1).toLowerCase() + event.slice(1);
       if (
         !(provider === "claude" ? claude.has(event) : codex.has(normalized)) ||
-        !Array.isArray(handlers)
+        (!Array.isArray(handlers) && !isRef(handlers))
       )
         throw new Error("Unsupported native hook event or structure");
     }

@@ -71,11 +71,29 @@ YAML keeps nested hooks and settings readable and supports the audit's proposed
 shape. `apiVersion: bb.rig/v1` and `kind: Rig` are required. The runtime schema is
 `rigSchema` in `src/index.ts`; `schema.json` is its JSON Schema representation.
 Unknown structural fields, duplicate IDs, malformed references, and inline
-secret-like values are rejected. Heuristics cover sensitive field names, common
-credential prefixes, bearer values, private-key material, credential assignments,
-opaque long values, and URLs with credentials or query parameters. Review
-unfamiliar settings before sharing any export; heuristic detection cannot
-establish that arbitrary prose contains no confidential information.
+secret-like values are rejected. Native settings use explicit non-secret key
+allowlists in `src/secret-policy.ts`, scoped to agents, hooks, plugins, pool
+settings, and account metadata. Unknown plain keys are omitted and listed as
+warnings using an opaque reference ID; neither their names nor values appear in
+the warning. Sensitive known fields become named references. A hand-authored rig
+must use references for unknown or sensitive values before apply can accept it.
+The JSON Schema describes structure; use `parseRig` or the CLI for the full key,
+value-shape, and command-argument policy.
+
+Commands and argument arrays have a separate conservative grammar. Only a
+single executable path or an explicitly listed executable, followed by listed
+boolean flags, can remain plain. Arbitrary argument values, unknown flags,
+credential flags, shell expansions, and complex shell syntax become one dormant
+reference for the whole payload. No argument or command value is included in
+conversion diagnostics. Ordinary long executable paths remain paths. The policy
+also checks credential prefixes, bearer values, private-key material, assignment
+syntax, opaque values, and URL credentials or query parameters.
+
+An export can therefore omit unsupported settings and deactivate complex hooks
+until their named references are provisioned separately. Inspect the warning
+list before using an exported rig. The allowlist trusts the declared semantics
+of known native metadata fields; selected source programs remain trusted code,
+and their contents are not made secret-free by this configuration policy.
 
 | Field                         | Meaning                                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------------------------ |

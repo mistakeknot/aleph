@@ -499,19 +499,18 @@ it("rejects source traversal and unresolved hook placeholders", () => {
     }),
   ).toThrow();
 });
-it("refuses a placeholder Codex hook event before writing", async () => {
-  const f = await fixture();
-  const rig = parseRig({
-    ...document(),
-    agents: {
-      claude: { settings: {}, hooks: {} },
-      codex: { settings: {}, hooks: { "<supported-event>": [] } },
-    },
-  });
-  await expect(
-    applyRig(rig, { ...f, target: f.dataDir, dryRun: false }),
-  ).rejects.toThrow("Unsupported native hook");
+it("refuses a placeholder Codex hook event during validation", () => {
+  expect(() =>
+    parseRig({
+      ...document(),
+      agents: {
+        claude: { settings: {}, hooks: {} },
+        codex: { settings: {}, hooks: { "<supported-event>": [] } },
+      },
+    }),
+  ).toThrow("reference");
 });
+
 it("skips dangling skill aliases and aliases to ordinary files", async () => {
   const f = await fixture();
   const root = join(f.agentHome, ".agents/skills");
@@ -520,4 +519,145 @@ it("skips dangling skill aliases and aliases to ordinary files", async () => {
   await writeFile(join(f.root, "ordinary.txt"), "Fixture text.");
   await symlink(join(f.root, "ordinary.txt"), join(root, "ordinary"));
   expect((await exportRig(f)).rig.skills).toEqual([]);
+});
+
+it("omits unrecognized scalar settings without copying their values", async () => {
+  const f = await fixture();
+  const marker = "fixture-private";
+  await writeFile(
+    join(f.agentHome, ".claude/settings.json"),
+    JSON.stringify({
+      unrecognizedOption: marker,
+      permissions: { defaultMode: "default" },
+    }),
+  );
+  const result = await exportRig(f);
+  expect(JSON.stringify(result.rig)).not.toContain(marker);
+  expect(result.rig.agents.claude.settings.permissions).toEqual({
+    defaultMode: "default",
+  });
+  expect(
+    result.references.some(
+      (r) => r.includes("warning") && r.includes("store:rig/"),
+    ),
+  ).toBe(true);
+});
+it("references argv and command payloads with unknown or sensitive arguments", async () => {
+  const f = await fixture();
+  const marker = "fixture-private";
+  await writeFile(
+    join(f.agentHome, ".claude/settings.json"),
+    JSON.stringify({
+      args: ["--x", marker],
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [{ type: "command", command: `tool --password ${marker}` }],
+          },
+        ],
+      },
+    }),
+  );
+  const result = await exportRig(f);
+  expect(JSON.stringify(result.rig)).not.toContain(marker);
+  expect(result.rig.agents.claude.settings.args).toMatchObject({
+    secretRef: expect.any(String),
+  });
+  expect(result.references.length).toBeGreaterThanOrEqual(2);
+});
+it("lists unsafe native map keys as skipped while exporting supported settings", async () => {
+  const f = await fixture();
+  const unsafe = "K".repeat(64);
+  await writeFile(
+    join(f.agentHome, ".claude/settings.json"),
+    JSON.stringify({
+      [unsafe]: "fixture-private",
+      permissions: { defaultMode: "default" },
+    }),
+  );
+  const result = await exportRig(f);
+  expect(JSON.stringify(result)).not.toContain(unsafe);
+  expect(JSON.stringify(result)).not.toContain("fixture-private");
+  expect(result.rig.agents.claude.settings.permissions).toEqual({
+    defaultMode: "default",
+  });
+  expect(result.references.some((r) => r.includes("warning"))).toBe(true);
+});
+it("keeps a long executable path and known boolean command flags", async () => {
+  const f = await fixture();
+  const command =
+    "/usr/local/lib/node_modules/example-package/scripts/check-policy";
+  await writeFile(
+    join(f.agentHome, ".claude/settings.json"),
+    JSON.stringify({ command, args: ["--check", "--json"] }),
+  );
+  const result = await exportRig(f);
+  expect(result.rig.agents.claude.settings.command).toBe(command);
+  expect(result.rig.agents.claude.settings.args).toEqual(["--check", "--json"]);
+});
+it("refuses unknown raw scalar and argv values in a hand-authored rig", () => {
+  for (const settings of [
+    { unrecognizedOption: "fixture-private" },
+    { args: ["--x", "fixture-private"] },
+  ]) {
+    expect(() =>
+      parseRig({
+        ...document(),
+        agents: {
+          claude: { settings, hooks: {} },
+          codex: { settings: {}, hooks: {} },
+        },
+      }),
+    ).toThrow();
+  }
+});
+it("does not reuse account metadata keys as trusted agent settings", async () => {
+  const f = await fixture();
+  await writeFile(
+    join(f.agentHome, ".claude/settings.json"),
+    JSON.stringify({
+      label: "fixture-private",
+      permissions: "fixture-private",
+    }),
+  );
+  const result = await exportRig(f);
+  expect(JSON.stringify(result.rig)).not.toContain("fixture-private");
+  expect(result.rig.agents.claude.settings.permissions).toMatchObject({
+    secretRef: expect.any(String),
+  });
+});
+it("suppresses an unsafe secret filename in reference diagnostics", async () => {
+  const f = await fixture();
+  const unsafe = "K".repeat(64);
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(join(f.dataDir, "bb.db"));
+  db.prepare(
+    "INSERT INTO plugins(id,source,source_kind,source_builtin_name,root_dir,version,enabled,installed_at,updated_at) VALUES('example','builtin:example','builtin','example',?,'1.0.0',1,0,0)",
+  ).run(f.dataDir);
+  db.close();
+  const secrets = join(f.dataDir, "plugins/example/secrets");
+  await mkdir(secrets, { recursive: true });
+  await writeFile(join(secrets, unsafe), "");
+  await writeFile(join(secrets, "fixture unsafe name"), "");
+  const result = JSON.stringify(await exportRig(f));
+  expect(result).not.toContain("fixture unsafe name");
+  expect(result).not.toContain(unsafe);
+});
+it("round trips an explicit unknown-key reference through its dormant binding", async () => {
+  const f = await fixture();
+  const rig = parseRig({
+    ...document(),
+    agents: {
+      claude: {
+        settings: { customOption: { secretRef: "env:EXAMPLE_KEY" } },
+        hooks: {},
+      },
+      codex: { settings: {}, hooks: {} },
+    },
+  });
+  await applyRig(rig, { ...f, target: f.dataDir, dryRun: false });
+  expect((await exportRig(f)).rig.agents.claude.settings.customOption).toEqual({
+    secretRef: "env:EXAMPLE_KEY",
+  });
+  expect((await diffRig(rig, f)).changes).toEqual([]);
 });
