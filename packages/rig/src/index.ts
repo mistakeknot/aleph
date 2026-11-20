@@ -22,6 +22,9 @@ import {
   publicCommand,
   safeReferenceName,
   credentialLike,
+  sensitiveKey,
+  opaqueValue,
+  safeKey,
 } from "./secret-policy.js";
 import {
   prepareSource,
@@ -121,16 +124,13 @@ export interface Result {
   changes: Change[];
   unsupported: string[];
 }
-const sensitiveKey =
-  /(?:secret|password|passwd|credential|authorization|cookie|(?:^|[_-])auth(?:$|[_-])|token$|key$|api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret)/iu;
-const suspicious = /[A-Za-z0-9+_=-]{48,}/u;
 function isRef(v: Value): v is { secretRef: string } {
   return reference.safeParse(v).success;
 }
 function unsafeString(v: string, key = ""): boolean {
   if (credentialLike(v)) return true;
   if (
-    suspicious.test(v) &&
+    opaqueValue.test(v) &&
     key !== "path" &&
     !(key === "command" && publicCommand(v, key))
   )
@@ -161,9 +161,41 @@ function verifyValues(v: Value, key = ""): void {
       verifyValues(child, k);
     }
 }
+export class RigStructureError extends Error {}
 export function parseRig(input: unknown): Rig {
   const parsed = rigSchema.safeParse(input);
-  if (!parsed.success) throw new Error("Invalid rig schema");
+  if (!parsed.success) {
+    const fields = new Set(
+      "apiVersion kind metadata name compatibility extensionPoints plugins skills agents accountPool id source version enabled settings requires targets claude codex hooks accounts provider credential config builtin path git ref subdir npm secretRef".split(
+        " ",
+      ),
+    );
+    const diagnostics = parsed.error.issues.map((issue) => {
+      let current: unknown = input;
+      const path = issue.path
+        .map((part) => {
+          if (current && typeof current === "object")
+            current = Reflect.get(current, part);
+          else current = undefined;
+          return typeof part === "number"
+            ? String(part)
+            : fields.has(String(part))
+              ? String(part)
+              : "<field>";
+        })
+        .join("/");
+      const type =
+        current === null
+          ? "null"
+          : Array.isArray(current)
+            ? "array"
+            : typeof current;
+      return `unsupported structure at /${path} (${type})`;
+    });
+    throw new RigStructureError(
+      `Invalid rig schema: ${[...new Set(diagnostics)].join("; ")}`,
+    );
+  }
   const rig = parsed.data;
   for (const provider of ["claude", "codex"] as const)
     if ("hooks" in rig.agents[provider].settings)
@@ -250,7 +282,7 @@ function sanitize(v: Value, path: string, refs: string[], key = ""): Value {
     path === "rig/accountPool/settings" ||
     /^rig\/accountPool\/accounts\/\d+\/config$/u.test(path)
   )
-    return sanitizeConfig(v, path, refs);
+    return sanitizeConfig(v, path, refs, "", undefined, true);
   if (isRef(v)) return v;
   if (
     (sensitiveKey.test(key) && v !== null) ||
@@ -353,6 +385,16 @@ async function readAgent(
       : embeddedHooks;
   return { settings, hooks: object(hooks) };
 }
+function referenceNotices(rig: Rig, notices: string[]): string[] {
+  const result = notices.filter((notice) => notice.startsWith("warning:"));
+  function collect(v: Value): void {
+    if (isRef(v)) result.push(`reference -> ${v.secretRef}`);
+    else if (Array.isArray(v)) v.forEach(collect);
+    else if (v && typeof v === "object") Object.values(v).forEach(collect);
+  }
+  collect(rig);
+  return [...new Set(result)].sort();
+}
 export async function exportRig(
   install: Install,
 ): Promise<{ rig: Rig; references: string[] }> {
@@ -378,7 +420,7 @@ export async function exportRig(
         refs,
       ),
     );
-    return { rig, references: refs };
+    return { rig, references: referenceNotices(rig, refs) };
   }
   const db = openDb(install.dataDir);
   try {
@@ -401,9 +443,9 @@ export async function exportRig(
           if (!entry.isFile()) continue;
           const key = entry.name;
           const ref = refName(`plugins/${id}/${key}`);
-          if (!/^[A-Za-z0-9._-]+$/u.test(key)) {
+          if (!safeKey(key)) {
             refs.push(
-              `warning: skipped an unsafe secret filename at ${ref} (name suppressed)`,
+              `warning: unsupported secret filename at ${ref} (name and value suppressed)`,
             );
             continue;
           }
@@ -512,7 +554,7 @@ export async function exportRig(
       const bindings = object(await json(bindingsPath));
       rig = parseRig(overlayReferences(rig, bindings));
     }
-    return { rig, references: [...new Set(refs)].sort() };
+    return { rig, references: referenceNotices(rig, refs) };
   } finally {
     db.close();
   }
@@ -560,7 +602,12 @@ function compare(a: Rig, b: Rig): Change[] {
 }
 export async function diffRig(rig: Rig, install: Install): Promise<Result> {
   const current = await exportRig(install);
-  return { changes: compare(current.rig, parseRig(rig)), unsupported: [] };
+  return {
+    changes: compare(current.rig, parseRig(rig)),
+    unsupported: current.references.filter((notice) =>
+      notice.startsWith("warning:"),
+    ),
+  };
 }
 function overlayReferences(
   v: Value,
@@ -683,6 +730,7 @@ export async function applyRig(
   for (const name of ["bb.db", "bb.db-wal", "bb.db-shm"])
     await confined(target, join(target, name));
   const result = await diffRig(rig, install);
+  if (result.unsupported.length) return result;
   const current = (await exportRig(install)).rig;
   if (await exists(join(target, "bb.db"))) {
     const probe = openDb(target);

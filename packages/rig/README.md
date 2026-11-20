@@ -27,6 +27,9 @@ export and apply before moving the rig to another machine.
 `diff` prints added, removed, and changed entries in each section. Its status is
 0 for equality, 1 for drift, and 2 for error. Entry identity is a plugin/skill ID,
 an agent name, or a pool field. No setting values appear in its output.
+Unsupported native fields also produce status 1, with opaque diagnostics, even
+when the portable rig contains no corresponding field. Equality is never
+inferred from a lossy export alone.
 
 `apply` requires `--target`. Provider homes default to `TARGET/rig-home`; an
 explicit `--agent-home` must remain inside the target. It writes the target's
@@ -39,6 +42,10 @@ The tool refuses symbolic links and hard-linked writable files. It never
 changes the caller's home or selects a target from ambient bb configuration.
 A dry run plans changes and reports unsupported entries without writing files,
 downloading sources, initializing a database, or executing hooks.
+When native settings contain unsupported fields or values, apply reports them
+and skips all writes, including unrelated planned changes. This preserves
+unmodeled native keys rather than deleting them during whole-file rewrites.
+Resolve unsupported configuration separately before applying the rig.
 
 Plugins can use a relative local source, an HTTPS Git source pinned to a full
 commit, an exact npm version, or an installed builtin. `--builtin-root` names
@@ -77,6 +84,11 @@ settings, and account metadata. Unknown plain keys are omitted and listed as
 warnings using an opaque reference ID; neither their names nor values appear in
 the warning. Sensitive known fields become named references. A hand-authored rig
 must use references for unknown or sensitive values before apply can accept it.
+Native plugin secret filenames are retained as named references, including
+env-style and custom names outside the plain-setting allowlist. Unsupported
+names receive opaque warnings; the reference list includes only references
+present in the resulting rig. Structural export failures identify schema paths
+and input types, with dynamic field names suppressed and no input values.
 The JSON Schema describes structure; use `parseRig` or the CLI for the full key,
 value-shape, and command-argument policy.
 
@@ -89,11 +101,21 @@ conversion diagnostics. Ordinary long executable paths remain paths. The policy
 also checks credential prefixes, bearer values, private-key material, assignment
 syntax, opaque values, and URL credentials or query parameters.
 
-An export can therefore omit unsupported settings and deactivate complex hooks
-until their named references are provisioned separately. Inspect the warning
+An export can therefore omit unsupported settings and deactivate complex hooks.
+In v1 arbitrary dormant hook references cannot be reactivated by this tool;
+native credential provisioning does not supply a hook-command binding mechanism.
+Inspect the warning
 list before using an exported rig. The allowlist trusts the declared semantics
 of known native metadata fields; selected source programs remain trusted code,
 and their contents are not made secret-free by this configuration policy.
+
+Known limits: permission-rule arrays (`allow`, `deny`, `ask`, and
+`additionalDirectories`) and arbitrary plugin-specific plain settings remain
+unsupported. Use named references for hand-authored unknown fields; v1 does not
+resolve them. Hook plans report unsupported reference activation generally,
+without enumerating dormant events. Account identity metadata (including email
+and account IDs), endpoint hosts, and source paths can remain plain in a private
+export. A filtered rig is not a share-safe artifact; inspect it before sharing.
 
 | Field                         | Meaning                                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------------------------ |

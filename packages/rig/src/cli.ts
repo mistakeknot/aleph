@@ -10,6 +10,7 @@ import {
   formatRig,
   loadRig,
   schemaJson,
+  RigStructureError,
 } from "./index.js";
 
 async function main(): Promise<number> {
@@ -97,11 +98,16 @@ async function main(): Promise<number> {
   for (const unsupported of result.unsupported)
     console.log(`unsupported: ${unsupported}`);
   if (!result.changes.length) console.log("No changes");
-  return command === "diff" && result.changes.length ? 1 : 0;
+  return command === "diff" &&
+    (result.changes.length || result.unsupported.length)
+    ? 1
+    : 0;
 }
 try {
   process.exitCode = await main();
-} catch {
+} catch (error) {
+  if (error instanceof RigStructureError)
+    console.error(`rig: ${error.message}`);
   console.error(
     "rig: operation refused or failed; configuration and process output suppressed. See rig --help.",
   );

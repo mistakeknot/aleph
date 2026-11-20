@@ -4,6 +4,133 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createMigratedConnection } from "@bb/db/testing";
 import { applyRig, diffRig, exportRig, parseRig } from "../src/index.js";
+import { publicCommand } from "../src/secret-policy.js";
+
+it("reports unsupported permission drift and refuses destructive rewrites", async () => {
+  const f = await fixture();
+  const rig = parseRig(document());
+  await applyRig(rig, { ...f, target: f.dataDir, dryRun: false });
+  const path = join(f.agentHome, ".claude/settings.json");
+  const body = JSON.stringify({ permissions: { allow: ["Read"] } });
+  await writeFile(path, body);
+  expect((await diffRig(rig, f)).unsupported.length).toBeGreaterThan(0);
+  const changed = parseRig({
+    ...document(),
+    agents: {
+      ...document().agents,
+      codex: { settings: { approval_policy: "never" }, hooks: {} },
+    },
+  });
+  expect(
+    (await applyRig(changed, { ...f, target: f.dataDir, dryRun: false }))
+      .unsupported.length,
+  ).toBeGreaterThan(0);
+  expect(await readFile(path, "utf8")).toBe(body);
+});
+
+it("reports custom plugin drift after apply and preserves unseen settings", async () => {
+  const f = await fixture();
+  const source = join(f.root, "plugin");
+  await mkdir(source);
+  await writeFile(
+    join(source, "package.json"),
+    JSON.stringify({ name: "bb-plugin-example", version: "1.0.0", bb: {} }),
+  );
+  const rig = parseRig({
+    ...document(),
+    plugins: [
+      {
+        id: "example",
+        source: { path: "plugin" },
+        version: "1.0.0",
+        enabled: true,
+        settings: {},
+      },
+    ],
+  });
+  const install = { ...f, rigDir: f.root, target: f.dataDir, dryRun: false };
+  await applyRig(rig, install);
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(join(f.dataDir, "bb.db"));
+  db.prepare(
+    "INSERT INTO plugin_settings(plugin_id,key,value,updated_at) VALUES('example','customChannel','true',0)",
+  ).run();
+  expect((await diffRig(rig, install)).unsupported.length).toBeGreaterThan(0);
+  rig.plugins[0]!.enabled = false;
+  await applyRig(rig, install);
+  expect(
+    db
+      .prepare("SELECT value FROM plugin_settings WHERE key='customChannel'")
+      .get()?.value,
+  ).toBe("true");
+  db.close();
+});
+
+it("preserves native secret filenames as references and lists only surviving names", async () => {
+  const f = await fixture();
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(join(f.dataDir, "bb.db"));
+  db.prepare(
+    "INSERT INTO plugins(id,source,source_kind,root_dir,version,enabled,installed_at,updated_at) VALUES('example','builtin:example','builtin','example','1.0.0',1,0,0)",
+  ).run();
+  db.close();
+  const dir = join(f.dataDir, "plugins/example/secrets");
+  await mkdir(dir, { recursive: true });
+  for (const key of [
+    "EXAMPLE_API_KEY",
+    "_EXAMPLE_KEY",
+    "custom.secret",
+    "customCredentialName",
+    "unsupported name",
+  ])
+    await writeFile(join(dir, key), "");
+  const exported = await exportRig(f);
+  for (const key of [
+    "EXAMPLE_API_KEY",
+    "_EXAMPLE_KEY",
+    "custom.secret",
+    "customCredentialName",
+  ]) {
+    const ref = exported.rig.plugins[0]?.settings[key];
+    expect(ref).toEqual({ secretRef: expect.any(String) });
+    expect(
+      exported.references.some((r) =>
+        r.endsWith((ref as { secretRef: string }).secretRef),
+      ),
+    ).toBe(true);
+  }
+  expect(exported.references.some((r) => r.includes("unsupported"))).toBe(true);
+  expect(JSON.stringify(exported)).not.toContain("unsupported name");
+});
+
+it("names unsupported inventory structure with paths and types only", async () => {
+  const f = await fixture();
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(join(f.dataDir, "bb.db"));
+  db.prepare(
+    "INSERT INTO plugins(id,source,source_kind,root_dir,version,enabled,installed_at,updated_at) VALUES('example','builtin:example','builtin','example','',1,0,0)",
+  ).run();
+  db.close();
+  await expect(exportRig(f)).rejects.toThrow(
+    "unsupported structure at /plugins/0/version (string)",
+  );
+  expect(() => parseRig({ ...document(), metadata: { name: [] } })).toThrow(
+    "/metadata/name (array)",
+  );
+});
+
+it("checks executable segments consistently for commands and argv", () => {
+  const opaquePath = `/x/${"Q".repeat(64)}`;
+  for (const path of [opaquePath, "/a/name:part@host"])
+    for (const command of [path, [path]])
+      expect(publicCommand(command, "command")).toBe(false);
+  expect(
+    publicCommand(
+      "/usr/local/lib/node_modules/example-package/bin/tool",
+      "command",
+    ),
+  ).toBe(true);
+});
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "rig-"));
@@ -475,6 +602,30 @@ it("CLI export and diff expose 0, 1 and 2 exit statuses on fixtures", async () =
   await expect(invoke(["diff", file, ...paths])).rejects.toMatchObject({
     code: 1,
   });
+  await writeFile(
+    join(f.agentHome, ".claude/settings.json"),
+    JSON.stringify({ permissions: { allow: ["Read"] } }),
+  );
+  await expect(invoke(["diff", file, ...paths])).rejects.toMatchObject({
+    code: 1,
+    stdout: expect.stringContaining("unsupported:"),
+  });
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(join(f.dataDir, "bb.db"));
+  db.prepare(
+    "INSERT INTO plugins(id,source,source_kind,root_dir,version,enabled,installed_at,updated_at) VALUES('example','builtin:example','builtin','example','',1,0,0)",
+  ).run();
+  db.close();
+  const failedOutput = join(f.root, "unsupported.yaml");
+  await expect(
+    invoke(["export", ...paths, "--output", failedOutput]),
+  ).rejects.toMatchObject({
+    code: 2,
+    stderr: expect.stringContaining(
+      "unsupported structure at /plugins/0/version (string)",
+    ),
+  });
+  await expect(readFile(failedOutput)).rejects.toThrow();
   await expect(
     invoke(["diff", join(f.root, "absent.yaml"), ...paths]),
   ).rejects.toMatchObject({ code: 2 });

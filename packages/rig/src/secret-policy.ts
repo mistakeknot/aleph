@@ -9,11 +9,11 @@ type ConfigValue =
   | ConfigValue[]
   | { [key: string]: ConfigValue };
 const secretNames = /^(?:env:[A-Z_][A-Z0-9_]*|store:[A-Za-z0-9._/-]+)$/u;
-const sensitiveKey =
+export const sensitiveKey =
   /(?:secret|password|passwd|credential|authorization|cookie|(?:^|[_-])auth(?:$|[_-])|token$|key$|api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret)/iu;
 const credentialShape =
   /(?:\bBearer\s+\S+|\b(?:sk|ghp|gho|github_pat|xox[baprs])[-_][A-Za-z0-9_-]+|-----BEGIN.*PRIVATE KEY|(?:password|token|secret|api[_-]?key)\s*[=:]\s*\S+|--?(?:password|passwd|token|api[-_]key|client[-_]secret|access[-_]token|refresh[-_]token)(?:[= \t])\S+)/iu;
-const opaqueValue = /[A-Za-z0-9+_=-]{48,}/u;
+export const opaqueValue = /[A-Za-z0-9+_=-]{48,}/u;
 const publicKeys = new Set([
   "permissions",
   "defaultMode",
@@ -158,9 +158,11 @@ function referenceName(path: string): string {
   return `store:rig/${createHash("sha256").update(path).digest("hex").slice(0, 24)}`;
 }
 function safePath(v: string): boolean {
+  const path = v.replace(/^[A-Za-z]:/u, "");
   return (
     /^(?:\.?\.?\/|[A-Za-z]:[\\/])/u.test(v) &&
-    /^[A-Za-z0-9._/\\:@+-]+$/u.test(v) &&
+    /^[A-Za-z0-9._/\\+-]+$/u.test(path) &&
+    !path.split(/[\\/]/u).some((segment) => opaqueValue.test(segment)) &&
     !credentialShape.test(v)
   );
 }
@@ -192,9 +194,9 @@ function secretLike(v: string, key: string): boolean {
     return false;
   }
 }
-function safeKey(key: string): boolean {
+export function safeKey(key: string): boolean {
   return (
-    /^[A-Za-z][A-Za-z0-9_-]{0,127}$/u.test(key) &&
+    /^[A-Za-z_][A-Za-z0-9._-]{0,127}$/u.test(key) &&
     !credentialShape.test(key) &&
     !opaqueValue.test(key) &&
     !["__proto__", "constructor", "prototype"].includes(key)
@@ -317,7 +319,9 @@ export function sanitizeConfig(
     (typeof v === "string" && secretLike(v, key))
   ) {
     const ref = referenceName(path);
-    notices.push(`${path} -> ${ref}`);
+    notices.push(
+      `warning: unsupported native value at ${ref} (name and value suppressed)`,
+    );
     return { secretRef: ref };
   }
   if (Array.isArray(v))
@@ -341,9 +345,7 @@ export function sanitizeConfig(
             safeKey(childKey) &&
             isReference(child)
           ) {
-            notices.push(
-              `warning: retained an explicitly named reference for an unknown key at ${referenceName(childPath)}`,
-            );
+            notices.push(`reference retained -> ${child.secretRef}`);
             return [[childKey, child]];
           }
           notices.push(
