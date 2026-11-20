@@ -47,7 +47,10 @@ import {
   type FooterItem,
   type BuiltinFooterId,
 } from "@/components/sidebar/sidebarFooterPreferences";
-import { SIDEBAR_FOOTER_ACTION_CLASS } from "@bb/shared-ui/sidebar-row-classes";
+import {
+  SIDEBAR_FOOTER_ACTION_CLASS,
+  SIDEBAR_RAIL_BUTTON_CLASS,
+} from "@bb/shared-ui/sidebar-row-classes";
 
 function footerItemKey(item: PluginSidebarFooterItemSlot): string {
   return `${item.pluginId}/${item.id}/${item.generation}`;
@@ -69,6 +72,30 @@ export interface FooterHoverPreview {
 
 function footerTriggerId(item: PluginSidebarFooterItemSlot): string {
   return `plugin-sidebar-footer-trigger-${item.pluginId}-${item.id}-${item.generation}`;
+}
+
+export function isSidebarRailUsageItem(
+  item: PluginSidebarFooterItemSlot | null,
+): boolean {
+  return (
+    item?.kind === "disclosure" &&
+    item.pluginId === "bb--provider-usage" &&
+    item.id === "usage"
+  );
+}
+
+function focusFooterDisclosure(panelId: string): void {
+  const panel = document.getElementById(panelId);
+  const firstControl = [
+    ...(panel?.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]",
+    ) ?? []),
+  ].find(
+    (element) =>
+      element.tabIndex >= 0 &&
+      !element.closest('[hidden], [inert], [aria-hidden="true"]'),
+  );
+  (firstControl ?? panel)?.focus({ preventScroll: true });
 }
 
 export function usePluginSidebarFooterDisclosure() {
@@ -258,19 +285,41 @@ export function PluginSidebarFooterDisclosure({
 
   useLayoutEffect(() => {
     if (!floating || item === null) return;
-    const update = () => {
-      const trigger = document.getElementById(footerTriggerId(item));
-      if (!trigger) return;
+    const trigger = document.getElementById(footerTriggerId(item));
+    if (!trigger) return;
+    const measure = () => {
       const rect = trigger.getBoundingClientRect();
-      setPosition({
+      return {
         left: rect.right + 8,
         bottom: window.innerHeight - rect.bottom,
-      });
+      };
     };
+    const update = () => setPosition(measure());
+    const ancestors: Element[] = [];
+    for (
+      let target: Element | null = trigger;
+      target !== null;
+      target = target.parentElement
+    )
+      ancestors.push(target);
+    const release = observeSharedResize(ancestors, {
+      read: measure,
+      write: setPosition,
+    });
     update();
     window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      release();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
   }, [floating, item]);
+
+  useLayoutEffect(() => {
+    if (floating && pinned && item !== null)
+      focusFooterDisclosure(footerDisclosureId(item));
+  }, [floating, pinned, item]);
 
   useLayoutEffect(() => {
     const content = contentRef.current;
@@ -290,6 +339,7 @@ export function PluginSidebarFooterDisclosure({
     <section
       id={footerDisclosureId(item)}
       aria-label={item.label}
+      tabIndex={floating ? -1 : undefined}
       data-testid={`plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}`}
       data-pinned={pinned}
       className={cn(
@@ -377,9 +427,7 @@ export function PluginSidebarFooterItems({
     item.kind === "plugin" ||
     builtInActions.some((action) => action.id === item.id);
   const isUsage = (item: FooterItem) =>
-    item.kind === "plugin" &&
-    item.slot.pluginId === "bb--provider-usage" &&
-    item.slot.id === "usage";
+    item.kind === "plugin" && isSidebarRailUsageItem(item.slot);
   const inPlacement = (item: FooterItem) =>
     usagePlacement === "rail"
       ? isUsage(item)
@@ -507,10 +555,12 @@ export function PluginSidebarFooterItems({
                           active ||
                           (previewKey !== null &&
                             previewKey === previewDisclosureKey),
-                        side: "top",
+                        side: usagePlacement === "rail" ? "right" : "top",
                       }}
                       className={cn(
-                        SIDEBAR_FOOTER_ACTION_CLASS,
+                        usagePlacement === "rail"
+                          ? SIDEBAR_RAIL_BUTTON_CLASS
+                          : SIDEBAR_FOOTER_ACTION_CLASS,
                         active &&
                           "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-inset ring-sidebar-ring [&>[data-icon-root]]:opacity-100",
                       )}
@@ -534,6 +584,18 @@ export function PluginSidebarFooterItems({
                           ? () => activate(item)
                           : undefined
                       }
+                      onKeyDown={(event) => {
+                        if (
+                          usagePlacement === "rail" &&
+                          active &&
+                          event.key === "Tab" &&
+                          !event.shiftKey &&
+                          item.kind === "plugin"
+                        ) {
+                          event.preventDefault();
+                          focusFooterDisclosure(footerDisclosureId(item.slot));
+                        }
+                      }}
                       onPointerEnter={
                         previewKey === null
                           ? undefined

@@ -27,6 +27,7 @@ import {
   PluginSidebarFooterDisclosure,
   PluginSidebarFooterItems,
   usePluginSidebarFooterDisclosure,
+  isSidebarRailUsageItem,
 } from "@/components/plugin/PluginSidebarFooterItems";
 import { SidebarPluginAttentionGlyph } from "./SidebarPluginAttentionGlyph";
 import { SidebarUpdatesBadge } from "./SidebarUpdatesBadge";
@@ -111,7 +112,7 @@ export function AppSidebar({
   const { threadId: activeThreadId } = useRouteState();
   const navigate = useNavigate();
   const closeOnMobile = useCloseMobileSidebar();
-  const { isCompactViewport, open, openMobile } = useSidebar();
+  const { isCompactViewport, open, openMobile, setOpen } = useSidebar();
   const showCompactUsage = placement === "rail" && !isCompactViewport && !open;
   const isThreadListVisible =
     !isBodyHidden && (isCompactViewport ? openMobile : open);
@@ -130,6 +131,13 @@ export function AppSidebar({
   const isAppCommandModifierHeld = useIsAppCommandModifierHeld();
   const settingsShortcut = useAppCommandShortcut("settings.open");
   const pluginSidebarFooter = usePluginSidebarFooterDisclosure();
+
+  const customizeFooter = () => {
+    pluginSidebarFooter.dismiss();
+    setNavigationCustomizing(false);
+    if (showCompactUsage) setOpen(true);
+    setFooterCustomizing(true);
+  };
 
   const handleNewChat = useCallback(() => {
     closeOnMobile();
@@ -289,11 +297,7 @@ export function AppSidebar({
       >
         <PluginSidebarFooterItems
           usagePlacement={showCompactUsage ? "without-usage" : "footer"}
-          onCustomize={() => {
-            pluginSidebarFooter.dismiss();
-            setNavigationCustomizing(false);
-            setFooterCustomizing(true);
-          }}
+          onCustomize={customizeFooter}
           activeDisclosureKey={pluginSidebarFooter.activeKey}
           onDisclosureCommand={pluginSidebarFooter.handleCommand}
           hoverPreview={pluginSidebarFooter.hoverPreview}
@@ -385,7 +389,10 @@ export function AppSidebar({
             onDismiss={pluginSidebarFooter.dismiss}
             hoverPreview={pluginSidebarFooter.hoverPreview}
             pinned={pluginSidebarFooter.activeKey !== null}
-            floating={showCompactUsage}
+            floating={
+              showCompactUsage &&
+              isSidebarRailUsageItem(pluginSidebarFooter.activeItem)
+            }
           />
         )}
       </div>
@@ -454,7 +461,7 @@ export function AppSidebar({
                     <SidebarMenu data-compact-sidebar-usage="">
                       <PluginSidebarFooterItems
                         usagePlacement="rail"
-                        onCustomize={() => setFooterCustomizing(true)}
+                        onCustomize={customizeFooter}
                         activeDisclosureKey={pluginSidebarFooter.activeKey}
                         onDisclosureCommand={pluginSidebarFooter.handleCommand}
                         hoverPreview={pluginSidebarFooter.hoverPreview}
