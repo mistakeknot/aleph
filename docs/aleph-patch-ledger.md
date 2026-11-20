@@ -67,15 +67,15 @@ Totals: 1138 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gate
 
 The original audit used upstream bcefd50bf2 and upstream main as fetched on 2026-11-05. This ledger now tracks differences from UPSTREAM_BASE, 794bd2c2e7. Each row's verdict answers four questions: still needed, superseded by upstream, movable to a plugin or upstream extension point, and worth proposing upstream. Evidence per row is in the verdict column and in the child beads. Claims marked _unverified_ were not reproduced.
 
-Verdict counts (51 rows): KEEP 47, MOVE-PLUGIN 1, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
+Verdict counts (50 rows): KEEP 47, MOVE-PLUGIN 0, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
 
 No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from the pinned upstream base, 794bd2c2e7, by formatting only; marketplace arrival tracking is already included.
 
 ### What moves to a plugin, and what stays core
 
-Group counts: a 6, b 18, c 26, d 1. Each row appears once, in its main group; a row's other direction is in its note.
+Group counts: a 5, b 18, c 26, d 1. Each row appears once, in its main group; a row's other direction is in its note.
 
-#### (a) Move to a plugin: 6 rows
+#### (a) Move to a plugin: 5 rows
 
 | Patch                 | Extension point it needs                                                                 | In upstream bb today?                                                                      | Scope                                                                         |
 | --------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
