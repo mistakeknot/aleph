@@ -138,6 +138,9 @@ const RECOVERY_TIMINGS = {
   recoveryProbeIntervalMs: 20,
 };
 
+// Allow filesystem preparation plus the 300 ms activation window on busy workers.
+const RECOVERY_WAIT = { timeout: 5_000 };
+
 function countEvents(events: readonly string[], event: string): number {
   return events.filter((candidate) => candidate === event).length;
 }
@@ -1152,7 +1155,7 @@ describe("server move coordinator", () => {
       try {
         await coordinator.start(START_DIRECT);
         await expect
-          .poll(() => coordinator.getStatus()?.state)
+          .poll(() => coordinator.getStatus()?.state, RECOVERY_WAIT)
           .toBe("recovery_required");
         await expect
           .poll(() => countEvents(events, `${OLD}:server_move.probe`))
@@ -1218,6 +1221,77 @@ describe("server move coordinator", () => {
       }
     }));
 
+  it("enters recovery and finishes after unconfirmed activation even when the warning logger throws", () =>
+    withTestHarness(async (harness) => {
+      seedTopology(harness);
+      await writeConfig(harness, { config: { BB_LOG_LEVEL: "info" } });
+      const { environment, events, plugins, retired } =
+        createTestServerMoveEnvironment(harness, { timings: RECOVERY_TIMINGS });
+      const coordinator = createServerMoveCoordinator(environment);
+      const destination: { state: "pending" | "ready" } = { state: "pending" };
+      registerFakeDaemon(harness, {
+        events,
+        hostId: OLD,
+        handle: (request) =>
+          request.command.type === "server_move.probe"
+            ? ok({ reachable: true, message: null, state: destination.state })
+            : probeReply(request),
+      });
+      registerFakeDaemon(harness, {
+        events,
+        hostId: WORKER,
+        handle: probeReply,
+      });
+      registerFakeDaemon(harness, {
+        events,
+        hostId: NEW,
+        handle: dropOnActivation(harness),
+      });
+      const warn = vi
+        .spyOn(harness.deps.logger, "warn")
+        .mockImplementation((_data, message) => {
+          if (
+            message ===
+            "Server move target did not confirm activation; keeping this server up until it does"
+          ) {
+            throw new Error("Warning logger failed");
+          }
+        });
+
+      try {
+        await coordinator.start(START_DIRECT);
+        await expect
+          .poll(() => coordinator.getStatus()?.state, RECOVERY_WAIT)
+          .toBe("recovery_required");
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({ targetHostId: NEW }),
+          "Server move target did not confirm activation; keeping this server up until it does",
+        );
+        expect(coordinator.getStatus()).toMatchObject({
+          cancellable: true,
+          finishedAt: null,
+          error: { step: "switch" },
+        });
+        expect(coordinator.isFrozen()).toBe(true);
+        expect(isServerMoveFrozen(harness.db)).toBe(true);
+        expect(plugins).toMatchObject({ stops: 0, resumes: 0, suspends: 1 });
+        expect(events).not.toContain("retire");
+        expect(events).not.toContain(`${NEW}:server_move.abort`);
+
+        destination.state = "ready";
+        await retired;
+        expect(coordinator.getStatus()).toMatchObject({
+          state: "completed",
+          error: null,
+          cancellable: false,
+        });
+        expect(plugins).toMatchObject({ stops: 1, resumes: 0 });
+      } finally {
+        warn.mockRestore();
+        coordinator.dispose();
+      }
+    }));
+
   it("keeps a bb connect move in recovery_required with the tunnel up and retries activation when the target reconnects", () =>
     withTestHarness(async (harness) => {
       seedTopology(harness);
@@ -1275,7 +1349,7 @@ describe("server move coordinator", () => {
       try {
         await coordinator.start({ ...START_DIRECT, serverUrl: null });
         await expect
-          .poll(() => coordinator.getStatus()?.state)
+          .poll(() => coordinator.getStatus()?.state, RECOVERY_WAIT)
           .toBe("recovery_required");
         await expect
           .poll(() => countEvents(events, `${OLD}:server_move.probe`))
@@ -1344,7 +1418,7 @@ describe("server move coordinator", () => {
       try {
         await coordinator.start(START_DIRECT);
         await expect
-          .poll(() => coordinator.getStatus()?.state)
+          .poll(() => coordinator.getStatus()?.state, RECOVERY_WAIT)
           .toBe("recovery_required");
         expect(isServerMoveSnapshotFenced(harness.db)).toBe(true);
 
