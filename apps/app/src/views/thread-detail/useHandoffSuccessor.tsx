@@ -19,6 +19,12 @@ const successorSchema = z
   })
   .nullable();
 
+export async function lookupHandoffSuccessor(threadId: string) {
+  return successorSchema.parse(
+    await callPluginRpc(fetch, "handoff", "resolveSuccessor", { threadId }),
+  );
+}
+
 type Notice = {
   from: string;
   to: string;
@@ -61,6 +67,7 @@ export function HandoffNotice({
       <button
         type="button"
         aria-label="Dismiss handoff notice"
+        className="rounded px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onDismiss}
       >
         ×
@@ -153,17 +160,14 @@ export function useHandoffSuccessor(
     };
     const localSwitch = (sourceId: string, target: ThreadRoutePathArgs) => {
       if (sourceId !== threadId || target.projectId !== projectId) return false;
-      follow({ ...target, title: title ?? null });
+      follow({ ...target, title: null });
       return true;
     };
     localSwitchListeners.add(localSwitch);
     const refresh = () => {
       const current = ++generation;
-      void callPluginRpc(fetch, "handoff", "resolveSuccessor", {
-        threadId,
-      })
-        .then((result) => {
-          const target = successorSchema.parse(result);
+      void lookupHandoffSuccessor(threadId)
+        .then((target) => {
           if (current === generation && target) follow(target);
         })
         .catch(() => {});

@@ -81,6 +81,7 @@ import {
   type PaneSecondaryPanelRegistry,
 } from "./PaneContext";
 import { LazyThreadDetailView as ThreadDetailView } from "./LazyThreadDetailView";
+import { lookupHandoffSuccessor } from "./useHandoffSuccessor";
 import { LazyRootComposeView as RootComposeView } from "@/views/LazyRootComposeView";
 import { PluginPanelView } from "@/views/PluginPanelView";
 import {
@@ -979,6 +980,7 @@ function SplitTree(props: SplitTreeProps) {
           <PaneStaleWatcher
             key={node.content.threadId}
             threadId={node.content.threadId}
+            projectId={node.content.projectId}
             onStale={() => props.onPruneStalePane(node.paneId)}
           />
         ) : null}
@@ -1731,10 +1733,15 @@ function SplitDivider({
 
 interface PaneStaleWatcherProps {
   threadId: string;
+  projectId: string;
   onStale: () => void;
 }
 
-function PaneStaleWatcher({ threadId, onStale }: PaneStaleWatcherProps) {
+function PaneStaleWatcher({
+  threadId,
+  projectId,
+  onStale,
+}: PaneStaleWatcherProps) {
   const { data: thread, isSuccess, isError, error } = useThread(threadId);
   const hasObservedUnarchived = useRef(false);
   const unarchivesInFlight = useIsMutating({
@@ -1764,19 +1771,34 @@ function PaneStaleWatcher({ threadId, onStale }: PaneStaleWatcherProps) {
     if (isUnarchived && unarchivesInFlight === 0) {
       hasObservedUnarchived.current = true;
     }
-    if (
-      isGone ||
-      isDeleted ||
-      (isConfirmedArchived && hasObservedUnarchived.current)
-    ) {
+    if (isGone || isDeleted) {
       onStaleRef.current();
+      return;
     }
+    if (!isConfirmedArchived || !hasObservedUnarchived.current) return;
+    const cancellation = new AbortController();
+    void lookupHandoffSuccessor(threadId)
+      .catch(() => null)
+      .then((target) => {
+        if (
+          !cancellation.signal.aborted &&
+          (!target ||
+            target.projectId !== projectId ||
+            target.threadId === threadId)
+        )
+          onStaleRef.current();
+      });
+    return () => {
+      cancellation.abort();
+    };
   }, [
     isConfirmedArchived,
     isDeleted,
     isGone,
     isUnarchived,
     unarchivesInFlight,
+    threadId,
+    projectId,
   ]);
 
   return null;
