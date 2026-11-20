@@ -103,8 +103,8 @@ export function parseCujgelPage(input: {
       const fields = typeof entry === "string" ? { value: entry } : entry;
       const label = status === "open" ? "Open" : "Design choice";
       const context = JSON.stringify(fields).replace(
-        /[&<>*`\[\]\\]/g,
-        (char) => `&#${char.charCodeAt(0)};`,
+        /[^\p{L}\p{N} ]/gu,
+        (char) => `&#${char.codePointAt(0)};`,
       );
       lines.push(`**${label}**: ${context}`, "");
       claims.push({

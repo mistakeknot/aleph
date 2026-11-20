@@ -249,6 +249,9 @@ export function WikiPageBody(props: {
   return (
     <div data-wiki-body className={cn(PROSE_CLASSES, props.className)}>
       <Markdown
+        {...(props.native
+          ? { disallowedElements: ["a"], unwrapDisallowed: true }
+          : {})}
         remarkPlugins={[remarkGfm]}
         rehypePlugins={rehypePlugins}
         components={components}

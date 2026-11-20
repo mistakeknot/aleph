@@ -491,7 +491,7 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
           if (isMissingPath(error)) return null;
           throw error;
         }
-        if (result.truncated)
+        if (result.truncated || result.paths.length > MAX_LISTED_FILES)
           throw new WikiSourceRejectedError(
             "Spec entry limit reached; discovery incomplete",
           );
