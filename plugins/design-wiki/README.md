@@ -18,13 +18,13 @@ A missing `docs/wiki` directory shows an empty state, not an error.
 
 Each file starts with a YAML front matter block, parsed strictly:
 
-| Field     | Required         | Value                                         |
-| --------- | ---------------- | --------------------------------------------- |
-| `id`      | yes              | `cuj-*` in `cujs`, `req-*` in `requirements`  |
-| `status`  | yes              | `ruled`, `design-choice` or `open`            |
-| `card`    | when `ruled`     | Task card key                                 |
-| `source`  | yes              | Where the page's content comes from           |
-| `updated` | yes              | `YYYY-MM-DD`                                  |
+| Field     | Required     | Value                                        |
+| --------- | ------------ | -------------------------------------------- |
+| `id`      | yes          | `cuj-*` in `cujs`, `req-*` in `requirements` |
+| `status`  | yes          | `ruled`, `design-choice` or `open`           |
+| `card`    | when `ruled` | Task card key                                |
+| `source`  | yes          | Where the page's content comes from          |
+| `updated` | yes          | `YYYY-MM-DD`                                 |
 
 The title is the first `#` heading of the body. A file that fails any check is
 listed as an error row and skipped. Duplicate ids are errors too.
@@ -173,3 +173,21 @@ unavailable and nothing is answered.
 cd plugins/design-wiki && pnpm exec vitest run --config vitest.config.ts
 pnpm exec turbo run typecheck test --filter=bb-plugin-bb--design-wiki
 ```
+
+## Cujgel specs
+
+The Wiki and thread side panel also discover `docs/cujs/**/*.json` offline.
+Specs remain authoritative: the plugin renders them in memory without writing
+pages or requiring Cujgel. Companion Markdown files are ignored. The bundled
+validation snapshot and its source are documented in CUJGEL-ATTRIBUTION.md.
+
+Native pages show the journey version and draft, derived, validated, superseded
+or unspecified status. These describe the journey; they do not confer a wiki
+ruling. Missing dates and cards stay absent. Ledger decisions and questions can
+be pinned, while evidence and other prose never become card links or claims.
+Citations are shown as text, without opening repository or host files.
+
+The existing `list` and `page` RPCs and CLI commands expose these same pages.
+Native IDs use `cujgel:<cuj_id>` and pins survive filename and version changes.
+Duplicate IDs exclude every conflicting spec and leave pins unverified.
+Invalid fields, oversized files and incomplete listings appear as diagnostics.

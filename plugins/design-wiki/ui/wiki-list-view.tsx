@@ -9,7 +9,7 @@ import {
   type WikiStatus,
 } from "../wiki-types.js";
 import { CardLink } from "./wiki-page-view.js";
-import { STATUS_LABEL, StatusPill } from "./status.js";
+import { STATUS_LABEL, PageStatusPill } from "./status.js";
 
 export const KIND_LABEL: Record<WikiKind, string> = {
   cuj: "Critical user journeys",
@@ -22,7 +22,7 @@ export function filterPages(
 ): WikiPageSummary[] {
   return active.size === 0
     ? [...pages]
-    : pages.filter((page) => active.has(page.status));
+    : pages.filter((page) => page.status !== null && active.has(page.status));
 }
 
 export interface WikiListViewProps {
@@ -98,7 +98,7 @@ function PageRow(props: {
         className="flex min-w-0 items-center gap-x-2 overflow-hidden whitespace-nowrap text-xs text-subtle-foreground"
       >
         <span className="min-w-0 shrink truncate font-mono">{page.id}</span>
-        <StatusPill status={page.status} />
+        <PageStatusPill page={page} />
         {page.card === null ? null : (
           <CardLink
             cardKey={page.card}

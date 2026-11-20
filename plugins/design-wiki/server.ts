@@ -475,6 +475,45 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
         }
         return names;
       },
+      async listJsonFiles(directory) {
+        const absolute = `${root.path}/${directory}`;
+        let result;
+        try {
+          result = await bb.sdk.files.listPaths({
+            hostId: root.hostId,
+            path: absolute,
+            includeFiles: true,
+            includeDirectories: true,
+            includeHidden: false,
+            limit: MAX_LISTED_FILES,
+          });
+        } catch (error) {
+          if (isMissingPath(error)) return null;
+          throw error;
+        }
+        if (result.truncated)
+          throw new WikiSourceRejectedError(
+            "Spec entry limit reached; discovery incomplete",
+          );
+        const names: string[] = [];
+        for (const entry of result.paths) {
+          const name = entry.path.startsWith(`${absolute}/`)
+            ? entry.path.slice(absolute.length + 1)
+            : entry.path;
+          const parts = name.split("/");
+          if (parts.length > 13)
+            throw new WikiSourceRejectedError(
+              "Spec directory depth exceeds 12; discovery incomplete",
+            );
+          if (
+            parts.some((part) => !part || part === "." || part === "..") ||
+            /[\\:]/.test(name)
+          )
+            throw new WikiSourceRejectedError("Unsafe spec entry");
+          if (entry.kind === "file" && name.endsWith(".json")) names.push(name);
+        }
+        return names.sort();
+      },
       async readText(path) {
         const file = await bb.sdk.files.read({
           hostId: root.hostId,

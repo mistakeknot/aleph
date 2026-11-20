@@ -24,10 +24,28 @@ export const wikiPageSummarySchema = z
     kind: wikiKindSchema,
     path: z.string().min(1),
     title: z.string().min(1),
-    status: wikiStatusSchema,
+    status: wikiStatusSchema.nullable(),
+    pageSource: z
+      .discriminatedUnion("type", [
+        z.object({ type: z.literal("wiki") }).strict(),
+        z
+          .object({
+            type: z.literal("cujgel"),
+            status: z.enum([
+              "draft",
+              "derived",
+              "validated",
+              "superseded",
+              "unspecified",
+            ]),
+            version: z.string(),
+          })
+          .strict(),
+      ])
+      .optional(),
     card: z.string().min(1).nullable(),
     source: z.string().min(1),
-    updated: z.string().min(1),
+    updated: z.string().min(1).nullable(),
   })
   .strict();
 export type WikiPageSummary = z.infer<typeof wikiPageSummarySchema>;
