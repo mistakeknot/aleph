@@ -496,7 +496,9 @@ export type CallerExecutionInputSource = z.infer<
   typeof callerExecutionInputSourceSchema
 >;
 
-export const promptCacheTtlSchema = z.enum(["5m", "1h"]);
+export const promptCacheTtlSchema = z.enum(["5m", "1h"], {
+  error: 'promptCacheTtl must be "5m" or "1h"',
+});
 export const threadCacheExecutionSchema = z
   .object({
     promptCacheTtl: promptCacheTtlSchema.optional(),

@@ -15,6 +15,8 @@ import {
   seedHostSession,
   seedProjectWithSource,
   seedThread,
+  seedThreadRuntimeState,
+  seedTurnStarted,
 } from "../helpers/seed.js";
 import { withTestHarness } from "../helpers/test-app.js";
 import { textInput } from "../helpers/prompt-input.js";
@@ -86,6 +88,18 @@ describe("per-thread prompt cache TTL", () => {
       expect(await start(selected)).toHaveProperty("promptCacheTtl", "1h");
       expect(await start(sibling)).not.toHaveProperty("promptCacheTtl");
       expect(await start(selected)).toHaveProperty("promptCacheTtl", "1h");
+      seedThreadRuntimeState(harness.deps, {
+        environmentId: environment.id,
+        model: "claude-sonnet-5",
+        providerThreadId: "provider-cache-source",
+        threadId: selected.id,
+      });
+      seedTurnStarted(harness.deps, {
+        environmentId: environment.id,
+        providerThreadId: "provider-cache-source",
+        threadId: selected.id,
+        turnId: "cache-source-turn",
+      });
       const response = await harness.app.request("/api/v1/threads/fork", {
         method: "POST",
         headers,
