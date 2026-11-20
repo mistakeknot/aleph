@@ -33,3 +33,17 @@ export function StatusPill(props: { status: WikiStatus; className?: string }) {
     </span>
   );
 }
+
+export function PageStatusPill({
+  page,
+}: {
+  page: import("../wiki-types.js").WikiPageSummary;
+}) {
+  return page.pageSource?.type === "cujgel" ? (
+    <span data-cujgel-status={page.pageSource.status} className="text-xs">
+      Cujgel · {page.pageSource.status} · v{page.pageSource.version}
+    </span>
+  ) : page.status === null ? null : (
+    <StatusPill status={page.status} />
+  );
+}

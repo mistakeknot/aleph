@@ -1,0 +1,194 @@
+{
+  "type": "object",
+  "required": [
+    "cuj_id",
+    "version",
+    "actor",
+    "trigger",
+    "steps",
+    "mental_model",
+    "success_condition"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "cuj_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)+$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "derived", "validated", "superseded"]
+    },
+    "actor": {
+      "type": "string"
+    },
+    "trigger": {
+      "type": "string"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["step"],
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "type": "string"
+          },
+          "build_surface": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "mental_model": {
+      "type": "string"
+    },
+    "ambiguity_ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "closed_decisions": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "required": ["decision"],
+                "additionalProperties": false,
+                "properties": {
+                  "decision": {
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": "string",
+                    "enum": ["firm", "leaning"]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "open_questions": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "required": ["question"],
+                "additionalProperties": false,
+                "properties": {
+                  "question": {
+                    "type": "string"
+                  },
+                  "gate": {
+                    "type": "string",
+                    "enum": ["must_stop", "ask_then_proceed", "auto_proceed"]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "implied_features": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "required": ["feature"],
+            "additionalProperties": false,
+            "properties": {
+              "feature": {
+                "type": "string"
+              },
+              "phase": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "reference_lineage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["app"],
+        "additionalProperties": false,
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "teardown": {
+            "type": "string"
+          },
+          "what_it_shaped": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          },
+          "assumption_tested": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "success_condition": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact", "change"],
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "type": "string"
+          },
+          "change": {
+            "type": "string"
+          },
+          "autonomy": {
+            "type": "string",
+            "enum": ["applied", "proposed"]
+          }
+        }
+      }
+    }
+  }
+}

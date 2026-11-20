@@ -19,7 +19,7 @@ import {
   type HastNode,
   unmappedOf,
 } from "./claim-sites.js";
-import { STATUS_CELL_TONE, StatusPill, STATUS_TONE } from "./status.js";
+import { STATUS_CELL_TONE, PageStatusPill, STATUS_TONE } from "./status.js";
 
 export const CARD_HREF_PREFIX = "/plugins/tasks/tasks/task/";
 
@@ -178,8 +178,10 @@ function WikiClaimMenu(props: { node: HastNode | undefined }) {
 
 function wikiComponents(
   onOpenCard: ((key: string) => void) | undefined,
+  native = false,
 ): Components {
-  const linked: Linked = (children) => linkifyCards(children, onOpenCard);
+  const linked: Linked = (children) =>
+    native ? children : linkifyCards(children, onOpenCard);
   const base: Components = {
     p: ({ children }) => <p>{linked(children)}</p>,
     li: ({ children }) => <li>{linked(children)}</li>,
@@ -230,14 +232,15 @@ const PROSE_CLASSES = [
 
 export function WikiPageBody(props: {
   body: string;
+  native?: boolean;
   onOpenCard?: (key: string) => void;
   className?: string;
 }) {
   const layer = useContext(ClaimLayerContext);
   const sites = layer?.sites;
   const components = useMemo(
-    () => wikiComponents(props.onOpenCard),
-    [props.onOpenCard],
+    () => wikiComponents(props.onOpenCard, props.native),
+    [props.onOpenCard, props.native],
   );
   const rehypePlugins = useMemo(
     () => (sites === undefined ? [] : [createClaimMapper(sites)]),
@@ -246,6 +249,9 @@ export function WikiPageBody(props: {
   return (
     <div data-wiki-body className={cn(PROSE_CLASSES, props.className)}>
       <Markdown
+        {...(props.native
+          ? { disallowedElements: ["a"], unwrapDisallowed: true }
+          : {})}
         remarkPlugins={[remarkGfm]}
         rehypePlugins={rehypePlugins}
         components={components}
@@ -268,7 +274,7 @@ export function WikiPageView(props: WikiPageViewProps) {
         className="flex flex-col gap-2 border-b border-border pb-3"
       >
         <div className="flex flex-wrap items-center gap-2">
-          <StatusPill status={page.status} />
+          <PageStatusPill page={page} />
           {page.card === null ? null : (
             <CardLink
               cardKey={page.card}
@@ -281,10 +287,12 @@ export function WikiPageView(props: WikiPageViewProps) {
             <dt>id</dt>
             <dd className="font-mono text-foreground">{page.id}</dd>
           </div>
-          <div className="flex gap-1">
-            <dt>updated</dt>
-            <dd className="text-foreground">{page.updated}</dd>
-          </div>
+          {page.updated === null ? null : (
+            <div className="flex gap-1">
+              <dt>updated</dt>
+              <dd className="text-foreground">{page.updated}</dd>
+            </div>
+          )}
           <div className="flex min-w-0 gap-1">
             <dt>source</dt>
             <dd className="min-w-0 break-words text-foreground">
@@ -297,6 +305,7 @@ export function WikiPageView(props: WikiPageViewProps) {
       <ClaimLayerContext.Provider value={claimLayer ?? null}>
         <WikiPageBody
           body={page.body}
+          native={page.pageSource?.type === "cujgel"}
           {...(onOpenCard === undefined ? {} : { onOpenCard })}
         />
       </ClaimLayerContext.Provider>

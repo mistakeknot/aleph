@@ -43,3 +43,10 @@ A pin whose claim changed or disappeared is returned with a `detached` anchor an
 ```
 
 `linkPinTask` takes a `taskKey` and records an existing card of a board linked to the project (`wrong-board`, `task-not-found` otherwise). `unlinkPinTask` stops showing a card on a pin and leaves the card alone. `pinTasks` lists the recorded cards of a project with their live status, threads, pull requests and merge state; a deleted card has `state: "removed"` and one that cannot be read, or that now sits on a board not linked to the project, `state: "unavailable"` with its key only. A pin may hold several cards.
+
+The same list/page RPCs and CLI access include native Cujgel JSON specs under
+`docs/cujs/**/*.json`. Use the returned `cujgel:<cuj_id>` identity. Specs are
+rendered offline in memory; no Cujgel install or generation step is needed.
+Native status/version metadata is separate from wiki claim status. Treat
+missing dates/cards as absent, and duplicate IDs as errors rather than choosing
+one file. Legacy wiki Markdown continues to use its strict front matter.

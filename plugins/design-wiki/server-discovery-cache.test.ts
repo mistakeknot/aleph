@@ -335,3 +335,63 @@ describe("Design Wiki discovery with host errors on the listing", () => {
     expect(counts.project).toBe(1);
   });
 });
+
+describe("native spec discovery cache", () => {
+  const path = `${ROOT}/docs/cujs/spec.json`;
+  const spec = (actor: string) =>
+    JSON.stringify({
+      cuj_id: "sample-read-page",
+      version: "1.0",
+      actor,
+      trigger: "Open",
+      steps: [{ step: "Read" }],
+      mental_model: "Mine",
+      success_condition: "Recognized",
+    });
+  it("refreshes edited native specs after the discovery TTL", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { fake, files, counts } = await setup();
+    files[path] = spec("Original reader");
+    const read = () =>
+      fake.harness.callRpc("page", {
+        projectId: "p1",
+        pageId: "cujgel:sample-read-page",
+      });
+    expect(await read()).toMatchObject({
+      state: "found",
+      page: { body: expect.stringContaining("Original reader") },
+    });
+    files[path] = spec("Edited reader");
+    expect(await read()).toMatchObject({
+      state: "found",
+      page: { body: expect.stringContaining("Original reader") },
+    });
+    vi.setSystemTime(Date.now() + 60_000);
+    expect(await read()).toMatchObject({
+      state: "found",
+      page: { body: expect.stringContaining("Edited reader") },
+    });
+    expect(counts.project).toBe(2);
+  });
+  it("does not cache an incomplete native read after a transient failure", async () => {
+    const { fake, files, faults, counts } = await setup();
+    files[path] = spec("Reader");
+    faults.read.add(path);
+    const first = await fake.harness.callRpc("list", { projectId: "p1" });
+    expect(first).toMatchObject({
+      errors: [
+        expect.objectContaining({
+          path: "docs/cujs/spec.json",
+          message: expect.stringContaining("host busy"),
+        }),
+      ],
+    });
+    faults.read.delete(path);
+    const second = await fake.harness.callRpc("page", {
+      projectId: "p1",
+      pageId: "cujgel:sample-read-page",
+    });
+    expect(second).toMatchObject({ state: "found" });
+    expect(counts.project).toBe(2);
+  });
+});
