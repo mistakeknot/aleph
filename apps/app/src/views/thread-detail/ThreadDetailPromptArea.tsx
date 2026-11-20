@@ -148,6 +148,7 @@ import {
   ThreadSwitchAttachmentsError,
   type ThreadHandoffTarget,
 } from "@/lib/thread-provider-switch";
+import { followLocalHandoff } from "./useHandoffSuccessor";
 import {
   emptyPromptDraftState,
   promptDraftToInput,
@@ -1383,12 +1384,18 @@ export function ThreadDetailPromptArea({
             reasoningLevel,
             draft: submittedDraft,
           });
-          navigate(
-            getThreadRoutePath({
+          if (
+            !followLocalHandoff(thread.id, {
               projectId: thread.projectId,
               threadId: newThreadId,
-            }),
-          );
+            })
+          )
+            navigate(
+              getThreadRoutePath({
+                projectId: thread.projectId,
+                threadId: newThreadId,
+              }),
+            );
         } catch (error) {
           if (clearedDraft) {
             promptDraft.restoreIfEmpty(submittedDraft);
