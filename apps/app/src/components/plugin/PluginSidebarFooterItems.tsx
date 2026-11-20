@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import type { ExperimentalSidebarFooterCommandKind } from "@get-bb/plugin-sdk/internal/plugin-app-collector";
 import { observeSharedResize } from "@bb/shared-ui/lib/shared-resize-observer";
 import { cn } from "@bb/shared-ui/lib/utils";
@@ -46,7 +47,10 @@ import {
   type FooterItem,
   type BuiltinFooterId,
 } from "@/components/sidebar/sidebarFooterPreferences";
-import { SIDEBAR_FOOTER_ACTION_CLASS } from "@bb/shared-ui/sidebar-row-classes";
+import {
+  SIDEBAR_FOOTER_ACTION_CLASS,
+  SIDEBAR_RAIL_BUTTON_CLASS,
+} from "@bb/shared-ui/sidebar-row-classes";
 
 function footerItemKey(item: PluginSidebarFooterItemSlot): string {
   return `${item.pluginId}/${item.id}/${item.generation}`;
@@ -68,6 +72,30 @@ export interface FooterHoverPreview {
 
 function footerTriggerId(item: PluginSidebarFooterItemSlot): string {
   return `plugin-sidebar-footer-trigger-${item.pluginId}-${item.id}-${item.generation}`;
+}
+
+export function isSidebarRailUsageItem(
+  item: PluginSidebarFooterItemSlot | null,
+): boolean {
+  return (
+    item?.kind === "disclosure" &&
+    item.pluginId === "bb--provider-usage" &&
+    item.id === "usage"
+  );
+}
+
+function focusFooterDisclosure(panelId: string): void {
+  const panel = document.getElementById(panelId);
+  const firstControl = [
+    ...(panel?.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]",
+    ) ?? []),
+  ].find(
+    (element) =>
+      element.tabIndex >= 0 &&
+      !element.closest('[hidden], [inert], [aria-hidden="true"]'),
+  );
+  (firstControl ?? panel)?.focus({ preventScroll: true });
 }
 
 export function usePluginSidebarFooterDisclosure() {
@@ -243,14 +271,55 @@ export function PluginSidebarFooterDisclosure({
   onDismiss,
   hoverPreview,
   pinned,
+  floating = false,
 }: {
   item: PluginSidebarFooterItemSlot | null;
   onDismiss: () => void;
   hoverPreview?: FooterHoverPreview;
   pinned: boolean;
+  floating?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
+  const [position, setPosition] = useState({ left: 0, bottom: 0 });
+
+  useLayoutEffect(() => {
+    if (!floating || item === null) return;
+    const trigger = document.getElementById(footerTriggerId(item));
+    if (!trigger) return;
+    const measure = () => {
+      const rect = trigger.getBoundingClientRect();
+      return {
+        left: rect.right + 8,
+        bottom: window.innerHeight - rect.bottom,
+      };
+    };
+    const update = () => setPosition(measure());
+    const ancestors: Element[] = [];
+    for (
+      let target: Element | null = trigger;
+      target !== null;
+      target = target.parentElement
+    )
+      ancestors.push(target);
+    const release = observeSharedResize(ancestors, {
+      read: measure,
+      write: setPosition,
+    });
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      release();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [floating, item]);
+
+  useLayoutEffect(() => {
+    if (floating && pinned && item !== null)
+      focusFooterDisclosure(footerDisclosureId(item));
+  }, [floating, pinned, item]);
 
   useLayoutEffect(() => {
     const content = contentRef.current;
@@ -262,14 +331,15 @@ export function PluginSidebarFooterDisclosure({
       read: measure,
       write: setContentHeight,
     });
-  }, [item]);
+  }, [item, floating]);
 
   if (item === null || item.kind !== "disclosure") return null;
   const Component = item.component;
-  return (
+  const panel = (
     <section
       id={footerDisclosureId(item)}
       aria-label={item.label}
+      tabIndex={floating ? -1 : undefined}
       data-testid={`plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}`}
       data-pinned={pinned}
       className={cn(
@@ -300,6 +370,17 @@ export function PluginSidebarFooterDisclosure({
       </div>
     </section>
   );
+  return floating
+    ? createPortal(
+        <div
+          className="fixed z-50 w-80 max-w-[calc(100vw-5rem)] rounded-lg bg-sidebar text-sidebar-foreground shadow-lg"
+          style={position}
+        >
+          {panel}
+        </div>,
+        document.body,
+      )
+    : panel;
 }
 
 export interface BuiltinFooterAction {
@@ -318,6 +399,7 @@ export function PluginSidebarFooterItems({
   builtInActions = [],
   hoverPreview,
   previewDisclosureKey = null,
+  usagePlacement = "footer",
 }: {
   activeDisclosureKey: string | null;
   onDisclosureCommand: (
@@ -330,6 +412,7 @@ export function PluginSidebarFooterItems({
   builtInActions?: readonly BuiltinFooterAction[];
   hoverPreview?: FooterHoverPreview;
   previewDisclosureKey?: string | null;
+  usagePlacement?: "footer" | "rail" | "without-usage";
 }) {
   const navigate = useNavigate();
   const preferences = useSidebarFooterPreferences();
@@ -343,8 +426,18 @@ export function PluginSidebarFooterItems({
   const isAvailable = (item: FooterItem) =>
     item.kind === "plugin" ||
     builtInActions.some((action) => action.id === item.id);
-  const items = preferences.items.filter(isAvailable);
-  const visible = preferences.footer.filter(isAvailable);
+  const isUsage = (item: FooterItem) =>
+    item.kind === "plugin" && isSidebarRailUsageItem(item.slot);
+  const inPlacement = (item: FooterItem) =>
+    usagePlacement === "rail"
+      ? isUsage(item)
+      : usagePlacement !== "without-usage" || !isUsage(item);
+  const items = preferences.items.filter(
+    (item) => isAvailable(item) && inPlacement(item),
+  );
+  const visible = preferences.footer.filter(
+    (item) => isAvailable(item) && inPlacement(item),
+  );
   const hidden = items.filter((item) => !visible.includes(item));
   const footerHidden = preferences.items.every((item) =>
     preferences.hidden.includes(item.key),
@@ -418,7 +511,13 @@ export function PluginSidebarFooterItems({
         ) : null,
       )}
       <SidebarMenuItem className="min-w-8 flex-1 max-md:pointer-coarse:min-w-9">
-        <SidebarMenu ref={menuRef} className="flex-row items-center gap-1">
+        <SidebarMenu
+          ref={usagePlacement === "rail" ? undefined : menuRef}
+          className={cn(
+            "flex-row items-center gap-1",
+            usagePlacement === "rail" && "justify-center",
+          )}
+        >
           {visible.map((item) => {
             const builtin =
               item.kind === "builtin"
@@ -456,10 +555,12 @@ export function PluginSidebarFooterItems({
                           active ||
                           (previewKey !== null &&
                             previewKey === previewDisclosureKey),
-                        side: "top",
+                        side: usagePlacement === "rail" ? "right" : "top",
                       }}
                       className={cn(
-                        SIDEBAR_FOOTER_ACTION_CLASS,
+                        usagePlacement === "rail"
+                          ? cn(SIDEBAR_RAIL_BUTTON_CLASS, "justify-center")
+                          : SIDEBAR_FOOTER_ACTION_CLASS,
                         active &&
                           "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-inset ring-sidebar-ring [&>[data-icon-root]]:opacity-100",
                       )}
@@ -483,6 +584,18 @@ export function PluginSidebarFooterItems({
                           ? () => activate(item)
                           : undefined
                       }
+                      onKeyDown={(event) => {
+                        if (
+                          usagePlacement === "rail" &&
+                          active &&
+                          event.key === "Tab" &&
+                          !event.shiftKey &&
+                          item.kind === "plugin"
+                        ) {
+                          event.preventDefault();
+                          focusFooterDisclosure(footerDisclosureId(item.slot));
+                        }
+                      }}
                       onPointerEnter={
                         previewKey === null
                           ? undefined
@@ -531,53 +644,55 @@ export function PluginSidebarFooterItems({
               </ContextMenu>
             );
           })}
-          <SidebarMenuItem className="min-w-0 shrink-0">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  ref={moreRef}
-                  id={SIDEBAR_FOOTER_MORE_ID}
-                  aria-label="More footer actions"
-                  tooltip={{ children: "More", hidden: false, side: "top" }}
-                  className={SIDEBAR_FOOTER_ACTION_CLASS}
-                >
-                  <Icon name="MoreHorizontal" />
-                  <span className="sr-only">More</span>
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                side="top"
-                align="start"
-                mobileTitle="More footer actions"
-                onCloseAutoFocus={handleCloseAutoFocus}
-              >
-                {hidden.map((item) => (
-                  <DropdownMenuItem
-                    key={item.key}
-                    onSelect={() => activate(item)}
+          {usagePlacement !== "rail" && (
+            <SidebarMenuItem className="min-w-0 shrink-0">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton
+                    ref={moreRef}
+                    id={SIDEBAR_FOOTER_MORE_ID}
+                    aria-label="More footer actions"
+                    tooltip={{ children: "More", hidden: false, side: "top" }}
+                    className={SIDEBAR_FOOTER_ACTION_CLASS}
                   >
-                    <FooterItemIcon item={item} />
-                    {item.label}
-                  </DropdownMenuItem>
-                ))}
-                {hidden.length > 0 && <DropdownMenuSeparator />}
-                <DropdownMenuItem
-                  onSelect={isCompactViewport ? onCustomize : customize}
+                    <Icon name="MoreHorizontal" />
+                    <span className="sr-only">More</span>
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  side="top"
+                  align="start"
+                  mobileTitle="More footer actions"
+                  onCloseAutoFocus={handleCloseAutoFocus}
                 >
-                  <Icon name="SlidersHorizontal" />
-                  Customize footer
-                </DropdownMenuItem>
-                {items.length > 0 && (
+                  {hidden.map((item) => (
+                    <DropdownMenuItem
+                      key={item.key}
+                      onSelect={() => activate(item)}
+                    >
+                      <FooterItemIcon item={item} />
+                      {item.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {hidden.length > 0 && <DropdownMenuSeparator />}
                   <DropdownMenuItem
-                    onSelect={() => setFooterShown(footerHidden)}
+                    onSelect={isCompactViewport ? onCustomize : customize}
                   >
-                    <Icon name={footerHidden ? "Eye" : "EyeOff"} />
-                    {footerHidden ? "Show footer" : "Hide footer"}
+                    <Icon name="SlidersHorizontal" />
+                    Customize footer
                   </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
+                  {items.length > 0 && (
+                    <DropdownMenuItem
+                      onSelect={() => setFooterShown(footerHidden)}
+                    >
+                      <Icon name={footerHidden ? "Eye" : "EyeOff"} />
+                      {footerHidden ? "Show footer" : "Hide footer"}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </SidebarMenuItem>
+          )}
         </SidebarMenu>
       </SidebarMenuItem>
     </>
