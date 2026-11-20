@@ -27,6 +27,7 @@ import {
   PluginSidebarFooterDisclosure,
   PluginSidebarFooterItems,
   usePluginSidebarFooterDisclosure,
+  isSidebarRailUsageItem,
 } from "@/components/plugin/PluginSidebarFooterItems";
 import { SidebarPluginAttentionGlyph } from "./SidebarPluginAttentionGlyph";
 import { SidebarUpdatesBadge } from "./SidebarUpdatesBadge";
@@ -101,7 +102,8 @@ export function AppSidebar({
   const { threadId: activeThreadId } = useRouteState();
   const navigate = useNavigate();
   const closeOnMobile = useCloseMobileSidebar();
-  const { isCompactViewport, open, openMobile } = useSidebar();
+  const { isCompactViewport, open, openMobile, setOpen } = useSidebar();
+  const showCompactUsage = placement === "rail" && !isCompactViewport && !open;
   const isThreadListVisible =
     !isBodyHidden && (isCompactViewport ? openMobile : open);
   const [isFooterCustomizing, setFooterCustomizing] = useState(false);
@@ -122,6 +124,13 @@ export function AppSidebar({
   const isAppCommandModifierHeld = useIsAppCommandModifierHeld();
   const settingsShortcut = useAppCommandShortcut("settings.open");
   const pluginSidebarFooter = usePluginSidebarFooterDisclosure();
+
+  const customizeFooter = () => {
+    pluginSidebarFooter.dismiss();
+    setNavigationCustomizing(false);
+    if (showCompactUsage) setOpen(true);
+    setFooterCustomizing(true);
+  };
 
   const handleNewChat = useCallback(() => {
     closeOnMobile();
@@ -271,11 +280,8 @@ export function AppSidebar({
         )}
       >
         <PluginSidebarFooterItems
-          onCustomize={() => {
-            pluginSidebarFooter.dismiss();
-            setNavigationCustomizing(false);
-            setFooterCustomizing(true);
-          }}
+          usagePlacement={showCompactUsage ? "without-usage" : "footer"}
+          onCustomize={customizeFooter}
           activeDisclosureKey={pluginSidebarFooter.activeKey}
           onDisclosureCommand={pluginSidebarFooter.handleCommand}
           hoverPreview={pluginSidebarFooter.hoverPreview}
@@ -367,6 +373,10 @@ export function AppSidebar({
             onDismiss={pluginSidebarFooter.dismiss}
             hoverPreview={pluginSidebarFooter.hoverPreview}
             pinned={pluginSidebarFooter.activeKey !== null}
+            floating={
+              showCompactUsage &&
+              isSidebarRailUsageItem(pluginSidebarFooter.activeItem)
+            }
           />
         )}
       </div>
@@ -426,14 +436,30 @@ export function AppSidebar({
                   "col-start-1 row-start-2 flex shrink-0 items-center justify-center",
                   NAV_RAIL_WIDTH_CLASS,
                   isFramed
-                    ? "h-(--bb-app-chrome-row-height)"
+                    ? "min-h-(--bb-app-chrome-row-height)"
                     : "bg-surface-recessed -mb-[env(safe-area-inset-bottom)] pt-2 pb-[calc(var(--bb-frame-footer-inset)_+_env(safe-area-inset-bottom))]",
                 )}
               >
-                <NavRailSettingsButton
-                  isSettingsActive={isSettingsActive}
-                  settingsRoutePath={settingsRoutePath}
-                />
+                <div className="flex flex-col items-center">
+                  {showCompactUsage && (
+                    <SidebarMenu data-compact-sidebar-usage="">
+                      <PluginSidebarFooterItems
+                        usagePlacement="rail"
+                        onCustomize={customizeFooter}
+                        activeDisclosureKey={pluginSidebarFooter.activeKey}
+                        onDisclosureCommand={pluginSidebarFooter.handleCommand}
+                        hoverPreview={pluginSidebarFooter.hoverPreview}
+                        previewDisclosureKey={pluginSidebarFooter.previewKey}
+                      />
+                    </SidebarMenu>
+                  )}
+                  <div>
+                    <NavRailSettingsButton
+                      isSettingsActive={isSettingsActive}
+                      settingsRoutePath={settingsRoutePath}
+                    />
+                  </div>
+                </div>
               </div>
             ) : null}
             {placement === "rail" ? (
