@@ -231,11 +231,6 @@ export const BUILTIN_PLUGINS = [
     defaultEnabled: false,
   },
   {
-    name: "design-wiki",
-    pluginId: "bb--design-wiki",
-    defaultEnabled: false,
-  },
-  {
     name: "workflows",
     pluginId: "workflows",
     defaultEnabled: false,
