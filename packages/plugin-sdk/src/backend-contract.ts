@@ -1432,6 +1432,8 @@ export interface PluginProviderExtensionKindDeclaration {
  * thread of this provider.
  */
 export interface PluginProviderOptionsContext {
+  /** Per-thread Claude Code cache duration; other providers ignore it. */
+  promptCacheTtl?: "5m" | "1h";
   threadId: string;
   projectId: string;
   /** The resolved model id for this command. */

@@ -1,4 +1,4 @@
-import { wakeFields } from "@bb/domain";
+import { wakeFields, threadCacheExecutionSchema } from "@bb/domain";
 import { z } from "zod";
 import {
   activeThinkingSchema,
@@ -130,6 +130,7 @@ export type ExistingThreadExecutionInputSources = z.infer<
 
 export const createThreadRequestSchema = z
   .object({
+    execution: threadCacheExecutionSchema.optional(),
     ...wakeFields,
     projectId: z.string().min(1),
     providerId: z.string().min(1).optional(),
@@ -229,6 +230,7 @@ const agentOnlyPromptInputSchema = promptInputSchema.and(
 
 export const forkThreadRequestSchema = z
   .object({
+    execution: threadCacheExecutionSchema.optional(),
     ...wakeFields,
     sourceThreadId: z.string().min(1),
     sourceSeqEnd: z.number().int().nonnegative().optional(),
@@ -282,6 +284,7 @@ export const forkThreadRequestSchema = z
 export type ForkThreadRequest = z.infer<typeof forkThreadRequestSchema>;
 
 const sendMessageRequestFieldsSchema = z.object({
+  execution: threadCacheExecutionSchema.optional(),
   ...wakeFields,
   input: z.array(promptInputSchema).min(1),
   model: z.string().optional(),

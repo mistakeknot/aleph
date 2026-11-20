@@ -100,6 +100,12 @@
       "file": "A0016_thread_roles.sql",
       "after": "A0015",
       "when": 1794340346216
+    },
+    {
+      "id": "A0017",
+      "file": "A0017_thread_prompt_cache_ttl.sql",
+      "after": "0157_thread_run_state",
+      "when": 1794642257434
     }
   ]
 }

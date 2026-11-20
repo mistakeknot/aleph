@@ -65,6 +65,7 @@ const POST_ORACLE_PLAN_IDS = [
   "A0014",
   "A0015",
   "A0016",
+  "A0017",
   "0151_hand_diff_viewed_files_to_git_plugin",
   "0152_small_storage_cleanups",
   "0153_sweep_item_failures",
@@ -371,7 +372,7 @@ describe("the real migration plan", () => {
   it("reads each source file's hash into the plan", () => {
     const input = loadMigrationPlanInput(sourceFolders);
     expect(input.upstream).toHaveLength(158);
-    expect(input.aleph).toHaveLength(16);
+    expect(input.aleph).toHaveLength(17);
     const plan = loadMigrationPlan(sourceFolders);
     for (const step of plan.steps) {
       if (POST_ORACLE_PLAN_IDS.includes(step.id)) continue;

@@ -642,6 +642,7 @@ export const threads = sqliteTable(
     }),
     providerId: text("provider_id").notNull(),
     modelOverride: text("model_override"),
+    promptCacheTtl: text("prompt_cache_ttl").$type<"5m" | "1h">(),
     reasoningLevelOverride: text(
       "reasoning_level_override",
     ).$type<ReasoningLevel>(),

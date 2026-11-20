@@ -89,5 +89,14 @@
   },
   "A0016": {
     "createsTables": ["thread_roles"]
+  },
+  "A0017": {
+    "writesTables": [
+      "threads",
+      "thread_redirects",
+      "queued_thread_messages",
+      "transfer_entries",
+      "transfer_events"
+    ]
   }
 }
