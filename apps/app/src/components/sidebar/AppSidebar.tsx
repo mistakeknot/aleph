@@ -112,6 +112,7 @@ export function AppSidebar({
   const navigate = useNavigate();
   const closeOnMobile = useCloseMobileSidebar();
   const { isCompactViewport, open, openMobile } = useSidebar();
+  const showCompactUsage = placement === "rail" && !isCompactViewport && !open;
   const isThreadListVisible =
     !isBodyHidden && (isCompactViewport ? openMobile : open);
   const [isFooterCustomizing, setFooterCustomizing] = useState(false);
@@ -287,6 +288,7 @@ export function AppSidebar({
         )}
       >
         <PluginSidebarFooterItems
+          usagePlacement={showCompactUsage ? "without-usage" : "footer"}
           onCustomize={() => {
             pluginSidebarFooter.dismiss();
             setNavigationCustomizing(false);
@@ -383,6 +385,7 @@ export function AppSidebar({
             onDismiss={pluginSidebarFooter.dismiss}
             hoverPreview={pluginSidebarFooter.hoverPreview}
             pinned={pluginSidebarFooter.activeKey !== null}
+            floating={showCompactUsage}
           />
         )}
       </div>
@@ -442,14 +445,30 @@ export function AppSidebar({
                   "col-start-1 row-start-2 flex shrink-0 items-center justify-center",
                   NAV_RAIL_WIDTH_CLASS,
                   isFramed
-                    ? "h-(--bb-app-chrome-row-height)"
+                    ? "min-h-(--bb-app-chrome-row-height)"
                     : "bg-surface-recessed -mb-[env(safe-area-inset-bottom)] pt-2 pb-[calc(var(--bb-frame-footer-inset)_+_env(safe-area-inset-bottom))]",
                 )}
               >
-                <NavRailSettingsButton
-                  isSettingsActive={isSettingsActive}
-                  settingsRoutePath={settingsRoutePath}
-                />
+                <div className="flex flex-col items-center">
+                  {showCompactUsage && (
+                    <SidebarMenu data-compact-sidebar-usage="">
+                      <PluginSidebarFooterItems
+                        usagePlacement="rail"
+                        onCustomize={() => setFooterCustomizing(true)}
+                        activeDisclosureKey={pluginSidebarFooter.activeKey}
+                        onDisclosureCommand={pluginSidebarFooter.handleCommand}
+                        hoverPreview={pluginSidebarFooter.hoverPreview}
+                        previewDisclosureKey={pluginSidebarFooter.previewKey}
+                      />
+                    </SidebarMenu>
+                  )}
+                  <div>
+                    <NavRailSettingsButton
+                      isSettingsActive={isSettingsActive}
+                      settingsRoutePath={settingsRoutePath}
+                    />
+                  </div>
+                </div>
               </div>
             ) : null}
             {placement === "rail" ? (
