@@ -177,6 +177,7 @@ import type {
   SecondaryPanelRenderableTab,
 } from "@/components/secondary-panel/ThreadSecondaryPanel";
 import { useThreadDetailThread } from "./useThreadDetailThread";
+import { useHandoffSuccessor, HandoffNotice } from "./useHandoffSuccessor";
 import {
   buildTerminalSyncedSecondaryFileTabs,
   syncTerminalTabsInFixedPanelState,
@@ -299,6 +300,13 @@ function ThreadDetailViewInternal(
     threadQuery: { data: thread, isFetching, isLoadingError, error },
     unreadDividerState,
   } = useThreadDetailThread(threadId, timelineEnabled);
+  const handoff = useHandoffSuccessor({
+    threadId,
+    projectId,
+    title: thread?.title,
+    archivedAt: thread?.archivedAt,
+    navigateInPane,
+  });
   const environmentQuery = useEnvironment(thread?.environmentId, {
     enabled: hasThreadDetailBootstrapSettled,
     staleTime: 5_000,
@@ -1534,6 +1542,7 @@ function ThreadDetailViewInternal(
         contextCardButton={<ThreadContextCardHeaderButton />}
         workspaceOpenButton={workspaceOpenButton}
       />
+      <HandoffNotice notice={handoff.notice} onDismiss={handoff.dismiss} />
       <PluginThreadHeaderRows
         threadId={thread.id}
         projectId={thread.projectId}

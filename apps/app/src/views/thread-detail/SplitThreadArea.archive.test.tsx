@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { createStore, Provider as JotaiProvider } from "jotai";
 import { useContext } from "react";
@@ -28,6 +29,16 @@ import { PaneContext } from "./PaneContext";
 import { RouteNavigationProvider } from "@/components/ui/app-route-anchor";
 import { SplitThreadArea } from "./SplitThreadArea";
 import { LocationProbe } from "@/test/location-probe";
+import { useHandoffSuccessor, HandoffNotice } from "./useHandoffSuccessor";
+
+const successorRpc = vi.hoisted(() => vi.fn(async () => null as unknown));
+vi.mock("@/lib/plugin-sdk-hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/plugin-sdk-hooks")>()),
+  callPluginRpc: successorRpc,
+}));
+vi.mock("@/hooks/useServerConnectionState", () => ({
+  useServerConnectionState: () => "connected",
+}));
 
 const ARCHIVED_AT = 1_700_000_000_000;
 
@@ -79,12 +90,21 @@ vi.mock("./ThreadDetailView", () => ({
   ThreadDetailView: ({ threadId }: { threadId: string }) => {
     const pane = useContext(PaneContext);
     const { data: thread } = useThread(threadId);
+    const handoff = useHandoffSuccessor({
+      threadId,
+      projectId: PERSONAL_PROJECT_ID,
+      title: threadId,
+      archivedAt: thread?.archivedAt,
+      navigateInPane: pane!.navigateInPane,
+    });
     return (
       <div
         data-testid={`pane-${threadId}`}
         data-focused={pane?.isFocused ? "true" : "false"}
         data-archived={thread?.archivedAt !== null ? "true" : "false"}
-      />
+      >
+        <HandoffNotice notice={handoff.notice} onDismiss={handoff.dismiss} />
+      </div>
     );
   },
 }));
@@ -194,9 +214,49 @@ afterEach(() => {
   cleanup();
   pendingArchive = null;
   window.localStorage.clear();
+  successorRpc.mockReset().mockResolvedValue(null);
 });
 
 describe("SplitThreadArea archive pruning", () => {
+  it("follows an externally archived handoff in the same split pane before pruning", async () => {
+    const queryClient = renderArchiveScenario();
+    await screen.findByTestId("pane-thr-b");
+    successorRpc.mockImplementation(
+      async (
+        _fetch?: unknown,
+        _plugin?: unknown,
+        _method?: unknown,
+        input?: { threadId: string },
+      ) =>
+        input?.threadId === "thr-b"
+          ? {
+              threadId: "thr-next",
+              projectId: PERSONAL_PROJECT_ID,
+              title: "Successor",
+            }
+          : null,
+    );
+    await act(async () => {
+      queryClient.setQueryData(threadQueryKey("thr-next"), {
+        id: "thr-next",
+        archivedAt: null,
+        deletedAt: null,
+      });
+      queryClient.setQueryData(threadQueryKey("thr-b"), {
+        id: "thr-b",
+        archivedAt: ARCHIVED_AT,
+        deletedAt: null,
+      });
+    });
+    await screen.findByTestId("pane-thr-next");
+    expect(screen.getByTestId("pane-thr-a")).toBeTruthy();
+    expect(screen.queryByTestId("pane-thr-b")).toBeNull();
+    expect(
+      within(screen.getByTestId("pane-thr-next")).getByRole("status")
+        .textContent,
+    ).toContain("thr-b → Successor");
+    expect(screen.getAllByTestId(/^pane-thr-/)).toHaveLength(2);
+  });
   it("keeps the archived pane and its focus when unarchiving is rejected", async () => {
     deferArchive();
     const queryClient = renderArchiveScenario(ARCHIVED_AT);
