@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
+export const nativeAgentNames = ["claude", "codex"] as const;
+
 type ConfigValue =
   | null
   | boolean
@@ -229,7 +231,7 @@ const enums: Record<string, Set<string>> = {
   parentMode: new Set(["proxy", "isolate"]),
   type: new Set(["command", "prompt", "agent", "http"]),
   kind: new Set(["oauth", "api-key"]),
-  provider: new Set(["claude", "codex"]),
+  provider: new Set(nativeAgentNames),
 };
 function inferScope(path: string): ConfigScope {
   if (path.includes("/accountPool/accounts/")) return "account";

@@ -17,6 +17,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { z } from "zod";
 import {
+  nativeAgentNames,
   sanitizeConfig,
   assertSafeConfig,
   publicCommand,
@@ -34,6 +35,7 @@ import {
   treeDigest,
 } from "./sources.js";
 
+const [, codexAgent] = nativeAgentNames;
 const name = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u);
 const reference = z.strictObject({
   secretRef: z
@@ -92,7 +94,7 @@ export const rigSchema = z.strictObject({
     z.strictObject({
       id: name,
       source,
-      targets: z.array(z.enum(["bb", "claude", "codex", "agents"])).min(1),
+      targets: z.array(z.enum(["bb", ...nativeAgentNames, "agents"])).min(1),
     }),
   ),
   agents: z.strictObject({ claude: agent, codex: agent }),
@@ -101,7 +103,7 @@ export const rigSchema = z.strictObject({
     accounts: z.array(
       z.strictObject({
         id: name,
-        provider: z.enum(["claude", "codex"]),
+        provider: z.enum(nativeAgentNames),
         credential: reference,
         config: settings,
       }),
@@ -197,7 +199,7 @@ export function parseRig(input: unknown): Rig {
     );
   }
   const rig = parsed.data;
-  for (const provider of ["claude", "codex"] as const)
+  for (const provider of nativeAgentNames)
     if ("hooks" in rig.agents[provider].settings)
       throw new Error("Put hooks in the hooks section");
   rig.plugins.sort((a, b) => a.id.localeCompare(b.id));
@@ -357,7 +359,7 @@ function pluginSource(
 }
 async function readAgent(
   home: string,
-  provider: "claude" | "codex",
+  provider: (typeof nativeAgentNames)[number],
 ): Promise<z.infer<typeof agent>> {
   const path = join(
     home,
@@ -380,7 +382,7 @@ async function readAgent(
   }
   const { hooks: embeddedHooks = {}, ...settings } = raw;
   const hooks =
-    provider === "codex" && (await exists(join(home, ".codex/hooks.json")))
+    provider === codexAgent && (await exists(join(home, ".codex/hooks.json")))
       ? await json(join(home, ".codex/hooks.json"))
       : embeddedHooks;
   return { settings, hooks: object(hooks) };
@@ -412,7 +414,7 @@ export async function exportRig(
           skills: [],
           agents: {
             claude: await readAgent(install.agentHome, "claude"),
-            codex: await readAgent(install.agentHome, "codex"),
+            codex: await readAgent(install.agentHome, codexAgent),
           },
           accountPool: { settings: {}, accounts: [] },
         },
@@ -482,7 +484,7 @@ export async function exportRig(
           for (const item of accounts) {
             const config = object(item);
             const id = text(config.id);
-            const provider = z.enum(["claude", "codex"]).parse(config.provider);
+            const provider = z.enum(nativeAgentNames).parse(config.provider);
             const { id: _id, provider: _provider, ...rest } = config;
             const ref = refName(`accountPool/${id}`);
             refs.push(`accountPool/${id}/credential -> ${ref}`);
@@ -500,7 +502,7 @@ export async function exportRig(
     for (const [target, root] of [
       ["bb", join(install.dataDir, "skills")],
       ["claude", join(install.agentHome, ".claude/skills")],
-      ["codex", join(install.agentHome, ".codex/skills")],
+      [codexAgent, join(install.agentHome, ".codex/skills")],
       ["agents", join(install.agentHome, ".agents/skills")],
     ] as const) {
       if (!(await exists(root))) continue;
@@ -541,7 +543,7 @@ export async function exportRig(
           skills,
           agents: {
             claude: await readAgent(install.agentHome, "claude"),
-            codex: await readAgent(install.agentHome, "codex"),
+            codex: await readAgent(install.agentHome, codexAgent),
           },
           accountPool,
         },
@@ -973,7 +975,7 @@ export async function applyRig(
       }
     }
     const agents = object(plain.agents ?? {});
-    for (const provider of ["claude", "codex"] as const) {
+    for (const provider of nativeAgentNames) {
       const config = object(agents[provider] ?? {});
       const body = {
         ...object(config.settings ?? {}),
@@ -1004,7 +1006,7 @@ export async function applyRig(
             : stringifyToml(body),
         );
       if (
-        provider === "codex" &&
+        provider === codexAgent &&
         (Object.keys(object(config.hooks ?? {})).length ||
           (await exists(join(install.agentHome, ".codex/hooks.json"))))
       )
@@ -1120,10 +1122,10 @@ function validateHooks(rig: Rig): void {
       " ",
     ),
   );
-  for (const provider of ["claude", "codex"] as const) {
+  for (const provider of nativeAgentNames) {
     const raw = rig.agents[provider].hooks;
     const events =
-      provider === "codex" && "hooks" in raw ? object(raw.hooks ?? {}) : raw;
+      provider === codexAgent && "hooks" in raw ? object(raw.hooks ?? {}) : raw;
     for (const [event, handlers] of Object.entries(events)) {
       const normalized = event.slice(0, 1).toLowerCase() + event.slice(1);
       if (
