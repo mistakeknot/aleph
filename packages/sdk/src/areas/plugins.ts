@@ -128,6 +128,7 @@ export interface PluginApplyUpdateArgs extends PluginIdArgs {
 export interface PluginInstallArgs {
   source: string;
   requestKey?: string;
+  expectedServer?: PluginInstallServerIdentity;
   subdirectory?: string;
   plugin?: string;
 }
@@ -302,7 +303,10 @@ export interface PluginUpdateJobsArea {
 }
 
 export interface PluginsArea {
-  experimental_safeguards(): Promise<{ capabilities: string[] }>;
+  experimental_safeguards(): Promise<{
+    capabilities: string[];
+    server?: PluginInstallServerIdentity;
+  }>;
   experimental_discoverRpc(
     args?: PluginRpcDiscoveryArgs,
   ): Promise<PublishedPluginRpcMethod[]>;
@@ -514,10 +518,14 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       selection === undefined
         ? { source: input.source }
         : { source: input.source, selection };
-    const body =
+    const keyedBody =
       input.requestKey === undefined
         ? sourceBody
         : { ...sourceBody, requestKey: input.requestKey };
+    const body =
+      input.expectedServer === undefined
+        ? keyedBody
+        : { ...keyedBody, expectedServer: input.expectedServer };
     pluginInstallRequestSchema.parse(body);
     return body;
   }

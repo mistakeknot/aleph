@@ -98,10 +98,25 @@ describe("install containment", () => {
         baseUrl: "http://127.0.0.1:3334",
         fetch: async (input, init) => h.app.request(String(input), init),
       });
-      expect(
-        (await sdk.plugins.experimental_safeguards()).capabilities,
-      ).toContain("install-containment-v1");
-      const job = await sdk.plugins.startInstall({ source: spec, requestKey });
+      const safeguards = await sdk.plugins.experimental_safeguards();
+      expect(safeguards.capabilities).toContain("install-containment-v1");
+      expect(safeguards.server).toMatchObject({
+        pid: process.pid,
+        startTime: expect.any(String),
+      });
+      await expect(
+        sdk.plugins.startInstall({
+          source: spec,
+          requestKey,
+          expectedServer: { pid: process.pid, startTime: "0" },
+        }),
+      ).rejects.toMatchObject({ status: 409, code: "install_server_changed" });
+      const job = await sdk.plugins.startInstall({
+        source: spec,
+        requestKey,
+        expectedServer: safeguards.server!,
+      });
+      expect(job.containment!.server).toEqual(safeguards.server);
       await vi.waitFor(
         async () =>
           expect(
@@ -230,6 +245,20 @@ describe("install containment", () => {
         (await jobs.inspectContainment(requestKey, job.containment!.server))
           .canRelease,
       ).toBe(true);
+      const originalServer = { ...job.containment!.server };
+      const known = jobs.get(job.id)!;
+      Object.assign(known.containment!.server, {
+        pid: 2147483647,
+        startTime: "1",
+      });
+      try {
+        expect(
+          (await jobs.inspectContainment(requestKey, originalServer))
+            .canRelease,
+        ).toBe(false);
+      } finally {
+        Object.assign(known.containment!.server, originalServer);
+      }
       const unknownRegistry = createPluginInstallJobs({
         notifyChanged: () => {},
       });

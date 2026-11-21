@@ -1201,6 +1201,14 @@ export function registerPluginCommands(
       "--request-key <key>",
       "Use an idempotent contained install that can be inspected after interruption",
     )
+    .option(
+      "--expected-server-pid <pid>",
+      "Require the server process recorded before the install",
+    )
+    .option(
+      "--expected-server-start-time <ticks>",
+      "Require the recorded server start time",
+    )
     .option("--yes", "Skip the confirmation prompt")
     .option(
       "--no-wait",
@@ -1217,6 +1225,8 @@ export function registerPluginCommands(
             plugin?: string;
             tagPrefix?: string;
             requestKey?: string;
+            expectedServerPid?: string;
+            expectedServerStartTime?: string;
             wait: boolean;
           },
         ) => {
@@ -1230,6 +1240,18 @@ export function registerPluginCommands(
               ? source
               : withGitTagPrefix(source, opts.tagPrefix);
           const intent = await resolveInstallIntent(getUrl(), requested);
+          if (
+            (opts.expectedServerPid === undefined) !==
+            (opts.expectedServerStartTime === undefined)
+          )
+            throw new Error(
+              "Pass both --expected-server-pid and --expected-server-start-time",
+            );
+          if (
+            opts.expectedServerPid !== undefined &&
+            opts.requestKey === undefined
+          )
+            throw new Error("Expected server identity requires --request-key");
           if (opts.requestKey !== undefined && intent.kind !== "source")
             throw new Error(
               "--request-key requires an explicit managed source",
@@ -1302,6 +1324,14 @@ export function registerPluginCommands(
                     ...(opts.requestKey === undefined
                       ? {}
                       : { requestKey: opts.requestKey }),
+                    ...(opts.expectedServerPid === undefined
+                      ? {}
+                      : {
+                          expectedServer: {
+                            pid: Number(opts.expectedServerPid),
+                            startTime: opts.expectedServerStartTime!,
+                          },
+                        }),
                     ...(opts.subdirectory === undefined
                       ? {}
                       : { subdirectory: opts.subdirectory }),
@@ -2070,6 +2100,30 @@ export function registerPluginCommands(
         console.log(
           `${result.dryRun ? "Would free" : "Freed"} ${formatCacheBytes(result.bytes)} from ${result.removed.length} cached plugin version${result.removed.length === 1 ? "" : "s"}.`,
         );
+      }),
+    );
+
+  plugin
+    .command("safeguards")
+    .description(
+      "Show enforced install safeguards and the server identity for conditional installation",
+    )
+    .option("--json", "Output JSON")
+    .action(
+      action(async (opts: JsonOutputOptions) => {
+        const result =
+          await createCliBbSdk(getUrl()).plugins.experimental_safeguards();
+        if (opts.json) {
+          outputJson(opts, result);
+          return;
+        }
+        console.log(
+          result.capabilities.join("\n") || "No install safeguards advertised.",
+        );
+        if (result.server !== undefined)
+          console.log(
+            `Server process ${result.server.pid}, start time ${result.server.startTime}`,
+          );
       }),
     );
 

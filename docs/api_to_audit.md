@@ -12,6 +12,12 @@ build worker run under a dedicated user-manager slice, inherited by late and
 detached descendants. Callback completion leaves the job running/draining
 until the kernel cgroup is empty or gone; no timeout releases it.
 
+The safeguard probe includes the server's PID/start time for a durable pre-call
+intent. Pass it as `expectedServer` alongside `requestKey`; a server restart
+between probe and start returns typed 409 `install_server_changed`, starting no
+job. Recovery ignores terminal records from a different server identity and
+still blocks while the original recorded server is alive.
+
 `plugins.installJobs.experimental_inspectContainment({ requestKey, server? })`
 checks kernel containment independently of job history. It permits recovery
 only for empty/gone containment and either a known terminal job or an unknown

@@ -125,19 +125,26 @@ export function createPluginInstallJobs(deps: {
       const known = jobs
         .list()
         .find((job) => job.containment?.requestKey === requestKey);
-      const identity = known?.containment?.server ?? server;
+      const identity = server ?? known?.containment?.server;
       const originalServerExited =
         identity === undefined ? null : originalInstallServerExited(identity);
       const terminal =
         known !== undefined &&
         ["succeeded", "failed", "cancelled"].includes(known.state);
+      const matchingServer =
+        server === undefined ||
+        (known?.containment?.server.pid === server.pid &&
+          known.containment.server.startTime === server.startTime);
       return {
         id: containmentIdFor(requestKey),
         state,
         originalServerExited,
         canRelease:
           (state === "empty" || state === "gone") &&
-          (terminal || (known === undefined && originalServerExited === true)),
+          (known === undefined || terminal) &&
+          ((terminal && matchingServer) ||
+            ((!matchingServer || known === undefined) &&
+              originalServerExited === true)),
       };
     },
     settled: (id) => jobs.settled(id)?.then((outcome) => outcome.job),

@@ -34,6 +34,10 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  the key and the job's original server identity
                                  before recovery. Jobs remain running/draining
                                  until their kernel containment is empty.
+                                 --expected-server-pid and
+                                 --expected-server-start-time bind the server
+                                 recorded before a contained install; a changed
+                                 server returns 409 without starting a job.
                                  --subdirectory <path> or --plugin <name>
                                  selects one plugin of a multi-plugin
                                  repository; --tag-prefix <prefix> scopes a
@@ -52,6 +56,9 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  prove the original server exited when job
                                  history is unknown. Unknown/nonempty state
                                  never permits recovery; --json keeps evidence.
+  bb plugin safeguards          Read advertised safeguards and, when supported,
+                                 the server PID/start time before recording a
+                                 bootstrap intent (--json for the full result)
   bb plugin cancel-install <job> Cancel an install: a queued job is dropped;
                                  a running job stops its download or build
                                  and installs nothing, unless it already

@@ -28,7 +28,10 @@ import type {
   PluginWebSocketRouteRecord,
 } from "../services/plugins/plugin-api.js";
 import { PluginSettingsValidationError } from "../services/plugins/plugin-settings.js";
-import { installContainmentSupported } from "../services/plugins/install-containment.js";
+import {
+  installContainmentSupported,
+  installServerIdentity,
+} from "../services/plugins/install-containment.js";
 import { parsePluginSource } from "../services/plugins/install-sources.js";
 import { pluginInstallServerIdentitySchema } from "@bb/server-contract";
 import { PLUGIN_RPC_CALLER_HEADER } from "../services/plugins/plugin-rpc-caller.js";
@@ -479,11 +482,14 @@ export function registerPluginRoutes(
 
   app.get("/plugins", (context) => context.json({ plugins: plugins.list() }));
   app.get("/plugins/safeguards", async (context) =>
-    context.json({
-      capabilities: (await installContainmentSupported())
-        ? ["install-containment-v1"]
-        : [],
-    }),
+    context.json(
+      (await installContainmentSupported())
+        ? {
+            capabilities: ["install-containment-v1"],
+            server: installServerIdentity(),
+          }
+        : { capabilities: [] },
+    ),
   );
   app.get("/plugins/install-containments/:requestKey", async (context) => {
     const requestKey = context.req.param("requestKey");
@@ -798,7 +804,7 @@ export function registerPluginRoutes(
         422,
       );
     }
-    const { source, selection, requestKey } = parsed.data;
+    const { source, selection, requestKey, expectedServer } = parsed.data;
     if (
       requestKey !== undefined &&
       (!(await installContainmentSupported()) ||
@@ -812,6 +818,21 @@ export function registerPluginRoutes(
         },
         422,
       );
+    if (expectedServer !== undefined) {
+      const current = installServerIdentity();
+      if (
+        current.pid !== expectedServer.pid ||
+        current.startTime !== expectedServer.startTime
+      )
+        return context.json(
+          {
+            ok: false,
+            code: "install_server_changed",
+            error: "server changed before contained install; no job started",
+          },
+          409,
+        );
+    }
     const job = installJobs.start({
       ...(requestKey === undefined ? {} : { requestKey }),
       target: { kind: "source", source, selection },
