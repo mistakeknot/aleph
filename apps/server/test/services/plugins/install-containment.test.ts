@@ -13,13 +13,20 @@ import { z } from "zod";
 import type { InstalledPlugin } from "@bb/server-contract";
 import { createNodeBbSdk } from "@bb/sdk";
 import { hostToolchain } from "@bb/process-utils";
+import { installContainmentSupported } from "../../../src/services/plugins/install-containment.js";
 import { createPluginInstallJobs } from "../../../src/services/plugins/plugin-install-jobs.js";
 import { runInstallCommand } from "../../../src/services/plugins/install-sources.js";
 import { withTestHarness } from "../../helpers/test-app.js";
 
+const containmentSupported = await installContainmentSupported();
+const suiteName = containmentSupported
+  ? "install containment"
+  : "install containment (requires a reachable user systemd session)";
+
 let plugin: InstalledPlugin;
 
 beforeAll(async () => {
+  if (!containmentSupported) return;
   plugin = await withTestHarness((h) =>
     h.pluginService.install("builtin:keep-awake", { kind: "root" }),
   );
@@ -41,7 +48,7 @@ const descendantSource = `
   }, 15);
 `;
 
-describe("install containment", () => {
+describe.skipIf(!containmentSupported)(suiteName, () => {
   it("contains npm fallback rebuilds and their real esbuild children", async () => {
     const root = await mkdtemp(
       join(process.env.BB_CONTAINMENT_TEST_ROOT ?? tmpdir(), "contained-npm-"),

@@ -847,6 +847,7 @@
     // bundling step — so the SDK dist must exist before the suite runs. The
     // marketplace parity suites read apps/web's published JSON schemas.
     "@bb/server#test": {
+      "passThroughEnv": ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"],
       "env": [
         "BB_CI_TEST_SHARD",
         "BB_QUERY_PLAN_EXECUTED",
