@@ -61,6 +61,8 @@ Spawning:
     --machine <id-or-name>         Run on a machine (--host is an alias)
     --service-tier <tier>          Service tier id the provider lists for the model, such as
                                    default or fast (see `bb provider models`)
+    --prompt-cache-ttl <ttl>       Claude Code prompt cache duration: 5m or 1h. Stored per
+                                   thread and inherited by forks; other providers ignore it
     --option <option=value>        Choose a value for an option the provider's model lists, applied
                                    before the first message; true or false for an on/off option
                                    (repeatable; see `bb provider models`)

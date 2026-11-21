@@ -124,6 +124,9 @@ export default function plugin(bb: BbPluginApi) {
     models: { scope: "host" },
     deriveProviderOptions(context) {
       return {
+        ...(context.promptCacheTtl === undefined
+          ? {}
+          : { promptCacheTtl: context.promptCacheTtl }),
         memoryEnabled: context.settings.memoryEnabled !== false,
         providerSubagentsEnabled: context.settings.subagentsDisabled !== true,
         workflowsEnabled: context.settings.workflowsDisabled !== true,

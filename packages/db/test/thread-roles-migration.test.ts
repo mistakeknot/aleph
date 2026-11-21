@@ -54,7 +54,7 @@ function alephFolderWithout(excludedId: string): string {
   const manifest = JSON.parse(
     readFileSync(manifestPath, "utf8"),
   ) as ManifestFile;
-  manifest.steps = manifest.steps.filter((step) => step.id !== excludedId);
+  manifest.steps = manifest.steps.filter((step) => step.id < excludedId);
   writeFileSync(manifestPath, JSON.stringify(manifest));
   const checksPath = join(folder, "step-checks.json");
   const checks = JSON.parse(readFileSync(checksPath, "utf8")) as Record<
@@ -134,8 +134,8 @@ function backupsIn(directory: string): string[] {
 }
 
 describe("A0016 thread roles migration", () => {
-  it("is the tail Aleph step", () => {
-    expect(lastAlephStepId()).toBe("A0016");
+  it("keeps the current Aleph tail after the roles step", () => {
+    expect(lastAlephStepId()).toBe("A0017");
   });
 
   it("applies on top of A0015, backs up once and is a no-op on re-run", () => {

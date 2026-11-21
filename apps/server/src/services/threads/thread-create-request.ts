@@ -15,6 +15,7 @@ import type {
 } from "@bb/server-contract";
 
 export interface ThreadCreateServiceRequestInput {
+  execution?: CreateThreadRequest["execution"];
   wakeCause?: CreateThreadRequest["wakeCause"];
   wakeRef?: CreateThreadRequest["wakeRef"];
   environment: CreateThreadEnvironmentArgs;

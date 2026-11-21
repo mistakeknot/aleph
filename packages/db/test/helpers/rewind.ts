@@ -187,6 +187,25 @@ export function dropThreadRolesTable(db: DbConnection): void {
 }
 
 export function dropThreadRunStateTables(db: DbConnection): void {
+  const columns = db.$client
+    .prepare<[], { name: string }>("PRAGMA table_info(threads)")
+    .all();
+  if (columns.some((column) => column.name === "prompt_cache_ttl")) {
+    db.$client.exec("ALTER TABLE threads DROP COLUMN prompt_cache_ttl");
+  }
+  for (const table of ["__bb_migration_ledger", "__drizzle_migrations"]) {
+    if (
+      !db.$client
+        .prepare("SELECT 1 FROM sqlite_master WHERE name = ?")
+        .get(table)
+    )
+      continue;
+    db.$client.exec(
+      table === "__bb_migration_ledger"
+        ? "DELETE FROM __bb_migration_ledger WHERE namespace = 'aleph' AND tag = 'A0017'"
+        : "DELETE FROM __drizzle_migrations WHERE created_at = 1794642257434",
+    );
+  }
   db.$client.exec(
     "DROP TABLE IF EXISTS thread_turn_requests; DROP TABLE IF EXISTS thread_run_states;",
   );

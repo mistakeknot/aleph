@@ -50,4 +50,10 @@ export function applyPostOracleSteps(sqlite: Database.Database): void {
   for (const statement of runStateSql.split("--> statement-breakpoint")) {
     if (statement.trim() !== "") sqlite.exec(statement);
   }
+  sqlite.exec(
+    readFileSync(
+      join(sourceFolders.alephFolder, "A0017_thread_prompt_cache_ttl.sql"),
+      "utf8",
+    ),
+  );
 }

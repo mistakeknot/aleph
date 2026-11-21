@@ -1,4 +1,3 @@
-import { createThread, noopNotifier } from "../src/index.js";
 import { PERSONAL_PROJECT_ID } from "@bb/domain";
 import {
   cpSync,
@@ -55,6 +54,12 @@ describe("upstream 0157 lifecycle migration", () => {
       (step: { tag: string }) => step.tag !== "0157_thread_run_state",
     );
     writeFileSync(journalPath, JSON.stringify(journal));
+    const manifestPath = join(folders.alephFolder, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.steps = manifest.steps.filter(
+      (step: { id: string }) => step.id < "A0017",
+    );
+    writeFileSync(manifestPath, JSON.stringify(manifest));
     const frozenPath = join(folders.alephFolder, "frozen-upstream.json");
     const frozen = JSON.parse(readFileSync(frozenPath, "utf8"));
     frozen.steps = frozen.steps.filter(
@@ -76,14 +81,15 @@ describe("upstream 0157 lifecycle migration", () => {
           )
           .all(),
       ).toEqual([]);
-      createThread(db, noopNotifier, {
-        projectId: PERSONAL_PROJECT_ID,
-        providerId: "test-provider",
-        status: "idle",
-        title: "Preserved upgrade row",
-      });
+      db.$client
+        .prepare(
+          "INSERT INTO threads (id, project_id, provider_id, status, title, latest_attention_at, created_at, updated_at) VALUES ('preserved-upgrade', ?, 'test-provider', 'idle', 'Preserved upgrade row', 1, 1, 1)",
+        )
+        .run(PERSONAL_PROJECT_ID);
       const threads = db.$client
-        .prepare("SELECT * FROM threads ORDER BY id")
+        .prepare<[], Record<string, unknown>>(
+          "SELECT * FROM threads ORDER BY id",
+        )
         .all();
       const ledger = db.$client
         .prepare("SELECT * FROM __bb_migration_ledger ORDER BY namespace, tag")
@@ -91,22 +97,23 @@ describe("upstream 0157 lifecycle migration", () => {
       migrate(db);
       expect(
         loadMigrationPlan(sourceFolders)
-          .steps.slice(-4)
+          .steps.slice(-5)
           .map((step) => step.id),
       ).toEqual([
         "0156_plugin_failure_labels",
         "A0015",
         "A0016",
         "0157_thread_run_state",
+        "A0017",
       ]);
       expectRunStateTables(db);
       expect(
         db.$client.prepare("SELECT * FROM threads ORDER BY id").all(),
-      ).toEqual(threads);
+      ).toEqual(threads.map((row) => ({ ...row, prompt_cache_ttl: null })));
       expect(
         db.$client
           .prepare(
-            "SELECT * FROM __bb_migration_ledger WHERE tag <> '0157_thread_run_state' ORDER BY namespace, tag",
+            "SELECT * FROM __bb_migration_ledger WHERE tag NOT IN ('0157_thread_run_state', 'A0017') ORDER BY namespace, tag",
           )
           .all(),
       ).toEqual(ledger);

@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `prompt_cache_ttl` text;
