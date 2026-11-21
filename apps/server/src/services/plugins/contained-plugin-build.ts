@@ -73,18 +73,21 @@ async function runBuildWorker(args: BuildRequest): Promise<unknown> {
     )
       throw new Error("plugin build worker integrity mismatch");
   }
-  let resolutionBase = import.meta.url;
+  // The worker bundle treats this as its own module URL: it locates the build
+  // toolchain and the build-code digest that is part of the cache key. The
+  // cached request's resolutionBase is used only inside the worker's
+  // fallbackResolve.
+  let pluginBuildBase = import.meta.url;
   try {
-    resolutionBase = import.meta.resolve("@bb/plugin-build");
+    pluginBuildBase = import.meta.resolve("@bb/plugin-build");
   } catch {}
-  resolutionBase = args.cached?.resolutionBase ?? resolutionBase;
   const output = await runInstallCommand(
     process.execPath,
     [
       "--experimental-import-meta-resolve",
       worker,
       JSON.stringify({ ...args, containmentId: containment.id }),
-      resolutionBase,
+      pluginBuildBase,
     ],
     { maxStdoutBytes: 1024 * 1024 },
   );
