@@ -15,6 +15,30 @@ import type {
 const exec = promisify(execFile);
 const storage = new AsyncLocalStorage<PluginInstallContainment>();
 let managerRoot: string | undefined;
+export const CONTAINED_INSTALL_READY = "BB_INSTALL_CONTAINMENT_READY";
+const launcherSource = `
+  const fs = require('node:fs');
+  const { spawn } = require('node:child_process');
+  const { createInterface } = require('node:readline');
+  const id = process.argv[1];
+  if (!fs.readFileSync('/proc/self/cgroup', 'utf8').split('/').some(part => part.trim() === id)) process.exit(125);
+  let received = false;
+  const input = createInterface({ input: process.stdin });
+  input.once('line', line => {
+    received = true;
+    input.close();
+    try {
+      const payload = JSON.parse(line);
+      if (typeof payload.command !== 'string' || !Array.isArray(payload.args) || !payload.args.every(arg => typeof arg === 'string')) process.exit(125);
+      const child = spawn(payload.command, payload.args, { stdio: ['ignore', 'inherit', 'inherit'] });
+      child.once('error', error => { process.stderr.write(String(error)); process.exit(125); });
+      child.once('exit', code => process.exit(code ?? 125));
+    } catch { process.exit(125); }
+  });
+  input.once('close', () => { if (!received) process.exit(125); });
+  process.stdout.once('error', () => process.exit(125));
+  process.stdout.write('${CONTAINED_INSTALL_READY}\\n');
+`;
 
 export function containmentIdFor(requestKey: string): string {
   return `bbplugininstall${createHash("sha256").update(requestKey).digest("hex")}.slice`;
@@ -120,13 +144,18 @@ function scopeArgs(id: string, command: string, args: string[]): string[] {
 export function containedInstallCommand(
   command: string,
   args: string[],
-): { command: string; args: string[] } {
+): { command: string; args: string[]; payload?: string } {
   const containment = storage.getStore();
   return containment === undefined
     ? { command, args }
     : {
         command: "systemd-run",
-        args: scopeArgs(containment.id, command, args),
+        args: scopeArgs(containment.id, process.execPath, [
+          "-e",
+          launcherSource,
+          containment.id,
+        ]),
+        payload: JSON.stringify({ command, args }),
       };
 }
 
@@ -148,11 +177,6 @@ export async function runContainedInstall<T>(
       const initial = await inspectInstallContainment(containment.requestKey);
       if (initial !== "empty" && initial !== "gone")
         throw new Error("install containment is not empty");
-      await exec(
-        "systemd-run",
-        scopeArgs(containment.id, process.execPath, ["-e", ""]),
-        { timeout: 15_000 },
-      );
       return await run();
     } finally {
       draining();

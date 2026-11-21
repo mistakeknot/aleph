@@ -121,7 +121,6 @@ export function createPluginInstallJobs(deps: {
       });
     },
     async inspectContainment(requestKey, server) {
-      const state = await inspectInstallContainment(requestKey);
       const known = jobs
         .list()
         .find((job) => job.containment?.requestKey === requestKey);
@@ -135,6 +134,7 @@ export function createPluginInstallJobs(deps: {
         server === undefined ||
         (known?.containment?.server.pid === server.pid &&
           known.containment.server.startTime === server.startTime);
+      const state = await inspectInstallContainment(requestKey);
       return {
         id: containmentIdFor(requestKey),
         state,

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -9,6 +10,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { InstalledPlugin } from "@bb/server-contract";
 import { createNodeBbSdk } from "@bb/sdk";
+import { hostToolchain } from "@bb/process-utils";
 import { createPluginInstallJobs } from "../../../src/services/plugins/plugin-install-jobs.js";
 import { runInstallCommand } from "../../../src/services/plugins/install-sources.js";
 import { withTestHarness } from "../../helpers/test-app.js";
@@ -38,6 +40,115 @@ const descendantSource = `
 `;
 
 describe("install containment", () => {
+  it("cannot start a delayed installer after its original server dies and recovery releases", async () => {
+    const root = await mkdtemp(
+      join(process.env.BB_CONTAINMENT_TEST_ROOT ?? tmpdir(), "delayed-launch-"),
+    );
+    const bin = join(root, "bin");
+    await mkdir(bin);
+    const real = hostToolchain.resolve("systemd-run");
+    if (real === null)
+      throw new Error("systemd-run is required for containment tests");
+    const requestKey = randomUUID();
+    const launcher = `#!${process.execPath}
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const { spawnSync } = require('node:child_process');
+      const args = process.argv.slice(2);
+      const root = ${JSON.stringify(root)};
+      const delay = args.includes('--scope') && args.some(arg => arg.includes('C3_LATE_MUTATION') || arg.includes('BB_INSTALL_CONTAINMENT_READY'));
+      const run = () => {
+        const result = spawnSync(${JSON.stringify(real)}, args, { stdio: 'inherit' });
+        if (delay) fs.writeFileSync(path.join(root, 'control-completed'), String(result.status));
+        process.exit(result.status ?? 1);
+      };
+      if (!delay) run();
+      else {
+        fs.writeFileSync(path.join(root, 'control-pending'), String(process.pid));
+        const timer = setInterval(() => {
+          if (fs.existsSync(path.join(root, 'release-control'))) { clearInterval(timer); run(); }
+        }, 10);
+      }
+    `;
+    await writeFile(join(bin, "systemd-run"), launcher, { mode: 0o755 });
+    const serverFile = join(root, "server.mjs");
+    const jobsModule = new URL(
+      "../../../src/services/plugins/plugin-install-jobs.ts",
+      import.meta.url,
+    ).href;
+    const sourcesModule = new URL(
+      "../../../src/services/plugins/install-sources.ts",
+      import.meta.url,
+    ).href;
+    const mutation = `require('node:fs').writeFileSync(${JSON.stringify(join(root, "mutation"))}, 'C3_LATE_MUTATION')`;
+    await writeFile(
+      serverFile,
+      `
+      import { writeFile } from 'node:fs/promises';
+      import { createPluginInstallJobs } from ${JSON.stringify(jobsModule)};
+      import { runInstallCommand } from ${JSON.stringify(sourcesModule)};
+      const jobs = createPluginInstallJobs({ notifyChanged() {} });
+      const job = jobs.start({ requestKey: ${JSON.stringify(requestKey)}, target: { kind: 'source', source: 'npm:delayed-fixture', selection: { kind: 'root' } }, displayName: 'Delayed fixture', run: async () => { await runInstallCommand(process.execPath, ['-e', ${JSON.stringify(mutation)}]); throw new Error('fixture finished'); } });
+      await writeFile(${JSON.stringify(join(root, "original-server.json"))}, JSON.stringify(job.containment));
+      await jobs.settled(job.id);
+    `,
+    );
+    const original = spawn(
+      process.execPath,
+      [
+        "--conditions=source",
+        "--import",
+        import.meta.resolve("tsx"),
+        serverFile,
+      ],
+      {
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+        stdio: "ignore",
+      },
+    );
+    try {
+      await once(original, "spawn");
+      await vi.waitFor(
+        () => expect(existsSync(join(root, "control-pending"))).toBe(true),
+        { timeout: 15_000 },
+      );
+      const metadata = z
+        .object({
+          server: z.object({ pid: z.number(), startTime: z.string() }),
+        })
+        .parse(
+          JSON.parse(
+            await readFile(join(root, "original-server.json"), "utf8"),
+          ),
+        );
+      const restarted = createPluginInstallJobs({ notifyChanged: () => {} });
+      expect(
+        (await restarted.inspectContainment(requestKey, metadata.server))
+          .canRelease,
+      ).toBe(false);
+      const exited = once(original, "exit");
+      original.kill("SIGKILL");
+      await exited;
+      expect(
+        (await restarted.inspectContainment(requestKey, metadata.server))
+          .canRelease,
+      ).toBe(true);
+      await writeFile(join(root, "release-control"), "release");
+      await vi.waitFor(
+        () => expect(existsSync(join(root, "control-completed"))).toBe(true),
+        { timeout: 15_000 },
+      );
+      expect(existsSync(join(root, "mutation"))).toBe(false);
+    } finally {
+      await writeFile(join(root, "release-control"), "release");
+      if (original.exitCode === null && original.signalCode === null) {
+        const exited = once(original, "exit");
+        original.kill("SIGKILL");
+        await exited;
+      }
+    }
+  }, 60_000);
+
   it("runs a real Git install and its build worker inside the requested containment", async () => {
     const root = await mkdtemp(
       join(process.env.BB_CONTAINMENT_TEST_ROOT ?? tmpdir(), "contained-git-"),
