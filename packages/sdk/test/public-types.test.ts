@@ -287,6 +287,7 @@ type ExpectedHostsKey =
   | "update";
 
 type ExpectedPluginsKey =
+  | "experimental_safeguards"
   | "experimental_discoverRpc"
   | "experimental_getSafeMode"
   | "experimental_setSafeMode"

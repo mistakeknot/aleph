@@ -1,11 +1,43 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { installGitDependencies } from "../../../src/services/plugins/git-plugin-dependencies.js";
 import { runInstallCommand } from "../../../src/services/plugins/install-sources.js";
 
 let rootDir: string;
+
+it("frozen installs keep their lockfile and suppress root lifecycle scripts", async () => {
+  await writeFile(
+    join(rootDir, "package.json"),
+    JSON.stringify({
+      name: "frozen-fixture",
+      version: "1.0.0",
+      scripts: {
+        postinstall:
+          "node -e \"require('fs').writeFileSync('lifecycle-marker', 'ran')\"",
+      },
+    }),
+  );
+  await runInstallCommand("npm", [
+    "install",
+    "--prefix",
+    rootDir,
+    "--package-lock-only",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+  ]);
+  const lockfile = await readFile(join(rootDir, "package-lock.json"));
+  await installGitDependencies(rootDir, {
+    sha256: createHash("sha256").update(lockfile).digest("hex"),
+  });
+  expect(await readFile(join(rootDir, "package-lock.json"))).toEqual(lockfile);
+  await expect(
+    readFile(join(rootDir, "lifecycle-marker")),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});
 
 beforeEach(async () => {
   rootDir = await mkdtemp(join(tmpdir(), "bb-git-dependencies-"));

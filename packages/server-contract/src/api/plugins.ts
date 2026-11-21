@@ -300,9 +300,18 @@ export const ROOT_PLUGIN_SOURCE_SELECTION: PluginSourceSelection = {
   kind: "root",
 };
 
+export const pluginFrozenLockfileSchema = z
+  .object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) })
+  .strict();
+export type PluginFrozenLockfile = z.infer<typeof pluginFrozenLockfileSchema>;
+export const pluginSafeguardsResponseSchema = z.object({
+  capabilities: z.array(z.string()),
+});
+
 export const pluginInstallRequestSchema = z
   .object({
     source: z.string().min(1),
+    frozenLockfile: pluginFrozenLockfileSchema.optional(),
     selection: pluginSourceSelectionSchema.default(
       ROOT_PLUGIN_SOURCE_SELECTION,
     ),
@@ -340,6 +349,7 @@ export const pluginInstallJobTargetSchema = z.discriminatedUnion("kind", [
       kind: z.literal("source"),
       source: z.string().min(1),
       selection: pluginSourceSelectionSchema,
+      frozenLockfile: pluginFrozenLockfileSchema.optional(),
     })
     .strict(),
 ]);
