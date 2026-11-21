@@ -35,6 +35,7 @@ import {
   pluginSafeModeResponseSchema,
   pluginSafeModeUpdateResponseSchema,
   pluginSettingsResponseSchema,
+  pluginSafeguardsResponseSchema,
   pluginSettingsUpdateRequestSchema,
   pluginSourceDetailSchema,
   pluginTokenRequestSchema,
@@ -172,6 +173,7 @@ export interface PluginReloadArgs {
 
 export interface PluginSettingsUpdateArgs extends PluginIdArgs {
   values: Record<string, JsonValue>;
+  expectedDigest?: string;
 }
 
 export interface PluginTokenArgs extends PluginIdArgs {
@@ -294,6 +296,7 @@ export interface PluginUpdateJobsArea {
 }
 
 export interface PluginsArea {
+  experimental_safeguards(): Promise<{ capabilities: string[] }>;
   experimental_discoverRpc(
     args?: PluginRpcDiscoveryArgs,
   ): Promise<PublishedPluginRpcMethod[]>;
@@ -693,6 +696,12 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
         { signal: input.signal },
       );
     },
+    experimental_safeguards() {
+      return requestParsed(
+        "/api/v1/plugins/safeguards",
+        pluginSafeguardsResponseSchema,
+      );
+    },
     async getSource(input) {
       return requestParsed(
         pluginPath(input.pluginId, "/source"),
@@ -753,6 +762,7 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     async updateSettings(input) {
       const body = pluginSettingsUpdateRequestSchema.parse({
         values: input.values,
+        expectedDigest: input.expectedDigest,
       });
       return requestParsed(
         pluginPath(input.pluginId, "/settings"),
