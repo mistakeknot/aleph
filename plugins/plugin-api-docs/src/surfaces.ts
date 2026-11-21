@@ -1675,6 +1675,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Retry failed environment cleanup with recover: true after inspecting processes using the workspace",
         ],
         reference: [
+          "Read plugins.experimental_safeguards() for enforced server contracts. conditional-settings-v1 means getSettings returns a server-issued stored-state digest; pass it unchanged as updateSettings.expectedDigest. A stale write fails with HTTP 409 and code plugin_settings_conflict. Defaults are not stored entries; secrets contribute presence and opaque keyed content versions, never their values. Omitting expectedDigest retains unconditional writes; older servers may omit digest.",
           "Read observed wake effects with threads.experimental_wakeOutcomes({ threadId, cursor? }): newest 100 root turns first by earliest retained event, nullable nextCursor for older pages, and unknown live coverage; reads never write snapshots or notify, and settlement snapshots remain immutable",
           "Normalize and resolve host paths with experimental_normalizeHostPath(path) and experimental_resolveHostPath({ rootPath, path }) from @get-bb/plugin-sdk; invalid paths return null",
           "Recognize drive roots (including C:) and UNC paths with either Windows separator, regardless of the server OS; reject rootless backslashes and drive-relative paths such as C:foo during resolution",
@@ -1702,6 +1703,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginBbSdk.experimental_threadRoles.release",
           "PluginBbSdk.environments.experimental_cleanup",
           "PluginBbSdk.plugins.experimental_getSafeMode",
+          "PluginBbSdk.plugins.experimental_safeguards",
           "PluginBbSdk.plugins.experimental_setSafeMode",
           "PluginBbSdk.plugins.experimental_pruneCache",
           "PluginBbSdk.plugins.experimental_startUpdate",

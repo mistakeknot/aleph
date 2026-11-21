@@ -27,7 +27,10 @@ import type {
   PluginMentionTrigger,
   PluginWebSocketRouteRecord,
 } from "../services/plugins/plugin-api.js";
-import { PluginSettingsValidationError } from "../services/plugins/plugin-settings.js";
+import {
+  PluginSettingsValidationError,
+  PluginSettingsConflictError,
+} from "../services/plugins/plugin-settings.js";
 import { PLUGIN_RPC_CALLER_HEADER } from "../services/plugins/plugin-rpc-caller.js";
 import type { PluginInstallJobs } from "../services/plugins/plugin-install-jobs.js";
 import {
@@ -475,6 +478,9 @@ export function registerPluginRoutes(
   });
 
   app.get("/plugins", (context) => context.json({ plugins: plugins.list() }));
+  app.get("/plugins/safeguards", (context) =>
+    context.json({ capabilities: ["conditional-settings-v1"] }),
+  );
 
   app.get("/plugins/contributions", (context) =>
     context.json({
@@ -852,10 +858,17 @@ export function registerPluginRoutes(
       const view = await plugins.updateSettings(
         context.req.param("id"),
         body.data.values,
+        body.data.expectedDigest,
       );
       if (!view) return context.json(NOT_RUNNING, 404);
       return context.json({ ok: true, ...view });
     } catch (error) {
+      if (error instanceof PluginSettingsConflictError) {
+        return context.json(
+          { ok: false, code: error.code, error: error.message },
+          409,
+        );
+      }
       if (error instanceof PluginSettingsValidationError) {
         return context.json({ ok: false, error: error.message }, 400);
       }

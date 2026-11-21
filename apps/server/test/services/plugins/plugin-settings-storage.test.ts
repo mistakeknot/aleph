@@ -13,6 +13,8 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { createNodeBbSdk } from "@bb/sdk";
+import { writeSecretFile } from "@bb/secret-storage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getPluginSettingsValues,
@@ -120,6 +122,158 @@ describe("plugin settings + storage", () => {
   });
 
   describe("settings", () => {
+    it("rejects stale digests across 2000 rapid A-to-B-to-C secret rename sequences", async () => {
+      await installConfigurable();
+      const sdk = settingsSdk();
+      const path = join(
+        dataDir,
+        "plugins",
+        "configurable",
+        "secrets",
+        "apiKey",
+      );
+      for (let round = 0; round < 2000; round++) {
+        const suffix = String(round).padStart(4, "0");
+        await writeSecretFile(path, `A${suffix}`);
+        const before = await sdk.plugins.getSettings({
+          pluginId: "configurable",
+        });
+        await writeSecretFile(path, `B${suffix}`);
+        await writeSecretFile(path, `C${suffix}`);
+        await expect(
+          sdk.plugins.updateSettings({
+            pluginId: "configurable",
+            values: { note: "stale" },
+            expectedDigest: before.digest,
+          }),
+          `round ${round}`,
+        ).rejects.toMatchObject({
+          status: 409,
+          code: "plugin_settings_conflict",
+        });
+        expect(await readFile(path, "utf8")).toBe(`C${suffix}`);
+      }
+    }, 60_000);
+
+    function settingsSdk() {
+      const app = new Hono();
+      registerPluginRoutes(
+        app,
+        { config: { serverPort: 3334 }, db },
+        service,
+        createPluginInstallJobs({ notifyChanged: () => {} }),
+        createPluginUpdateJobs({ notifyChanged: () => {} }),
+      );
+      return createNodeBbSdk({
+        baseUrl: "http://settings.test",
+        fetch: async (input, init) =>
+          app.request(String(input).replace("/api/v1", ""), init),
+      });
+    }
+
+    it("rejects a stale public SDK settings write and keeps the intervening edit", async () => {
+      await installConfigurable();
+      const sdk = settingsSdk();
+      expect(
+        (await sdk.plugins.experimental_safeguards()).capabilities,
+      ).toContain("conditional-settings-v1");
+      const before = await sdk.plugins.getSettings({
+        pluginId: "configurable",
+      });
+      expect(before.digest).toMatch(/^[a-f0-9]{64}$/);
+      await sdk.plugins.updateSettings({
+        pluginId: "configurable",
+        values: { note: "B" },
+      });
+      await expect(
+        sdk.plugins.updateSettings({
+          pluginId: "configurable",
+          values: { note: "A" },
+          expectedDigest: before.digest,
+        }),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(
+        (await sdk.plugins.getSettings({ pluginId: "configurable" })).values
+          .note,
+      ).toBe("B");
+    });
+
+    it("serializes competing conditional writes including secret IO", async () => {
+      await installConfigurable();
+      const sdk = settingsSdk();
+      const before = await sdk.plugins.getSettings({
+        pluginId: "configurable",
+      });
+      const results = await Promise.allSettled(
+        ["first", "second"].map((value) =>
+          sdk.plugins.updateSettings({
+            pluginId: "configurable",
+            values: { apiKey: value },
+            expectedDigest: before.digest,
+          }),
+        ),
+      );
+      expect(
+        results.filter((result) => result.status === "fulfilled"),
+      ).toHaveLength(1);
+      expect(
+        results.filter((result) => result.status === "rejected"),
+      ).toHaveLength(1);
+    });
+
+    it("accepts the read digest over unstored defaults through the public SDK", async () => {
+      await installConfigurable();
+      const sdk = settingsSdk();
+      const before = await sdk.plugins.getSettings({
+        pluginId: "configurable",
+      });
+      expect(getPluginSettingsValues(db, "configurable")).toEqual({});
+      expect(before.digest).toMatch(/^[a-f0-9]{64}$/);
+      const after = await sdk.plugins.updateSettings({
+        pluginId: "configurable",
+        values: { teamKey: "ENG" },
+        expectedDigest: before.digest,
+      });
+      expect(after.values.teamKey).toBe("ENG");
+      expect(after.digest).not.toBe(before.digest);
+    });
+
+    it("accepts a secret-bearing read digest and rejects it after secret replacement", async () => {
+      await installConfigurable();
+      const sdk = settingsSdk();
+      await sdk.plugins.updateSettings({
+        pluginId: "configurable",
+        values: { apiKey: "planted-first" },
+      });
+      const before = await sdk.plugins.getSettings({
+        pluginId: "configurable",
+      });
+      expect(before.digest).toMatch(/^[a-f0-9]{64}$/);
+      const after = await sdk.plugins.updateSettings({
+        pluginId: "configurable",
+        values: { note: "accepted" },
+        expectedDigest: before.digest,
+      });
+      expect(after.values.note).toBe("accepted");
+      await sdk.plugins.updateSettings({
+        pluginId: "configurable",
+        values: { apiKey: "planted-second" },
+        expectedDigest: after.digest,
+      });
+      await expect(
+        sdk.plugins.updateSettings({
+          pluginId: "configurable",
+          values: { note: "stale" },
+          expectedDigest: after.digest,
+        }),
+      ).rejects.toMatchObject({ status: 409 });
+      const publicView = await sdk.plugins.getSettings({
+        pluginId: "configurable",
+      });
+      expect(JSON.stringify(publicView)).not.toContain("planted-");
+      expect(publicView.values.note).toBe("accepted");
+    });
+
     async function installConfigurable(): Promise<void> {
       const rootDir = await writePlugin(workDir, {
         name: "bb-plugin-configurable",

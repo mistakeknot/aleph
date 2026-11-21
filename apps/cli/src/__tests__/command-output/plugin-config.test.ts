@@ -25,6 +25,37 @@ describe("bb plugin config", () => {
   const register: CommandRegistrar = (program) =>
     registerPluginCommands(program, () => "http://server");
 
+  it("passes the caller's stored-state digest unchanged to conditional writes", async () => {
+    const digest = "a".repeat(64);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(settingsResponse(3))
+      .mockResolvedValueOnce(settingsResponse(4));
+    await runCommand(
+      [
+        "plugin",
+        "config",
+        "demo",
+        "set",
+        "retries",
+        "4",
+        "--expected-digest",
+        digest,
+      ],
+      register,
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://server/api/v1/plugins/demo/settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          values: { retries: 4 },
+          expectedDigest: digest,
+        }),
+      }),
+    );
+  });
+
   it("accepts a negative number while preserving unknown-option errors", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(settingsResponse(3))
