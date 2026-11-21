@@ -1,3 +1,5 @@
+import { currentInstallContainment } from "./install-containment.js";
+import { runContainedCachedPluginServer } from "./contained-plugin-build.js";
 import { capturePluginUse } from "./plugin-use-telemetry.js";
 import {
   realtimeSubscriptionTargetKey,
@@ -1278,7 +1280,10 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       serverEntry = manifest.serverEntry,
     ): Promise<ResolvedServerEntry> {
       const built = await withArtifactLock(`server:${row.id}`, async () =>
-        buildCachedPluginServer({
+        (currentInstallContainment() === undefined
+          ? buildCachedPluginServer
+          : runContainedCachedPluginServer)({
+          resolutionBase: import.meta.url,
           rootDir: row.rootDir,
           dataDir: deps.dataDir,
           pluginId: row.id,

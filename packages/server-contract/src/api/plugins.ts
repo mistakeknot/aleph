@@ -300,14 +300,29 @@ export const ROOT_PLUGIN_SOURCE_SELECTION: PluginSourceSelection = {
   kind: "root",
 };
 
+export const pluginInstallServerIdentitySchema = z.object({
+  pid: z.number().int().positive(),
+  startTime: z.string().regex(/^\d+$/),
+});
+export type PluginInstallServerIdentity = z.infer<
+  typeof pluginInstallServerIdentitySchema
+>;
+
 export const pluginInstallRequestSchema = z
   .object({
     source: z.string().min(1),
+    requestKey: z.string().min(1).max(256).optional(),
+    expectedServer: pluginInstallServerIdentitySchema.optional(),
     selection: pluginSourceSelectionSchema.default(
       ROOT_PLUGIN_SOURCE_SELECTION,
     ),
   })
-  .strict();
+  .strict()
+  .refine(
+    (input) =>
+      input.expectedServer === undefined || input.requestKey !== undefined,
+    "expectedServer requires requestKey",
+  );
 
 export const PLUGIN_MARKETPLACE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/u;
 
@@ -347,15 +362,48 @@ export type PluginInstallJobTarget = z.infer<
   typeof pluginInstallJobTargetSchema
 >;
 
+export const pluginInstallContainmentSchema = z.object({
+  id: z.string(),
+  requestKey: z.string(),
+  server: pluginInstallServerIdentitySchema,
+});
+export type PluginInstallContainment = z.infer<
+  typeof pluginInstallContainmentSchema
+>;
+export const pluginInstallContainmentStateSchema = z.enum([
+  "empty",
+  "gone",
+  "nonempty",
+  "unknown",
+]);
+export type PluginInstallContainmentState = z.infer<
+  typeof pluginInstallContainmentStateSchema
+>;
+export const pluginInstallContainmentInspectionSchema = z.object({
+  id: z.string(),
+  state: pluginInstallContainmentStateSchema,
+  originalServerExited: z.boolean().nullable(),
+  canRelease: z.boolean(),
+});
+export const pluginSafeguardsResponseSchema = z.object({
+  capabilities: z.array(z.string()),
+  server: pluginInstallServerIdentitySchema.optional(),
+});
+
 const pluginInstallJobFields = {
   id: z.string().min(1),
+  containment: pluginInstallContainmentSchema.optional(),
   target: pluginInstallJobTargetSchema,
   displayName: z.string().min(1),
 };
 
 export const pluginInstallJobSchema = z.discriminatedUnion("state", [
   z.object({ ...pluginInstallJobFields, state: z.literal("queued") }),
-  z.object({ ...pluginInstallJobFields, state: z.literal("running") }),
+  z.object({
+    ...pluginInstallJobFields,
+    state: z.literal("running"),
+    detail: z.literal("draining").optional(),
+  }),
   z.object({ ...pluginInstallJobFields, state: z.literal("cancelling") }),
   z.object({
     ...pluginInstallJobFields,

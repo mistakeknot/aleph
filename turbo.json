@@ -559,7 +559,24 @@
       "dependsOn": ["^topo", "@bb/server#generate:bb-official-marketplace"]
     },
     "@bb/server#topo": {
-      "dependsOn": ["^topo", "@bb/server#generate:bb-official-marketplace"]
+      "dependsOn": [
+        "^topo",
+        "@bb/server#generate:bb-official-marketplace",
+        "@bb/server#generate:plugin-install-worker"
+      ]
+    },
+    "@bb/server#generate:plugin-install-worker": {
+      "dependsOn": ["@bb/plugin-build#topo"],
+      "inputs": [
+        "scripts/generate-plugin-install-worker.mjs",
+        "src/services/plugins/plugin-install-build-worker.ts",
+        "src/services/plugins/plugin-server-cache.ts",
+        "src/services/lib/fs-errors.ts",
+        "$TURBO_ROOT$/packages/plugin-build/src/**",
+        "$TURBO_ROOT$/packages/process-utils/src/**",
+        "$TURBO_ROOT$/packages/domain/src/**"
+      ],
+      "outputs": ["src/generated/plugin-install-build-worker.ts"]
     },
     "@bb/server#generate:bb-official-marketplace": {
       "dependsOn": [],

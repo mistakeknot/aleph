@@ -287,6 +287,7 @@ type ExpectedHostsKey =
   | "update";
 
 type ExpectedPluginsKey =
+  | "experimental_safeguards"
   | "experimental_discoverRpc"
   | "experimental_getSafeMode"
   | "experimental_setSafeMode"
@@ -321,7 +322,11 @@ type ExpectedPluginCatalogKey =
 
 type ExpectedPluginMarketplacesKey = "add" | "list" | "refresh" | "remove";
 
-type ExpectedPluginInstallJobsKey = "cancel" | "get" | "list";
+type ExpectedPluginInstallJobsKey =
+  | "cancel"
+  | "get"
+  | "list"
+  | "experimental_inspectContainment";
 
 type ExpectedExperimentalPromptHistoryKey = "list";
 
