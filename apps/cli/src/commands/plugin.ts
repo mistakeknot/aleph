@@ -1197,6 +1197,10 @@ export function registerPluginCommands(
       "--tag-prefix <prefix>",
       "Resolve a git: semver range over <prefix>vX.Y.Z tags (monorepo tagging)",
     )
+    .option(
+      "--request-key <key>",
+      "Use an idempotent contained install that can be inspected after interruption",
+    )
     .option("--yes", "Skip the confirmation prompt")
     .option(
       "--no-wait",
@@ -1212,6 +1216,7 @@ export function registerPluginCommands(
             subdirectory?: string;
             plugin?: string;
             tagPrefix?: string;
+            requestKey?: string;
             wait: boolean;
           },
         ) => {
@@ -1225,6 +1230,10 @@ export function registerPluginCommands(
               ? source
               : withGitTagPrefix(source, opts.tagPrefix);
           const intent = await resolveInstallIntent(getUrl(), requested);
+          if (opts.requestKey !== undefined && intent.kind !== "source")
+            throw new Error(
+              "--request-key requires an explicit managed source",
+            );
           if (intent.kind === "catalog" && opts.tagPrefix !== undefined) {
             throw new Error(
               `"${source}" is a catalog entry; --tag-prefix applies to git: sources only.`,
@@ -1290,6 +1299,9 @@ export function registerPluginCommands(
                   kind: "source" as const,
                   args: {
                     source: intent.source,
+                    ...(opts.requestKey === undefined
+                      ? {}
+                      : { requestKey: opts.requestKey }),
                     ...(opts.subdirectory === undefined
                       ? {}
                       : { subdirectory: opts.subdirectory }),
@@ -2059,6 +2071,52 @@ export function registerPluginCommands(
           `${result.dryRun ? "Would free" : "Freed"} ${formatCacheBytes(result.bytes)} from ${result.removed.length} cached plugin version${result.removed.length === 1 ? "" : "s"}.`,
         );
       }),
+    );
+
+  plugin
+    .command("install-containment <requestKey>")
+    .description(
+      "Inspect whether a contained install can release its recovery barrier",
+    )
+    .option("--server-pid <pid>", "Original server process ID")
+    .option("--server-start-time <ticks>", "Original server process start time")
+    .option("--json", "Output JSON")
+    .action(
+      action(
+        async (
+          requestKey: string,
+          opts: JsonOutputOptions & {
+            serverPid?: string;
+            serverStartTime?: string;
+          },
+        ) => {
+          if (
+            (opts.serverPid === undefined) !==
+            (opts.serverStartTime === undefined)
+          )
+            throw new Error("Pass both --server-pid and --server-start-time");
+          const result = await createCliBbSdk(
+            getUrl(),
+          ).plugins.installJobs.experimental_inspectContainment({
+            requestKey,
+            ...(opts.serverPid === undefined
+              ? {}
+              : {
+                  server: {
+                    pid: Number(opts.serverPid),
+                    startTime: opts.serverStartTime!,
+                  },
+                }),
+          });
+          if (opts.json) {
+            outputJson(opts, result);
+            return;
+          }
+          console.log(
+            `${result.id}: ${result.state}; recovery ${result.canRelease ? "may proceed" : "blocked"}`,
+          );
+        },
+      ),
     );
 
   plugin

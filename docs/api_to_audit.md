@@ -1,5 +1,26 @@
 # APIs To Audit
 
+## Contained plugin installs
+
+`bb.sdk.plugins.experimental_safeguards()` advertises
+`install-containment-v1` where Linux cgroup v2 and a user service manager are
+available. `plugins.startInstall({ source, requestKey })` and `install` opt a
+managed Git/npm install into that contract. Calls without a request key keep
+their existing behavior. The job records request key, deterministic containment
+identity and the starting server PID/start time. Its installer commands and
+build worker run under a dedicated user-manager slice, inherited by late and
+detached descendants. Callback completion leaves the job running/draining
+until the kernel cgroup is empty or gone; no timeout releases it.
+
+`plugins.installJobs.experimental_inspectContainment({ requestKey, server? })`
+checks kernel containment independently of job history. It permits recovery
+only for empty/gone containment and either a known terminal job or an unknown
+job whose original server exited, matched by PID and start time. Errors stay
+unknown and block recovery. This read does not itself release a caller's host
+lock or barrier. Core install jobs and CLI use this shared path. Stabilization
+requires auditing supported service managers and lifecycle/restart behavior.
+The Plugin Guide documents these SDK surfaces.
+
 Every public plugin API member ships with an `experimental_` prefix and an
 entry here (see [AGENTS.md](../AGENTS.md), "CLI And Plugin API"). Each entry
 summarizes the API, names where its behavior is documented, and lists what

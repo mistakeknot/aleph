@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { containedInstallCommand } from "./install-containment.js";
 import { constants } from "node:fs";
 import {
   cp,
@@ -623,9 +624,13 @@ export async function runInstallCommand(
   const cancellation = installCancellationSignal();
   if (cancellation?.aborted) throw new PluginInstallCancelledError();
   const npmCliPath = command === "npm" ? hostToolchain.bundledNpmCli() : null;
+  const contained = containedInstallCommand(
+    npmCliPath === null ? command : process.execPath,
+    npmCliPath === null ? args : [npmCliPath, ...args],
+  );
   const child = spawnPortableOutputProcess({
-    command: npmCliPath === null ? command : process.execPath,
-    args: npmCliPath === null ? args : [npmCliPath, ...args],
+    command: contained.command,
+    args: contained.args,
     detached: supportsProcessGroups(),
     env: omitNpmScriptPolicyEnv(process.env),
   });

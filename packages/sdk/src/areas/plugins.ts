@@ -30,6 +30,9 @@ import {
   pluginCachePruneRequestSchema,
   pluginCachePruneResponseSchema,
   pluginInstallRequestSchema,
+  pluginInstallContainmentInspectionSchema,
+  pluginSafeguardsResponseSchema,
+  type PluginInstallServerIdentity,
   pluginRemoveResponseSchema,
   pluginSafeModeRequestSchema,
   pluginSafeModeResponseSchema,
@@ -124,6 +127,7 @@ export interface PluginApplyUpdateArgs extends PluginIdArgs {
 
 export interface PluginInstallArgs {
   source: string;
+  requestKey?: string;
   subdirectory?: string;
   plugin?: string;
 }
@@ -283,6 +287,10 @@ export interface PluginMarketplacesArea {
 }
 
 export interface PluginInstallJobsArea {
+  experimental_inspectContainment(args: {
+    requestKey: string;
+    server?: PluginInstallServerIdentity;
+  }): Promise<z.infer<typeof pluginInstallContainmentInspectionSchema>>;
   cancel(args: PluginInstallJobArgs): Promise<PluginInstallJob>;
   get(args: PluginInstallJobArgs): Promise<PluginInstallJob>;
   list(args?: PluginInstallJobListArgs): Promise<PluginInstallJob[]>;
@@ -294,6 +302,7 @@ export interface PluginUpdateJobsArea {
 }
 
 export interface PluginsArea {
+  experimental_safeguards(): Promise<{ capabilities: string[] }>;
   experimental_discoverRpc(
     args?: PluginRpcDiscoveryArgs,
   ): Promise<PublishedPluginRpcMethod[]>;
@@ -415,6 +424,18 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
   }
 
   const installJobs: PluginInstallJobsArea = {
+    experimental_inspectContainment(input) {
+      const key = z.string().min(1).max(256).parse(input.requestKey);
+      const query = new URLSearchParams();
+      if (input.server !== undefined) {
+        query.set("serverPid", String(input.server.pid));
+        query.set("serverStartTime", input.server.startTime);
+      }
+      return requestParsed(
+        `/api/v1/plugins/install-containments/${encodeURIComponent(key)}${query.size === 0 ? "" : `?${query}`}`,
+        pluginInstallContainmentInspectionSchema,
+      );
+    },
     async cancel(input) {
       const response = await requestParsed(
         installJobPath(input.jobId, "/cancel"),
@@ -489,10 +510,14 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       );
     }
     const selection = pluginSourceSelection(input);
-    const body =
+    const sourceBody =
       selection === undefined
         ? { source: input.source }
         : { source: input.source, selection };
+    const body =
+      input.requestKey === undefined
+        ? sourceBody
+        : { ...sourceBody, requestKey: input.requestKey };
     pluginInstallRequestSchema.parse(body);
     return body;
   }
@@ -691,6 +716,12 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
         pluginPath(input.pluginId, "/settings"),
         pluginSettingsResponseSchema,
         { signal: input.signal },
+      );
+    },
+    experimental_safeguards() {
+      return requestParsed(
+        "/api/v1/plugins/safeguards",
+        pluginSafeguardsResponseSchema,
       );
     },
     async getSource(input) {

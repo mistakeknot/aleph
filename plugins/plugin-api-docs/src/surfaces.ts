@@ -1675,6 +1675,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Retry failed environment cleanup with recover: true after inspecting processes using the workspace",
         ],
         reference: [
+          "Read plugins.experimental_safeguards() for install-containment-v1. Managed install/startInstall({ source, requestKey }) records a deterministic containment and original server identity, and keeps the job running/draining until every installer descendant exits. installJobs.experimental_inspectContainment({ requestKey, server? }) independently checks empty/gone state and original-server exit for unknown jobs; errors block recovery. It never releases a caller's lock itself. Omit requestKey for existing behavior.",
           "Read observed wake effects with threads.experimental_wakeOutcomes({ threadId, cursor? }): newest 100 root turns first by earliest retained event, nullable nextCursor for older pages, and unknown live coverage; reads never write snapshots or notify, and settlement snapshots remain immutable",
           "Normalize and resolve host paths with experimental_normalizeHostPath(path) and experimental_resolveHostPath({ rootPath, path }) from @get-bb/plugin-sdk; invalid paths return null",
           "Recognize drive roots (including C:) and UNC paths with either Windows separator, regardless of the server OS; reject rootless backslashes and drive-relative paths such as C:foo during resolution",
@@ -1702,6 +1703,8 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginBbSdk.experimental_threadRoles.release",
           "PluginBbSdk.environments.experimental_cleanup",
           "PluginBbSdk.plugins.experimental_getSafeMode",
+          "PluginBbSdk.plugins.experimental_safeguards",
+          "PluginBbSdk.plugins.installJobs.experimental_inspectContainment",
           "PluginBbSdk.plugins.experimental_setSafeMode",
           "PluginBbSdk.plugins.experimental_pruneCache",
           "PluginBbSdk.plugins.experimental_startUpdate",

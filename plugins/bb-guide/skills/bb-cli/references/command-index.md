@@ -283,6 +283,7 @@ Use `--selected-model <model-id>` to discover its reasoning choices and include 
 - `bb plugin source`
 - `bb plugin install`
 - `bb plugin install-jobs`
+- `bb plugin install-containment`
 - `bb plugin cancel-install`
 - `bb plugin outdated`
 - `bb plugin update`

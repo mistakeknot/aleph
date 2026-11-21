@@ -28,6 +28,9 @@ import type {
   PluginWebSocketRouteRecord,
 } from "../services/plugins/plugin-api.js";
 import { PluginSettingsValidationError } from "../services/plugins/plugin-settings.js";
+import { installContainmentSupported } from "../services/plugins/install-containment.js";
+import { parsePluginSource } from "../services/plugins/install-sources.js";
+import { pluginInstallServerIdentitySchema } from "@bb/server-contract";
 import { PLUGIN_RPC_CALLER_HEADER } from "../services/plugins/plugin-rpc-caller.js";
 import type { PluginInstallJobs } from "../services/plugins/plugin-install-jobs.js";
 import {
@@ -475,6 +478,31 @@ export function registerPluginRoutes(
   });
 
   app.get("/plugins", (context) => context.json({ plugins: plugins.list() }));
+  app.get("/plugins/safeguards", async (context) =>
+    context.json({
+      capabilities: (await installContainmentSupported())
+        ? ["install-containment-v1"]
+        : [],
+    }),
+  );
+  app.get("/plugins/install-containments/:requestKey", async (context) => {
+    const requestKey = context.req.param("requestKey");
+    if (requestKey.length < 1 || requestKey.length > 256)
+      return context.json({ error: "invalid request key" }, 400);
+    const pid = context.req.query("serverPid");
+    const startTime = context.req.query("serverStartTime");
+    if (pid === undefined && startTime === undefined)
+      return context.json(await installJobs.inspectContainment(requestKey));
+    const server = pluginInstallServerIdentitySchema.safeParse({
+      pid: Number(pid),
+      startTime,
+    });
+    if (!server.success)
+      return context.json({ error: "invalid original server identity" }, 400);
+    return context.json(
+      await installJobs.inspectContainment(requestKey, server.data),
+    );
+  });
 
   app.get("/plugins/contributions", (context) =>
     context.json({
@@ -770,8 +798,22 @@ export function registerPluginRoutes(
         422,
       );
     }
-    const { source, selection } = parsed.data;
+    const { source, selection, requestKey } = parsed.data;
+    if (
+      requestKey !== undefined &&
+      (!(await installContainmentSupported()) ||
+        !["git", "npm"].includes(parsePluginSource(source).kind))
+    )
+      return context.json(
+        {
+          ok: false,
+          error:
+            "contained installs require a managed source and Linux cgroup v2 with a user service manager",
+        },
+        422,
+      );
     const job = installJobs.start({
+      ...(requestKey === undefined ? {} : { requestKey }),
       target: { kind: "source", source, selection },
       displayName: source,
       run: () => plugins.install(source, selection),

@@ -9,6 +9,7 @@
     "dev": "node --conditions=source --import tsx scripts/dev-supervisor.mjs",
     "clean": "rimraf dist",
     "generate:bb-official-marketplace": "node --conditions=source --import tsx scripts/generate-bb-official-marketplace.ts",
+    "generate:plugin-install-worker": "node scripts/generate-plugin-install-worker.mjs",
     "typecheck": "tsrs --noEmit",
     "lint:type-aware": "oxlint -c ../../.oxlintrc.type-aware.json",
     "validate:marketplace": "tsx scripts/validate-live-marketplace.ts",
