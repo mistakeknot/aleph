@@ -4,17 +4,51 @@ import { join } from "node:path";
 import { z } from "zod";
 import { pluginInstallBuildWorkerSource } from "../../generated/plugin-install-build-worker.js";
 import { runInstallCommand } from "./install-sources.js";
+import type { buildCachedPluginServer } from "./plugin-server-cache.js";
 import { currentInstallContainment } from "./install-containment.js";
 
-export async function runContainedPluginBuild(args: {
+type CachedBuildRequest = Omit<
+  Parameters<typeof buildCachedPluginServer>[0],
+  "toolchain" | "fallbackResolve"
+> & { resolutionBase: string };
+type BuildRequest = {
   rootDir: string;
   dataDir: string;
   version: string;
   app: boolean;
   server: boolean;
   host: boolean;
-}): Promise<string[]> {
+  cached?: CachedBuildRequest;
+};
+
+export async function runContainedPluginBuild(
+  args: BuildRequest,
+): Promise<string[]> {
   if (!args.app && !args.server && !args.host) return [];
+  return z.array(z.string()).parse(await runBuildWorker(args));
+}
+
+export async function runContainedCachedPluginServer(args: CachedBuildRequest) {
+  return z
+    .object({
+      path: z.string(),
+      digest: z.string(),
+      warnings: z.array(z.string()),
+    })
+    .parse(
+      await runBuildWorker({
+        rootDir: args.rootDir,
+        dataDir: args.dataDir,
+        version: args.bbVersion,
+        app: false,
+        server: false,
+        host: false,
+        cached: args,
+      }),
+    );
+}
+
+async function runBuildWorker(args: BuildRequest): Promise<unknown> {
   const containment = currentInstallContainment();
   if (containment === undefined)
     throw new Error("contained plugin build requires an install containment");
@@ -43,9 +77,11 @@ export async function runContainedPluginBuild(args: {
   try {
     resolutionBase = import.meta.resolve("@bb/plugin-build");
   } catch {}
+  resolutionBase = args.cached?.resolutionBase ?? resolutionBase;
   const output = await runInstallCommand(
     process.execPath,
     [
+      "--experimental-import-meta-resolve",
       worker,
       JSON.stringify({ ...args, containmentId: containment.id }),
       resolutionBase,
@@ -58,7 +94,5 @@ export async function runContainedPluginBuild(args: {
     .find((line) => line.startsWith("BB_PLUGIN_BUILD_RESULT:"));
   if (result === undefined)
     throw new Error("plugin build worker returned no result");
-  return z
-    .array(z.string())
-    .parse(JSON.parse(result.slice("BB_PLUGIN_BUILD_RESULT:".length)));
+  return JSON.parse(result.slice("BB_PLUGIN_BUILD_RESULT:".length));
 }

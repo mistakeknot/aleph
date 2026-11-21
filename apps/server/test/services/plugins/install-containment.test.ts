@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { promisify } from "node:util";
@@ -40,6 +42,179 @@ const descendantSource = `
 `;
 
 describe("install containment", () => {
+  it("contains npm fallback rebuilds and their real esbuild children", async () => {
+    const root = await mkdtemp(
+      join(process.env.BB_CONTAINMENT_TEST_ROOT ?? tmpdir(), "contained-npm-"),
+    );
+    const source = join(root, "package");
+    await mkdir(source);
+    const name = "bb-plugin-contained-npm";
+    const version = "1.0.0";
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({
+        name,
+        version,
+        bb: {
+          name: "Contained npm",
+          description: "Containment fixture",
+          branding: { icon: "Zap" },
+          server: "./server.ts",
+        },
+      }),
+    );
+    await writeFile(
+      join(source, "server.ts"),
+      "export default function plugin() {}\n",
+    );
+    const exec = promisify(execFile);
+    const packed = await exec(
+      "npm",
+      ["pack", "--ignore-scripts", "--json", "--pack-destination", root],
+      { cwd: source },
+    );
+    const files = z
+      .array(z.object({ filename: z.string() }))
+      .parse(JSON.parse(packed.stdout));
+    const tarball = await readFile(join(root, files[0]!.filename));
+    const registry = createServer((request, response) => {
+      if (request.url === "/package.tgz") {
+        response.writeHead(200, { "content-type": "application/octet-stream" });
+        response.end(tarball);
+      } else if (request.url === `/${name}`) {
+        const origin = `http://127.0.0.1:${(registry.address() as AddressInfo).port}`;
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            name,
+            "dist-tags": { latest: version },
+            versions: {
+              [version]: {
+                name,
+                version,
+                dist: {
+                  tarball: `${origin}/package.tgz`,
+                  shasum: createHash("sha1").update(tarball).digest("hex"),
+                  integrity: `sha512-${createHash("sha512").update(tarball).digest("base64")}`,
+                },
+              },
+            },
+          }),
+        );
+      } else {
+        response.writeHead(404);
+        response.end();
+      }
+    });
+    registry.listen(
+      Number(process.env.BB_CONTAINMENT_REGISTRY_PORT ?? "0"),
+      "127.0.0.1",
+    );
+    await once(registry, "listening");
+    try {
+      const registryUrl = `http://127.0.0.1:${(registry.address() as AddressInfo).port}`;
+      const npmrc = join(root, "npmrc");
+      await writeFile(npmrc, `registry=${registryUrl}\n`);
+      const observer = join(root, "observe.cjs");
+      const observed = join(root, "esbuild.jsonl");
+      await writeFile(
+        observer,
+        `
+        const fs = require('node:fs');
+        const cp = require('node:child_process');
+        const original = cp.spawn;
+        cp.spawn = function(command, args, options) {
+          const service = String(command).includes('esbuild') && Array.isArray(args) && args.some(arg => arg.startsWith('--service='));
+          if (service && !require('node:path').isAbsolute(command)) throw new Error('esbuild binary must be absolute');
+          const child = original.call(this, command, args, options);
+          if (service) {
+            child.once('spawn', () => fs.appendFileSync(${JSON.stringify(observed)}, JSON.stringify({ pid: child.pid, cgroup: fs.readFileSync('/proc/' + child.pid + '/cgroup', 'utf8') }) + '\\n'));
+          }
+          return child;
+        };
+        require('node:module').syncBuiltinESMExports();
+      `,
+      );
+      const file = join(root, "server.mjs");
+      const jobsModule = new URL(
+        "../../../src/services/plugins/plugin-install-jobs.ts",
+        import.meta.url,
+      ).href;
+      const harnessModule = new URL(
+        "../../helpers/test-app.ts",
+        import.meta.url,
+      ).href;
+      await writeFile(
+        file,
+        `
+        import { readFile, writeFile } from 'node:fs/promises';
+        import { createPluginInstallJobs } from ${JSON.stringify(jobsModule)};
+        import { withTestHarness } from ${JSON.stringify(harnessModule)};
+        await withTestHarness(async h => {
+          const records = async () => { try { return (await readFile(${JSON.stringify(observed)}, 'utf8')).trim().split('\\n').filter(Boolean).map(line => JSON.parse(line)); } catch (error) { if (error.code === 'ENOENT') return []; throw error; } };
+          const before = await records();
+          const jobs = createPluginInstallJobs({ notifyChanged() {} });
+          const source = 'npm:${name}@${version}';
+          const job = jobs.start({ requestKey: ${JSON.stringify(randomUUID())}, target: { kind: 'source', source, selection: { kind: 'root' } }, displayName: 'Contained npm', run: () => h.pluginService.install(source, { kind: 'root' }) });
+          const settled = await jobs.settled(job.id);
+          const during = (await records()).slice(before.length);
+          await writeFile(${JSON.stringify(join(root, "result.json"))}, JSON.stringify({ job: settled, during, after: (await records()).slice(before.length) }));
+        });
+      `,
+      );
+      try {
+        const output = await exec(
+          process.execPath,
+          ["--conditions=source", "--import", import.meta.resolve("tsx"), file],
+          {
+            env: {
+              ...process.env,
+              NPM_CONFIG_USERCONFIG: npmrc,
+              npm_config_registry: registryUrl,
+              npm_config_cache: join(root, "npm-cache"),
+              NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require=${observer}`,
+            },
+            timeout: 60_000,
+            maxBuffer: 2 * 1024 * 1024,
+          },
+        );
+        await writeFile(
+          join(root, "server.log"),
+          output.stdout + output.stderr,
+        );
+      } catch (error) {
+        await writeFile(join(root, "server-error.log"), String(error));
+        throw error;
+      }
+      const result = z
+        .object({
+          job: z.object({
+            state: z.string(),
+            error: z.string().optional(),
+            plugin: z.object({ status: z.string() }).optional(),
+            containment: z.object({ id: z.string() }),
+          }),
+          during: z.array(processRecord),
+          after: z.array(processRecord),
+        })
+        .parse(JSON.parse(await readFile(join(root, "result.json"), "utf8")));
+      expect(
+        result.during.filter(
+          (record) => !record.cgroup.includes(result.job.containment.id),
+        ),
+      ).toEqual([]);
+      expect(result.during.length).toBeGreaterThan(0);
+      expect(result.job).toMatchObject({
+        state: "succeeded",
+        plugin: { status: "running" },
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        registry.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  }, 120_000);
+
   it("cannot start a delayed installer after its original server dies and recovery releases", async () => {
     const root = await mkdtemp(
       join(process.env.BB_CONTAINMENT_TEST_ROOT ?? tmpdir(), "delayed-launch-"),
