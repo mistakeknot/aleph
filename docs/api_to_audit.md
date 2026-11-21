@@ -1,5 +1,19 @@
 # APIs To Audit
 
+## Frozen plugin installs
+
+`bb.sdk.plugins.experimental_safeguards()` reads enforced server contracts
+at GET `/api/v1/plugins/safeguards`. `frozen-lockfile-v1` advertises
+`plugins.install({ source, frozenLockfile: { sha256 } })` and `startInstall`
+support. The digest binds the exact source npm-shrinkwrap.json (preferred) or
+package-lock.json bytes. Missing, changed or stale lockfiles fail before
+registration or loading, lifecycle scripts are suppressed, and artifact-cache
+reuse cannot bypass validation. Path and builtin sources reject the option.
+Core installation and the SDK share this server path; the CLI exposes it with
+`bb plugin install <source> --frozen-lockfile <sha256>`. Stabilization needs
+auditing source formats and lockfile compatibility. The Plugin Guide's SDK
+surface documents the API.
+
 Every public plugin API member ships with an `experimental_` prefix and an
 entry here (see [AGENTS.md](../AGENTS.md), "CLI And Plugin API"). Each entry
 summarizes the API, names where its behavior is documented, and lists what

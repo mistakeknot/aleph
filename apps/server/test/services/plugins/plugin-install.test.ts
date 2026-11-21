@@ -464,6 +464,56 @@ afterAll(() => vi.resetConfig());
 const describeGit = hasGit ? describe.concurrent : describe.skip;
 
 describe("plugin install flows", () => {
+  for (const mode of ["missing", "stale", "tampered"]) {
+    test(`frozen ${mode} lockfile fails before plugin registration or load`, async ({
+      fixture,
+    }) => {
+      const { db, workDir, service } = fixture;
+      const repoDir = join(workDir, `frozen-${mode}`);
+      await writePluginFixture(repoDir, { name: `bb-plugin-frozen-${mode}` });
+      await runInstallCommand("npm", [
+        "install",
+        "--prefix",
+        repoDir,
+        "--package-lock-only",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+      ]);
+      const lockPath = join(repoDir, "package-lock.json");
+      const sha256 = createHash("sha256")
+        .update(await readFile(lockPath))
+        .digest("hex");
+      if (mode === "missing") await rm(lockPath);
+      if (mode === "tampered")
+        await writeFile(lockPath, (await readFile(lockPath, "utf8")) + "\n");
+      if (mode === "stale") {
+        const manifestPath = join(repoDir, "package.json");
+        const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+        await mkdir(join(repoDir, "dependency"));
+        await writeFile(
+          join(repoDir, "dependency", "package.json"),
+          JSON.stringify({ name: "local-fixture", version: "1.0.0" }),
+        );
+        manifest.dependencies = { "local-fixture": "file:./dependency" };
+        await writeFile(manifestPath, JSON.stringify(manifest));
+      }
+      await initGitRepo(repoDir);
+      const commit = await commitAll(repoDir, "fixture");
+      await expect(
+        service.install(
+          `git:${repoDir}@${commit}`,
+          { kind: "root" },
+          { frozenLockfile: { sha256 } },
+        ),
+      ).rejects.toThrow();
+      expect(getInstalledPlugin(db, `frozen-${mode}`)).toBeUndefined();
+      expect(
+        service.list().some((plugin) => plugin.id === `frozen-${mode}`),
+      ).toBe(false);
+    });
+  }
+
   describeGit("git sources", { timeout: 30_000 }, () => {
     test("installs and tracks the default branch when the ref is omitted", async ({
       fixture,
