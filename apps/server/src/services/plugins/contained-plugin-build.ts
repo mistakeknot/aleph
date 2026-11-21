@@ -89,7 +89,7 @@ async function runBuildWorker(args: BuildRequest): Promise<unknown> {
       JSON.stringify({ ...args, containmentId: containment.id }),
       pluginBuildBase,
     ],
-    { maxStdoutBytes: 1024 * 1024 },
+    { maxStdoutBytes: 1024 * 1024, label: "plugin build worker" },
   );
   const result = output
     .split("\n")

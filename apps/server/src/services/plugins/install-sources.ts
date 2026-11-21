@@ -622,9 +622,12 @@ export async function runInstallCommand(
   options?: {
     notFoundHint?: string;
     maxStdoutBytes?: number;
+    /** Names the command in failure and timeout messages. */
+    label?: string;
   },
 ): Promise<string> {
   const timeoutMs = 5 * 60_000;
+  const label = options?.label ?? `${command} ${args[0]}`;
   const cancellation = installCancellationSignal();
   if (cancellation?.aborted) throw new PluginInstallCancelledError();
   const npmCliPath = command === "npm" ? hostToolchain.bundledNpmCli() : null;
@@ -705,7 +708,7 @@ export async function runInstallCommand(
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       killCommand();
-      reject(new Error(`${command} ${args[0]} timed out after ${timeoutMs}ms`));
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref?.();
     child.on("error", (error: NodeJS.ErrnoException) => {
@@ -738,7 +741,7 @@ export async function runInstallCommand(
       if (overflowed) {
         reject(
           new Error(
-            `${command} ${args[0]} produced more than ${options?.maxStdoutBytes} bytes of output`,
+            `${label} produced more than ${options?.maxStdoutBytes} bytes of output`,
           ),
         );
         return;
@@ -750,7 +753,7 @@ export async function runInstallCommand(
       const tail = stderr.trim().slice(-1000);
       reject(
         new Error(
-          `${command} ${args[0]} failed (exit ${code ?? "signal"})${tail ? `: ${tail}` : ""}`,
+          `${label} failed (exit ${code ?? "signal"})${tail ? `: ${tail}` : ""}`,
         ),
       );
     });
