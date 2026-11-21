@@ -1,5 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { join } from "node:path";
 import {
   getPluginSettingsValues,
@@ -13,7 +13,11 @@ import type {
 } from "@get-bb/plugin-sdk";
 import { coerceStoredPluginSettingValue } from "@get-bb/plugin-sdk/internal/host-policy";
 import type { PluginSettingDescriptor as PublicPluginSettingDescriptor } from "@bb/server-contract";
-import { deleteSecretFile, writeSecretFile } from "@bb/secret-storage";
+import {
+  deleteSecretFile,
+  readOrCreateSecretFile,
+  writeSecretFile,
+} from "@bb/secret-storage";
 
 export class PluginSettingsValidationError extends Error {
   constructor(message: string) {
@@ -67,14 +71,18 @@ async function storedSettingsDigest(
   for (const key of Object.keys(args.descriptors).sort()) {
     if (!isSecret(args.descriptors[key])) continue;
     try {
-      const info = await stat(
+      const secret = await readFile(
         secretFilePath(args.dataDir, args.pluginId, key),
-        { bigint: true },
+        "utf8",
       );
-      const version = createHash("sha256")
-        .update(
-          [info.dev, info.ino, info.ctimeNs, info.mtimeNs, info.size].join(":"),
-        )
+      const versionKey = await readOrCreateSecretFile({
+        dataDir: join(args.dataDir, "plugins"),
+        fileName: ".settings-digest-key",
+        bytes: 32,
+        encoding: "hex",
+      });
+      const version = createHmac("sha256", versionKey)
+        .update(JSON.stringify([args.pluginId, key, secret]))
         .digest("hex");
       secrets.push([key, { present: true, version }]);
     } catch (error) {

@@ -5,13 +5,15 @@
 `bb.sdk.plugins.experimental_safeguards()` reads the same enforced contract
 advertisement exposed at GET `/api/v1/plugins/safeguards`. The
 `conditional-settings-v1` capability binds `getSettings().digest` to the
-canonical stored map and secret-presence/file-version markers; clients pass it
+canonical stored map and secret-presence/keyed-content-version markers; clients pass it
 unchanged to `updateSettings({ expectedDigest })`. Stale writes return 409 with
 `plugin_settings_conflict` and perform no writes. Core configuration and SDK
 updates share the server settings store and its per-plugin write lock. The
 CLI carries the digest through `plugin config --json` and
 `--expected-digest`. Stabilization requires auditing persisted-state and secret
-version compatibility across server upgrades. The Plugin Guide documents it in
+version compatibility across server upgrades. Secret content versions use HMAC
+under a persistent server-held key, avoiding inode and timestamp reuse without
+exposing a dictionary-testable content hash. The Plugin Guide documents it in
 the SDK surface.
 
 Every public plugin API member ships with an `experimental_` prefix and an

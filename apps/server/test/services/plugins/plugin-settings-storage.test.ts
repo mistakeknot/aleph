@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { createNodeBbSdk } from "@bb/sdk";
+import { writeSecretFile } from "@bb/secret-storage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getPluginSettingsValues,
@@ -121,6 +122,39 @@ describe("plugin settings + storage", () => {
   });
 
   describe("settings", () => {
+    it("rejects stale digests across 2000 rapid A-to-B-to-C secret rename sequences", async () => {
+      await installConfigurable();
+      const sdk = settingsSdk();
+      const path = join(
+        dataDir,
+        "plugins",
+        "configurable",
+        "secrets",
+        "apiKey",
+      );
+      for (let round = 0; round < 2000; round++) {
+        const suffix = String(round).padStart(4, "0");
+        await writeSecretFile(path, `A${suffix}`);
+        const before = await sdk.plugins.getSettings({
+          pluginId: "configurable",
+        });
+        await writeSecretFile(path, `B${suffix}`);
+        await writeSecretFile(path, `C${suffix}`);
+        await expect(
+          sdk.plugins.updateSettings({
+            pluginId: "configurable",
+            values: { note: "stale" },
+            expectedDigest: before.digest,
+          }),
+          `round ${round}`,
+        ).rejects.toMatchObject({
+          status: 409,
+          code: "plugin_settings_conflict",
+        });
+        expect(await readFile(path, "utf8")).toBe(`C${suffix}`);
+      }
+    }, 60_000);
+
     function settingsSdk() {
       const app = new Hono();
       registerPluginRoutes(
