@@ -29,11 +29,17 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  npm:<package>[@<version|tag|range>].
                                  Installs ask for confirmation; --yes skips it.
                                  --request-key <key> opts a managed git:/npm:
-                                 install into descendant containment where
+                                 install into cooperative descendant containment where
                                  install-containment-v1 is advertised. Keep
                                  the key and the job's original server identity
-                                 before recovery. Jobs remain running/draining
-                                 until their kernel containment is empty.
+                                 before recovery. Containment tracks cooperative
+                                 installer descendants that remain in the cgroup.
+                                 It is not a sandbox or a security boundary.
+                                 A process that leaves its cgroup is not tracked.
+                                 After callback completion, jobs remain
+                                 running/draining while the tracked cgroup is
+                                 nonempty; empty/gone state does not prove that
+                                 processes that left it have exited.
                                  --expected-server-pid and
                                  --expected-server-start-time bind the server
                                  recorded before a contained install; a changed
