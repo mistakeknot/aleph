@@ -1,0 +1,32 @@
+{
+  "name": "@bb/rig",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "rig": "src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsrs --noEmit",
+    "lint": "oxlint --threads=2 src test",
+    "test": "vitest run --config vitest.config.ts --maxWorkers=2",
+    "rig": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0",
+    "zod": "4.6.7",
+    "smol-toml": "^1.4.2",
+    "@bb/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@bb/tsconfig": "workspace:*",
+    "@types/node": "^22.20.5",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^4.1.12",
+    "tsx": "^4.23.15"
+  }
+}
