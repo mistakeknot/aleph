@@ -485,10 +485,6 @@ export const pluginSettingsConflictResponseSchema = z.object({
   error: z.string(),
 });
 
-export const pluginSafeguardsResponseSchema = z.object({
-  capabilities: z.array(z.string()),
-});
-
 export const pluginSafeModeRequestSchema = z
   .object({ enabled: z.boolean() })
   .strict();

@@ -36,7 +36,6 @@ import {
   pluginSafeModeResponseSchema,
   pluginSafeModeUpdateResponseSchema,
   pluginSettingsResponseSchema,
-  pluginSafeguardsResponseSchema,
   pluginSettingsUpdateRequestSchema,
   pluginSourceDetailSchema,
   pluginTokenRequestSchema,
