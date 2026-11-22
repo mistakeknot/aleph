@@ -1,14 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { pathToFileURL } from "node:url";
+import { matchesGlob } from "node:path";
+import { createRequire } from "node:module";
 
-const { values } = parseArgs({
-  options: {
-    full: { type: "boolean", default: false },
-    base: { type: "string" },
-    affected: { type: "string" },
-  },
-});
 const shards = JSON.parse(readFileSync("scripts/ci-test-shards.json", "utf8"));
 const full = {
   tests: {
@@ -78,7 +74,88 @@ function touchesRenderedClient(path) {
   return plugin !== null && pluginHasApp(plugin[1]);
 }
 
-function select() {
+export function parseTurbo(text) {
+  const ts = createRequire(import.meta.url)("typescript");
+  const result = ts.parseConfigFileTextToJson("turbo.json", text);
+  if (result.error || !result.config?.tasks)
+    throw new Error("Invalid Turbo JSONC");
+  return result.config;
+}
+
+export function sharedTestInputs(turbo) {
+  const pending = Object.keys(turbo.tasks).filter(
+    (name) => name === "test" || name.endsWith("#test"),
+  );
+  const visited = new Set();
+  const inputs = new Set();
+  while (pending.length) {
+    const name = pending.pop();
+    if (visited.has(name)) continue;
+    visited.add(name);
+    const task = turbo.tasks[name];
+    if (!task) continue;
+    for (const input of task.inputs ?? []) {
+      if (input.startsWith("$TURBO_ROOT$/")) inputs.add(input.slice(13));
+    }
+    for (const dep of task.dependsOn ?? []) {
+      const base = dep.replace(/^\^/, "").split("#").at(-1);
+      pending.push(
+        ...Object.keys(turbo.tasks).filter(
+          (key) => key === dep || key === base || key.endsWith(`#${base}`),
+        ),
+      );
+    }
+  }
+  return [...inputs].sort();
+}
+
+export function knownCiPath(path) {
+  return /^(?:apps|packages|plugins|examples\/plugins|tests)\//u.test(path);
+}
+
+export function parseAffectedTasks(paths, result) {
+  const items = result?.data?.affectedTasks?.items;
+  if (!Array.isArray(items) || result.errors?.length)
+    throw new Error("Invalid Turbo change query");
+  const tasks = items.map((item) => {
+    if (
+      typeof item?.name !== "string" ||
+      typeof item?.package?.name !== "string" ||
+      (!/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/u.test(item.package.name) &&
+        item.package.name !== "//")
+    )
+      throw new Error("Invalid affected task");
+    return { name: item.name, package: item.package.name };
+  });
+  if (paths.length && !tasks.length)
+    throw new Error("Changed files without affected tasks");
+  return tasks;
+}
+
+export function evaluateChanges(paths, result, turbo) {
+  const known =
+    /^(?:apps|packages|plugins|tests)\/[^/]+\/(?:src|test|tests)\/.+\.(?:ts|tsx|js|jsx|mjs|cjs)$|^examples\/plugins\/[^/]+\/(?:src|test|tests)\/.+\.(?:ts|tsx|js|jsx|mjs|cjs)$/u;
+  if (
+    !paths.length ||
+    paths.some(
+      (path) =>
+        !knownCiPath(path) ||
+        !known.test(path) ||
+        /(^|\/)(scripts?|data|fixtures|__fixtures__|config)(\/|\.)|(^|\/)[^/]*config[^/]*\./i.test(
+          path,
+        ),
+    )
+  )
+    return "full";
+  const inputs = sharedTestInputs(turbo);
+  const touchesSharedInput = paths.some((path) =>
+    inputs.some((input) => matchesGlob(path, input)),
+  );
+  if (touchesSharedInput) return "full";
+  return parseAffectedTasks(paths, result);
+}
+
+function select(values) {
   if (values.full) return full;
   if (!values.base || !values.affected)
     throw new Error("Missing change evidence");
@@ -113,24 +190,11 @@ function select() {
       reason: "CI and contributor documentation only",
     };
   }
-  const known = /^(?:apps|packages|plugins|examples\/plugins|tests)\//u;
-  if (paths.some((path) => !known.test(path))) return full;
-  const result = JSON.parse(readFileSync(values.affected, "utf8"));
-  const items = result?.data?.affectedTasks?.items;
-  if (!Array.isArray(items) || result.errors?.length)
-    throw new Error("Invalid Turbo change query");
-  const tasks = items.map((item) => {
-    if (
-      typeof item?.name !== "string" ||
-      typeof item?.package?.name !== "string" ||
-      (!/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/u.test(item.package.name) &&
-        item.package.name !== "//")
-    )
-      throw new Error("Invalid affected task");
-    return { name: item.name, package: item.package.name };
-  });
-  if (paths.length > 0 && tasks.length === 0)
-    throw new Error("Changed files without affected tasks");
+  if (paths.some((path) => !knownCiPath(path))) return full;
+  const tasks = parseAffectedTasks(
+    paths,
+    JSON.parse(readFileSync(values.affected, "utf8")),
+  );
   const tests = new Set(
     tasks.filter((task) => task.name === "test").map((task) => task.package),
   );
@@ -212,11 +276,23 @@ function select() {
   };
 }
 
-try {
-  process.stdout.write(`${JSON.stringify(select())}\n`);
-} catch (error) {
-  console.error(
-    `Change selection unavailable; running full CI: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  process.stdout.write(`${JSON.stringify(full)}\n`);
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  const { values } = parseArgs({
+    options: {
+      full: { type: "boolean", default: false },
+      base: { type: "string" },
+      affected: { type: "string" },
+    },
+  });
+  try {
+    process.stdout.write(`${JSON.stringify(select(values))}\n`);
+  } catch (error) {
+    console.error(
+      `Change selection unavailable; running full CI: ${error.message}`,
+    );
+    process.stdout.write(`${JSON.stringify(full)}\n`);
+  }
 }
