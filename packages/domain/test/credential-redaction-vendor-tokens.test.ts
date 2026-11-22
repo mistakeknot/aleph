@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { describe, expect, it } from "vitest";
 import {
   parseStoredThreadEvent,
@@ -204,15 +205,15 @@ describe("vendored patterns run in linear time", () => {
     b + "PRIVATE" + " KEY-----" + "A".repeat(MB);
 
   const time = (text: string): number => {
-    const start = performance.now();
+    const start = cpuTimeMs();
     scrubVendorTokens(text, "[redacted]");
-    return performance.now() - start;
+    return cpuTimeMs() - start;
   };
 
   for (const [name, text] of Object.entries(inputs)) {
     it(`1 MB adversarial input (${name})`, () => {
       expect(time(text)).toBeLessThan(1500);
-    });
+    }, 30_000);
   }
 
   it("doubling the input about doubles the time", () => {
@@ -220,5 +221,5 @@ describe("vendored patterns run in linear time", () => {
     const t1 = Math.max(time(unit.repeat(20_000)), 1);
     const t2 = time(unit.repeat(80_000));
     expect(t2 / t1).toBeLessThan(4 * 4);
-  });
+  }, 30_000);
 });

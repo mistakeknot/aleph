@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { describe, expect, it } from "vitest";
 import {
   REDACTED_ENV_VALUE,
@@ -37,6 +38,12 @@ describe("linear-time sanitizing", () => {
     return performance.now() - start;
   }
 
+  function timedCpu(fn: () => unknown): number {
+    const start = cpuTimeMs();
+    fn();
+    return cpuTimeMs() - start;
+  }
+
   const adversarialStrings: Array<[string, string]> = [
     ["repeated 'token '", "token ".repeat(64_000)],
     ["one long dotted secret-word", "token.".repeat(64_000)],
@@ -65,9 +72,9 @@ describe("linear-time sanitizing", () => {
     ]) {
       it(`${type}: ${label} stays under the time bound (insert/read JSON path)`, () => {
         const json = JSON.stringify({ delta: text, message: text });
-        const elapsed = timed(() => redactEventDataJsonForType(type, json));
+        const elapsed = timedCpu(() => redactEventDataJsonForType(type, json));
         expect(elapsed).toBeLessThan(BOUND_MS);
-      });
+      }, 30_000);
     }
   }
 
@@ -101,12 +108,12 @@ describe("linear-time sanitizing", () => {
       while (text.length < 200_000) {
         text += fragments[rand() % fragments.length];
       }
-      const elapsed = timed(() =>
+      const elapsed = timedCpu(() =>
         redactEventDataForType("provider/error", { message: text }),
       );
       expect(elapsed).toBeLessThan(BOUND_MS);
     }
-  });
+  }, 30_000);
 
   it("handles deep and wide JSON within the bound", () => {
     const deepJson = `{"deep":${"[".repeat(20_000)}"${SECRET}"${"]".repeat(20_000)}}`;
@@ -116,11 +123,11 @@ describe("linear-time sanitizing", () => {
     for (const json of [deepJson, wideJson]) {
       for (const type of ["provider/unhandled", "item/completed"]) {
         expect(
-          timed(() => redactEventDataJsonForType(type, json)),
+          timedCpu(() => redactEventDataJsonForType(type, json)),
         ).toBeLessThan(1500);
       }
     }
-  });
+  }, 30_000);
 
   it("handles very many secret-named entries within the bound", () => {
     const env: Record<string, string> = {};

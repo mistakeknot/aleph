@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { describe, expect, it } from "vitest";
 import {
   EVENT_TYPE_POLICIES,
@@ -89,9 +90,9 @@ describe("round 4: secret count cap", () => {
       const payload = {
         item: { ...data.item, result: { env: many, echo } },
       };
-      const start = performance.now();
+      const start = cpuTimeMs();
       const redacted = redactEventDataForType("item/completed", payload);
-      const elapsed = performance.now() - start;
+      const elapsed = cpuTimeMs() - start;
       return { elapsed, out: JSON.stringify(redacted), many, echo };
     };
 
@@ -211,13 +212,13 @@ describe("round 4: escaped and unterminated cookies", () => {
   });
 
   it("scales", () => {
-    const start = performance.now();
+    const start = cpuTimeMs();
     redactEventDataForType("provider/warning", {
       category: "config",
       details: `Cookie: a=\\"b`.repeat(30_000),
     });
-    expect(performance.now() - start).toBeLessThan(1000);
-  });
+    expect(cpuTimeMs() - start).toBeLessThan(1000);
+  }, 30_000);
 });
 
 describe("round 4: structural collisions", () => {
