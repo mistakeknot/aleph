@@ -108,24 +108,11 @@ export function sharedTestInputs(turbo) {
   return [...inputs].sort();
 }
 
-export function evaluateChanges(paths, result, turbo) {
-  const known =
-    /^(?:apps|packages|plugins|tests)\/[^/]+\/(?:src|test|tests)\/.+\.(?:ts|tsx|js|jsx|mjs|cjs)$|^examples\/plugins\/[^/]+\/(?:src|test|tests)\/.+\.(?:ts|tsx|js|jsx|mjs|cjs)$/u;
-  if (
-    !paths.length ||
-    paths.some(
-      (path) =>
-        !known.test(path) ||
-        /(^|\/)(scripts?|data|fixtures|__fixtures__|config)(\/|\.)|(^|\/)[^/]*config[^/]*\./i.test(
-          path,
-        ),
-    )
-  )
-    return "full";
-  const inputs = sharedTestInputs(turbo);
-  const touchesSharedInput = paths.some((path) =>
-    inputs.some((input) => matchesGlob(path, input)),
-  );
+export function knownCiPath(path) {
+  return /^(?:apps|packages|plugins|examples\/plugins|tests)\//u.test(path);
+}
+
+export function parseAffectedTasks(paths, result) {
   const items = result?.data?.affectedTasks?.items;
   if (!Array.isArray(items) || result.errors?.length)
     throw new Error("Invalid Turbo change query");
@@ -139,7 +126,31 @@ export function evaluateChanges(paths, result, turbo) {
       throw new Error("Invalid affected task");
     return { name: item.name, package: item.package.name };
   });
-  if (!tasks.length) throw new Error("Changed files without affected tasks");
+  if (paths.length && !tasks.length)
+    throw new Error("Changed files without affected tasks");
+  return tasks;
+}
+
+export function evaluateChanges(paths, result, turbo) {
+  const known =
+    /^(?:apps|packages|plugins|tests)\/[^/]+\/(?:src|test|tests)\/.+\.(?:ts|tsx|js|jsx|mjs|cjs)$|^examples\/plugins\/[^/]+\/(?:src|test|tests)\/.+\.(?:ts|tsx|js|jsx|mjs|cjs)$/u;
+  if (
+    !paths.length ||
+    paths.some(
+      (path) =>
+        !knownCiPath(path) ||
+        !known.test(path) ||
+        /(^|\/)(scripts?|data|fixtures|__fixtures__|config)(\/|\.)|(^|\/)[^/]*config[^/]*\./i.test(
+          path,
+        ),
+    )
+  )
+    return "full";
+  const inputs = sharedTestInputs(turbo);
+  const touchesSharedInput = paths.some((path) =>
+    inputs.some((input) => matchesGlob(path, input)),
+  );
+  const tasks = parseAffectedTasks(paths, result);
   if (touchesSharedInput) {
     for (const [name, task] of Object.entries(turbo.tasks)) {
       if (!name.endsWith("#test")) continue;
@@ -170,17 +181,35 @@ function select(values) {
   )
     .split("\0")
     .filter(Boolean);
-  const tasks = evaluateChanges(
+  if (
+    paths.length > 0 &&
+    paths.every((path) =>
+      /^docs\/(?:ci-performance|windows-ci|debugging-and-qa|filing-issues|cli-guide-and-skill)\.md$/u.test(
+        path,
+      ),
+    )
+  ) {
+    return {
+      ...full,
+      tests: { include: [] },
+      "windows-tests": { include: [] },
+      foundation: false,
+      packaging: false,
+      providers: false,
+      forks: false,
+      buildNeeded: false,
+      staticNeeded: false,
+      appBuild: false,
+      sdkBuild: false,
+      renderInvariants: false,
+      reason: "CI and contributor documentation only",
+    };
+  }
+  if (paths.some((path) => !knownCiPath(path))) return full;
+  const tasks = parseAffectedTasks(
     paths,
     JSON.parse(readFileSync(values.affected, "utf8")),
-    parseTurbo(readFileSync("turbo.json", "utf8")),
   );
-  if (tasks === "full") {
-    console.error(
-      "Change selection requires full CI: unmappable path or shared test input",
-    );
-    return full;
-  }
   const tests = new Set(
     tasks.filter((task) => task.name === "test").map((task) => task.package),
   );
