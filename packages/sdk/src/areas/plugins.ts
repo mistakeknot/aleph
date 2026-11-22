@@ -30,6 +30,7 @@ import {
   pluginCachePruneRequestSchema,
   pluginCachePruneResponseSchema,
   pluginInstallRequestSchema,
+  pluginSafeguardsResponseSchema,
   pluginRemoveResponseSchema,
   pluginSafeModeRequestSchema,
   pluginSafeModeResponseSchema,
@@ -125,6 +126,7 @@ export interface PluginApplyUpdateArgs extends PluginIdArgs {
 
 export interface PluginInstallArgs {
   source: string;
+  frozenLockfile?: { sha256: string };
   subdirectory?: string;
   plugin?: string;
 }
@@ -492,10 +494,14 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       );
     }
     const selection = pluginSourceSelection(input);
-    const body =
+    const sourceBody =
       selection === undefined
         ? { source: input.source }
         : { source: input.source, selection };
+    const body =
+      input.frozenLockfile === undefined
+        ? sourceBody
+        : { ...sourceBody, frozenLockfile: input.frozenLockfile };
     pluginInstallRequestSchema.parse(body);
     return body;
   }

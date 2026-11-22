@@ -68,6 +68,19 @@ function createLegacyServerSdk(): {
 }
 
 describe("issue #1662: plugin install against a pre-0.38.0 server", () => {
+  it("passes a frozen lock digest and fails closed against a legacy server", async () => {
+    const { sdk, bodies } = createLegacyServerSdk();
+    const frozenLockfile = { sha256: "a".repeat(64) };
+    await expect(
+      sdk.plugins.install({
+        source: "git:example.invalid/plugin",
+        frozenLockfile,
+      }),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(bodies).toEqual([
+      { source: "git:example.invalid/plugin", frozenLockfile },
+    ]);
+  });
   it("a plain root install sends only { source } and accepts the legacy response", async () => {
     const { sdk, bodies } = createLegacyServerSdk();
     await expect(

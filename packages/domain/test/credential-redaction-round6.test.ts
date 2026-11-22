@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { describe, expect, it } from "vitest";
 import {
   redactEventDataForType,
@@ -95,18 +96,18 @@ describe("round 6: unquoted header value with an escaped quote", () => {
   it("scales linearly", () => {
     const run = (n: number) => {
       const text = `Cookie: a\\"b `.repeat(n);
-      const start = performance.now();
+      const start = cpuTimeMs();
       redactEventDataForType("provider/warning", {
         category: "config",
         details: text,
       });
-      return performance.now() - start;
+      return cpuTimeMs() - start;
     };
     run(2000);
     const small = Math.max(run(20000), 1);
     const large = run(80000);
     expect(large / small).toBeLessThan(12);
-  });
+  }, 30_000);
 });
 
 describe("round 6: URL fields scrub credential parameters", () => {

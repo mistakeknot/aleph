@@ -479,7 +479,9 @@ export function registerPluginRoutes(
 
   app.get("/plugins", (context) => context.json({ plugins: plugins.list() }));
   app.get("/plugins/safeguards", (context) =>
-    context.json({ capabilities: ["conditional-settings-v1"] }),
+    context.json({
+      capabilities: ["conditional-settings-v1", "frozen-lockfile-v1"],
+    }),
   );
 
   app.get("/plugins/contributions", (context) =>
@@ -776,11 +778,16 @@ export function registerPluginRoutes(
         422,
       );
     }
-    const { source, selection } = parsed.data;
+    const { source, selection, frozenLockfile } = parsed.data;
     const job = installJobs.start({
-      target: { kind: "source", source, selection },
+      target: {
+        kind: "source",
+        source,
+        selection,
+        ...(frozenLockfile === undefined ? {} : { frozenLockfile }),
+      },
       displayName: source,
-      run: () => plugins.install(source, selection),
+      run: () => plugins.install(source, selection, { frozenLockfile }),
     });
     return respondWithInstallJob(context, installJobs, job, (error) => ({
       ok: false,

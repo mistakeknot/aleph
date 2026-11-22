@@ -1198,6 +1198,10 @@ export function registerPluginCommands(
       "--tag-prefix <prefix>",
       "Resolve a git: semver range over <prefix>vX.Y.Z tags (monorepo tagging)",
     )
+    .option(
+      "--frozen-lockfile <sha256>",
+      "Require this source lockfile digest and install dependencies in frozen mode",
+    )
     .option("--yes", "Skip the confirmation prompt")
     .option(
       "--no-wait",
@@ -1213,6 +1217,7 @@ export function registerPluginCommands(
             subdirectory?: string;
             plugin?: string;
             tagPrefix?: string;
+            frozenLockfile?: string;
             wait: boolean;
           },
         ) => {
@@ -1226,6 +1231,10 @@ export function registerPluginCommands(
               ? source
               : withGitTagPrefix(source, opts.tagPrefix);
           const intent = await resolveInstallIntent(getUrl(), requested);
+          if (opts.frozenLockfile !== undefined && intent.kind !== "source")
+            throw new Error(
+              "--frozen-lockfile requires an explicit git: or npm: source",
+            );
           if (intent.kind === "catalog" && opts.tagPrefix !== undefined) {
             throw new Error(
               `"${source}" is a catalog entry; --tag-prefix applies to git: sources only.`,
@@ -1291,6 +1300,9 @@ export function registerPluginCommands(
                   kind: "source" as const,
                   args: {
                     source: intent.source,
+                    ...(opts.frozenLockfile === undefined
+                      ? {}
+                      : { frozenLockfile: { sha256: opts.frozenLockfile } }),
                     ...(opts.subdirectory === undefined
                       ? {}
                       : { subdirectory: opts.subdirectory }),

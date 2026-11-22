@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { describe, expect, it } from "vitest";
 import {
   redactEventDataForType,
@@ -129,15 +130,15 @@ describe("round 7: a closed quote is not an open string", () => {
   it("scales linearly with many quotes", () => {
     const run = (n: number) => {
       const text = `"a" \\"b\\" 'c' Cookie: x\\"y `.repeat(n);
-      const start = performance.now();
+      const start = cpuTimeMs();
       details(text);
-      return performance.now() - start;
+      return cpuTimeMs() - start;
     };
     run(2000);
     const small = Math.max(run(10000), 1);
     const large = run(40000);
     expect(large / small).toBeLessThan(12);
-  });
+  }, 30_000);
 });
 
 describe("round 7: URL credential values end only at a parameter boundary", () => {

@@ -28,6 +28,11 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  git:<url>[@<ref|semver-range>], or
                                  npm:<package>[@<version|tag|range>].
                                  Installs ask for confirmation; --yes skips it.
+                                 --frozen-lockfile <sha256> binds the source's
+                                 npm lockfile bytes and uses frozen dependency
+                                 installation with scripts suppressed. Missing,
+                                 changed or stale locks fail before loading.
+                                 Use an explicit git: or npm: source.
                                  --subdirectory <path> or --plugin <name>
                                  selects one plugin of a multi-plugin
                                  repository; --tag-prefix <prefix> scopes a
