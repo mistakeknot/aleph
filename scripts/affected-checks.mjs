@@ -1,52 +1,118 @@
-import { execFileSync, spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
-
-export function selectChecks(load) {
-  try {
-    const { paths, packages, sharedInputs } = load();
-    if (!paths.length) return 'full';
-    const names = new Set();
-    for (const path of paths) {
-      const pkg = packages.find((entry) => path.startsWith(`${entry.path}/`));
-      if (!pkg || typeof pkg.name !== 'string' || !/^[\w@/.-]+$/.test(pkg.name)) return 'full';
-      const relative = path.slice(pkg.path.length + 1);
-      if (!/^(src|test|tests)\/.+\.(ts|tsx|js|jsx|mjs|cjs)$/.test(relative)) return 'full';
-      if (/(^|\/)(scripts?|data|fixtures|__fixtures__|config)(\/|\.)|(^|\/)[^/]*config[^/]*\./i.test(relative)) return 'full';
-      if (sharedInputs.some((input) => path.startsWith(input.split('*')[0]))) return 'full';
-      names.add(pkg.name);
-    }
-    return [['pnpm', 'exec', 'turbo', 'run', 'test', ...[...names].sort().map((name) => `--filter=...${name}`)]];
-  } catch {
-    return 'full';
-  }
-}
+import { execFileSync, spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { evaluateChanges, parseTurbo } from "./plan-ci.mjs";
 
 export function selectRefs(base, head) {
-  return selectChecks(() => {
-    if (!base || !head || base.startsWith('-') || head.startsWith('-')) throw new Error('Two refs required');
-    const git = (...args) => execFileSync('git', args, { encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024 });
-    const baseSha = git('rev-parse', '--verify', `${base}^{commit}`).trim();
-    const headSha = git('rev-parse', '--verify', `${head}^{commit}`).trim();
-    const paths = git('diff', '--name-only', '--no-renames', '-z', baseSha, headSha, '--').split('\0').filter(Boolean);
-    const manifests = git('ls-tree', '-r', '--name-only', headSha).split('\n').filter((path) => /^(packages|apps|tests|plugins)\/[^/]+\/package.json$|^examples\/plugins\/[^/]+\/package.json$/.test(path));
-    const packages = manifests.map((path) => ({ path: path.slice(0, -13), name: JSON.parse(git('show', `${headSha}:${path}`)).name }));
-    const turbo = JSON.parse(git('show', `${headSha}:turbo.json`));
-    const sharedInputs = Object.values(turbo.tasks).flatMap((task) => task.inputs ?? []).filter((input) => input.includes('$TURBO_ROOT$/')).map((input) => input.split('$TURBO_ROOT$/')[1]);
-    return { paths, packages, sharedInputs };
-  });
+  try {
+    if (!base || !head || base.startsWith("-") || head.startsWith("-"))
+      throw new Error("Two refs required");
+    const options = {
+      encoding: "utf8",
+      timeout: 30000,
+      maxBuffer: 32 * 1024 * 1024,
+    };
+    const git = (...args) => execFileSync("git", args, options);
+    const baseSha = git("rev-parse", "--verify", `${base}^{commit}`).trim();
+    const headSha = git("rev-parse", "--verify", `${head}^{commit}`).trim();
+    const paths = git(
+      "diff",
+      "--name-only",
+      "--no-renames",
+      "-z",
+      baseSha,
+      headSha,
+      "--",
+    )
+      .split("\0")
+      .filter(Boolean);
+    const turbo = parseTurbo(git("show", `${headSha}:turbo.json`));
+    const result = JSON.parse(
+      execFileSync(
+        "pnpm",
+        [
+          "exec",
+          "turbo",
+          "query",
+          "affected",
+          "--base",
+          baseSha,
+          "--head",
+          headSha,
+        ],
+        options,
+      ),
+    );
+    const tasks = evaluateChanges(paths, result, turbo);
+    if (tasks === "full")
+      throw new Error("Unmappable path or shared test input");
+    const packages = [
+      ...new Set(
+        tasks
+          .filter((task) => task.name === "test")
+          .map((task) => task.package),
+      ),
+    ].sort();
+    if (!packages.length || packages.includes("//"))
+      throw new Error("No package test targets");
+    return [
+      [
+        "pnpm",
+        "exec",
+        "turbo",
+        "run",
+        "test",
+        ...packages.map((name) => `--filter=${name}`),
+      ],
+    ];
+  } catch (error) {
+    console.error(
+      `Change selection unavailable; running full suite: ${error.message}`,
+    );
+    return "full";
+  }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export function executionPlan(selected, env = process.env) {
+  if (env.CI_SOURCE_SHA || env.CI_RUN_PURPOSE === "qualification")
+    return {
+      selection: "full",
+      qualificationEligible: true,
+      commands: [["pnpm", "test"]],
+    };
+  return {
+    selection: selected === "full" ? "full" : "affected",
+    qualificationEligible: selected === "full",
+    commands: selected === "full" ? [["pnpm", "test"]] : selected,
+  };
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   const args = process.argv.slice(2);
-  const run = args[0] === '--run';
+  const run = args[0] === "--run";
   const [base, head] = run ? args.slice(1) : args;
-  const selected = selectRefs(base, head);
-  if (!run) console.log(JSON.stringify(selected));
-  else {
-    const commands = selected === 'full' ? [['pnpm', 'test']] : selected;
-    for (const [command, ...argv] of commands) {
-      const result = spawnSync(command, argv, { stdio: 'inherit' });
+  let selected = selectRefs(base, head);
+  if (
+    run &&
+    selected !== "full" &&
+    head &&
+    execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() !==
+      execFileSync("git", ["rev-parse", head], { encoding: "utf8" }).trim()
+  )
+    selected = "full";
+  const plan = executionPlan(selected);
+  console.error(
+    `selection=${plan.selection} qualificationEligible=${plan.qualificationEligible}`,
+  );
+  if (!run)
+    console.log(
+      JSON.stringify(plan.selection === "full" ? "full" : plan.commands),
+    );
+  else
+    for (const [command, ...argv] of plan.commands) {
+      const result = spawnSync(command, argv, { stdio: "inherit" });
       if (result.error || result.status !== 0) process.exit(result.status ?? 1);
     }
-  }
 }
