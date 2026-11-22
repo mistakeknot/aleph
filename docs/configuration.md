@@ -2050,3 +2050,11 @@ thread under refs/bb/turn-snapshots/. Ref deletion does not reclaim objects;
 normal Git maintenance handles that later. Capture never runs GC or pruning
 of objects. Non-ignored secrets can become retained Git objects. No restore,
 rewind, provider-native diff change, or automatic flag activation is included.
+
+# Rig manager
+
+The Aleph-only Rig manager plugin defines `rigPath`, `targetPath`, `agentHome`,
+`sourceRoot` and `builtinRoot` in its settings page. Paths refer to the server
+host. The panel reads and diffs the named installation; commands export and apply.
+Apply requires an explicitly named fresh, stopped target. Stock packaging is not
+built yet. See the plugin's `skills/rig-manager/SKILL.md` for commands and limits.
