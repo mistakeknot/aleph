@@ -135,7 +135,7 @@ describe("linear-time sanitizing", () => {
     expect(
       (() => {
         let fastestMs = Number.POSITIVE_INFINITY;
-        for (let sample = 0; sample < 3; sample += 1) {
+        for (let sample = 0; sample < 2; sample += 1) {
           const start = threadCpuUsage();
           redactEventDataForType("provider/unhandled", { env });
           const cpu = threadCpuUsage(start);
