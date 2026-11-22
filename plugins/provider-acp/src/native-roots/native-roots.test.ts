@@ -182,23 +182,30 @@ describe("omp", () => {
     expect(byPath(userOnly, path.join(tempRoot, "user-skills"))).toBeDefined();
   });
 
-  it("reads PI_CONFIG_FILES relative to the workspace and expands $VARS", async () => {
-    const extraConfig = path.join(tempRoot, "extra", "config.yml");
-    await writeFileEnsuringDir(
-      extraConfig,
-      "skills:\n  customDirectories:\n    - $SKILLS_BASE/team\n",
-    );
-    const roots = await resolveSkills(
-      resolveOmpNativeRoots,
-      argsFor({
-        PI_CONFIG_FILES: extraConfig,
-        SKILLS_BASE: path.join(tempRoot, "base"),
-      }),
-    );
-    expect(byPath(roots, path.join(tempRoot, "base", "team"))).toMatchObject({
-      origin: "user",
-    });
-  });
+  it.each(["absolute", "relative"])(
+    "reads %s PI_CONFIG_FILES and expands $VARS",
+    async (configPathKind) => {
+      await mkdir(path.join(cwd, ".git"), { recursive: true });
+      const extraConfig = path.join(tempRoot, "extra", "config.yml");
+      await writeFileEnsuringDir(
+        extraConfig,
+        "skills:\n  customDirectories:\n    - $SKILLS_BASE/team\n",
+      );
+      const roots = await resolveSkills(
+        resolveOmpNativeRoots,
+        argsFor({
+          PI_CONFIG_FILES:
+            configPathKind === "relative"
+              ? path.relative(cwd, extraConfig)
+              : extraConfig,
+          SKILLS_BASE: path.join(tempRoot, "base"),
+        }),
+      );
+      expect(byPath(roots, path.join(tempRoot, "base", "team"))).toMatchObject({
+        origin: "user",
+      });
+    },
+  );
 
   it("includes the installed Claude plugins' skills", async () => {
     const pluginRoot = home(
