@@ -30,6 +30,7 @@ import {
   pluginCachePruneRequestSchema,
   pluginCachePruneResponseSchema,
   pluginInstallRequestSchema,
+  pluginSafeguardsResponseSchema,
   pluginRemoveResponseSchema,
   pluginSafeModeRequestSchema,
   pluginSafeModeResponseSchema,
@@ -124,6 +125,7 @@ export interface PluginApplyUpdateArgs extends PluginIdArgs {
 
 export interface PluginInstallArgs {
   source: string;
+  frozenLockfile?: { sha256: string };
   subdirectory?: string;
   plugin?: string;
 }
@@ -294,6 +296,7 @@ export interface PluginUpdateJobsArea {
 }
 
 export interface PluginsArea {
+  experimental_safeguards(): Promise<{ capabilities: string[] }>;
   experimental_discoverRpc(
     args?: PluginRpcDiscoveryArgs,
   ): Promise<PublishedPluginRpcMethod[]>;
@@ -489,10 +492,14 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       );
     }
     const selection = pluginSourceSelection(input);
-    const body =
+    const sourceBody =
       selection === undefined
         ? { source: input.source }
         : { source: input.source, selection };
+    const body =
+      input.frozenLockfile === undefined
+        ? sourceBody
+        : { ...sourceBody, frozenLockfile: input.frozenLockfile };
     pluginInstallRequestSchema.parse(body);
     return body;
   }
@@ -691,6 +698,12 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
         pluginPath(input.pluginId, "/settings"),
         pluginSettingsResponseSchema,
         { signal: input.signal },
+      );
+    },
+    experimental_safeguards() {
+      return requestParsed(
+        "/api/v1/plugins/safeguards",
+        pluginSafeguardsResponseSchema,
       );
     },
     async getSource(input) {
