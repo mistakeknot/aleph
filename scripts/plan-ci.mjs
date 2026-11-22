@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { matchesGlob } from "node:path";
-import ts from "typescript";
+import { createRequire } from "node:module";
 
 const shards = JSON.parse(readFileSync("scripts/ci-test-shards.json", "utf8"));
 const full = {
@@ -75,6 +75,7 @@ function touchesRenderedClient(path) {
 }
 
 export function parseTurbo(text) {
+  const ts = createRequire(import.meta.url)("typescript");
   const result = ts.parseConfigFileTextToJson("turbo.json", text);
   if (result.error || !result.config?.tasks)
     throw new Error("Invalid Turbo JSONC");
@@ -150,24 +151,8 @@ export function evaluateChanges(paths, result, turbo) {
   const touchesSharedInput = paths.some((path) =>
     inputs.some((input) => matchesGlob(path, input)),
   );
-  const tasks = parseAffectedTasks(paths, result);
-  if (touchesSharedInput) {
-    for (const [name, task] of Object.entries(turbo.tasks)) {
-      if (!name.endsWith("#test")) continue;
-      if (
-        (task.inputs ?? []).some(
-          (input) =>
-            input.startsWith("$TURBO_ROOT$/") &&
-            paths.some((path) => matchesGlob(path, input.slice(13))),
-        )
-      ) {
-        const pkg = name.slice(0, -5);
-        if (!tasks.some((task) => task.name === "test" && task.package === pkg))
-          tasks.push({ name: "test", package: pkg });
-      }
-    }
-  }
-  return tasks;
+  if (touchesSharedInput) return "full";
+  return parseAffectedTasks(paths, result);
 }
 
 function select(values) {
