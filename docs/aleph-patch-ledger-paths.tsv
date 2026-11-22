@@ -447,11 +447,11 @@ layout-profiles	M	apps/app/src/lib/fixed-panel-tabs.ts
 layout-profiles	M	apps/app/src/views/thread-detail/SplitWorkspaceSecondaryPanelHost.tsx
 layout-profiles	M	apps/app/src/views/thread-detail/ThreadDetailSecondaryContent.test.tsx
 layout-profiles	M	apps/app/src/views/thread-detail/ThreadScreen.tsx
-mobile	M	apps/mobile/scripts/generate-native-theme.ts
-mobile	M	apps/mobile/src/app-shell/ThreadOpenSignalHandler.tsx
+themes	M	apps/mobile/scripts/generate-native-theme.ts
+thread-open-follow	M	apps/mobile/src/app-shell/ThreadOpenSignalHandler.tsx
 mobile	M	apps/mobile/src/data/notifications/push-contract.ts
 mobile	M	apps/mobile/src/data/notifications/push-subscriptions-api.ts
-mobile	M	apps/mobile/src/theme/theme.native.ts
+themes	M	apps/mobile/src/theme/theme.native.ts
 model-picker	A	apps/app/src/lib/thread-provider-switch.test.ts
 model-picker	A	apps/app/src/lib/thread-provider-switch.ts
 no-upstream-updates	A	apps/desktop/src/aleph-renderer-log-ipc.ts
