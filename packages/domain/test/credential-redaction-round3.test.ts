@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { threadCpuUsage } from "node:process";
 import { describe, expect, it } from "vitest";
 import {
@@ -33,9 +34,9 @@ describe("linear-time sanitizing", () => {
   const BOUND_MS = 500;
 
   function timed(fn: () => unknown): number {
-    const start = performance.now();
+    const start = cpuTimeMs();
     fn();
-    return performance.now() - start;
+    return cpuTimeMs() - start;
   }
 
   const adversarialStrings: Array<[string, string]> = [
@@ -68,7 +69,7 @@ describe("linear-time sanitizing", () => {
         const json = JSON.stringify({ delta: text, message: text });
         const elapsed = timed(() => redactEventDataJsonForType(type, json));
         expect(elapsed).toBeLessThan(BOUND_MS);
-      });
+      }, 30_000);
     }
   }
 
@@ -107,7 +108,7 @@ describe("linear-time sanitizing", () => {
       );
       expect(elapsed).toBeLessThan(BOUND_MS);
     }
-  });
+  }, 30_000);
 
   it("handles deep and wide JSON within the bound", () => {
     const deepJson = `{"deep":${"[".repeat(20_000)}"${SECRET}"${"]".repeat(20_000)}}`;
@@ -121,7 +122,7 @@ describe("linear-time sanitizing", () => {
         ).toBeLessThan(1500);
       }
     }
-  });
+  }, 30_000);
 
   it("handles very many secret-named entries within the bound", () => {
     const env: Record<string, string> = {};
@@ -140,7 +141,7 @@ describe("linear-time sanitizing", () => {
       })(),
     ).toBeLessThan(1500);
     expect(JSON.stringify(out)).not.toContain("secret-value-5-xx");
-  });
+  }, 30_000);
 });
 
 describe("quoted cookie headers", () => {

@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { threadCpuUsage } from "node:process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -102,15 +103,15 @@ describe("round 8: an ignored quote never makes its partner an opener", () => {
   it("scales linearly with many ignored quotes", () => {
     const run = (n: number) => {
       const text = `x"!" 5" it's _'a' Cookie: p"y `.repeat(n);
-      const start = performance.now();
+      const start = cpuTimeMs();
       details(text);
-      return performance.now() - start;
+      return cpuTimeMs() - start;
     };
     run(2000);
     const small = Math.max(run(10000), 1);
     const large = run(40000);
     expect(large / small).toBeLessThan(12);
-  });
+  }, 30_000);
 });
 
 const urlOf = (n: number, unit: string, tail = "%20") =>
@@ -196,22 +197,22 @@ describe("round 8: the URL scanner is linear", () => {
       expect(big.ms).toBeLessThan(2000);
       // 4x the input: a linear scan stays near 4x, a quadratic one near 16x.
       expect(big.ms / Math.max(small.ms, 1)).toBeLessThan(11);
-    });
+    }, 30_000);
   }
 
   it("scans 64 KiB URL text on the object path and the plain-text path", () => {
     const url = urlOf(16000, "a=1?");
     for (const type of ["item/completed", "provider/warning"]) {
-      const start = performance.now();
+      const start = cpuTimeMs();
       const data =
         type === "item/completed"
           ? imageEvent(url)
           : { category: "config", details: url };
       const out = redactEventDataForType(type, data);
-      expect(performance.now() - start).toBeLessThan(2000);
+      expect(cpuTimeMs() - start).toBeLessThan(2000);
       expect(JSON.stringify(out)).toContain("a=1?a=1?");
     }
-  });
+  }, 30_000);
 
   it("decodes each character a bounded number of times across nesting", () => {
     const spy = vi.spyOn(globalThis, "decodeURIComponent");

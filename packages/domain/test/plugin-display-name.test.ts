@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { describe, expect, it } from "vitest";
 import { splitPluginDisplayName } from "../src/plugin-display-name.js";
 
@@ -29,9 +30,9 @@ describe("splitPluginDisplayName", () => {
   });
 
   it("stays linear on long whitespace runs", () => {
-    const started = performance.now();
+    const started = cpuTimeMs();
     splitPluginDisplayName(`a${" ".repeat(200_000)}x`);
     splitPluginDisplayName(`a${" ".repeat(200_000)}[Beta]`);
-    expect(performance.now() - started).toBeLessThan(200);
-  });
+    expect(cpuTimeMs() - started).toBeLessThan(200);
+  }, 30_000);
 });

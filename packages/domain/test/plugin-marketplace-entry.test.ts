@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { describe, expect, it } from "vitest";
 import { marketplaceEntryV2Schema } from "../src/plugin-marketplace-entry.js";
 
@@ -166,7 +167,7 @@ describe("marketplace entry schemas", () => {
   });
 
   it("accepts a long semver range without expression evaluation", () => {
-    const startedAt = performance.now();
+    const startedAt = cpuTimeMs();
     const result = marketplaceEntryV2Schema.safeParse({
       ...entry(),
       source: {
@@ -175,8 +176,8 @@ describe("marketplace entry schemas", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(performance.now() - startedAt).toBeLessThan(100);
-  });
+    expect(cpuTimeMs() - startedAt).toBeLessThan(100);
+  }, 30_000);
 
   it("accepts uppercase https schemes in v2 URL fields", () => {
     expect(
