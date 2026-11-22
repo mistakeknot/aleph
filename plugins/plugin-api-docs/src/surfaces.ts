@@ -1675,6 +1675,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Retry failed environment cleanup with recover: true after inspecting processes using the workspace",
         ],
         reference: [
+          "Read plugins.experimental_safeguards() for install-containment-v1 and the server PID/start time. Managed install/startInstall({ source, requestKey, expectedServer? }) records a deterministic containment and original server identity; expectedServer binds the pre-call intent and rejects a changed server with 409 before starting a job. Containment tracks cooperative installer descendants that remain in the cgroup. It is not a sandbox or a security boundary; a process that leaves its cgroup is not tracked. After callback completion, jobs stay running/draining while the tracked cgroup is nonempty; empty/gone state does not prove that processes that left it have exited. installJobs.experimental_inspectContainment({ requestKey, server? }) independently checks empty/gone state and original-server exit, ignoring foreign terminal records; errors block recovery. It never releases a caller's lock itself. Omit requestKey for existing behavior.",
           "Read plugins.experimental_safeguards() for enforced server contracts. conditional-settings-v1 means getSettings returns a server-issued stored-state digest; pass it unchanged as updateSettings.expectedDigest. A stale write fails with HTTP 409 and code plugin_settings_conflict. Defaults are not stored entries; secrets contribute presence and opaque keyed content versions, never their values. Omitting expectedDigest retains unconditional writes; older servers may omit digest.",
           "Read plugins.experimental_safeguards() for enforced contracts; frozen-lockfile-v1 supports install/startInstall({ source, frozenLockfile: { sha256 } }). The digest binds source npm-shrinkwrap.json or package-lock.json bytes; frozen dependency validation and script suppression precede registration and loading. Missing, changed or stale locks fail. Omit the option for existing behavior.",
           "Read observed wake effects with threads.experimental_wakeOutcomes({ threadId, cursor? }): newest 100 root turns first by earliest retained event, nullable nextCursor for older pages, and unknown live coverage; reads never write snapshots or notify, and settlement snapshots remain immutable",
@@ -1705,6 +1706,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginBbSdk.environments.experimental_cleanup",
           "PluginBbSdk.plugins.experimental_getSafeMode",
           "PluginBbSdk.plugins.experimental_safeguards",
+          "PluginBbSdk.plugins.installJobs.experimental_inspectContainment",
           "PluginBbSdk.plugins.experimental_setSafeMode",
           "PluginBbSdk.plugins.experimental_pruneCache",
           "PluginBbSdk.plugins.experimental_startUpdate",

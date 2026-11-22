@@ -1199,6 +1199,18 @@ export function registerPluginCommands(
       "Resolve a git: semver range over <prefix>vX.Y.Z tags (monorepo tagging)",
     )
     .option(
+      "--request-key <key>",
+      "Use an idempotent contained install that can be inspected after interruption",
+    )
+    .option(
+      "--expected-server-pid <pid>",
+      "Require the server process recorded before the install",
+    )
+    .option(
+      "--expected-server-start-time <ticks>",
+      "Require the recorded server start time",
+    )
+    .option(
       "--frozen-lockfile <sha256>",
       "Require this source lockfile digest and install dependencies in frozen mode",
     )
@@ -1217,6 +1229,9 @@ export function registerPluginCommands(
             subdirectory?: string;
             plugin?: string;
             tagPrefix?: string;
+            requestKey?: string;
+            expectedServerPid?: string;
+            expectedServerStartTime?: string;
             frozenLockfile?: string;
             wait: boolean;
           },
@@ -1231,6 +1246,22 @@ export function registerPluginCommands(
               ? source
               : withGitTagPrefix(source, opts.tagPrefix);
           const intent = await resolveInstallIntent(getUrl(), requested);
+          if (
+            (opts.expectedServerPid === undefined) !==
+            (opts.expectedServerStartTime === undefined)
+          )
+            throw new Error(
+              "Pass both --expected-server-pid and --expected-server-start-time",
+            );
+          if (
+            opts.expectedServerPid !== undefined &&
+            opts.requestKey === undefined
+          )
+            throw new Error("Expected server identity requires --request-key");
+          if (opts.requestKey !== undefined && intent.kind !== "source")
+            throw new Error(
+              "--request-key requires an explicit managed source",
+            );
           if (opts.frozenLockfile !== undefined && intent.kind !== "source")
             throw new Error(
               "--frozen-lockfile requires an explicit git: or npm: source",
@@ -1300,6 +1331,17 @@ export function registerPluginCommands(
                   kind: "source" as const,
                   args: {
                     source: intent.source,
+                    ...(opts.requestKey === undefined
+                      ? {}
+                      : { requestKey: opts.requestKey }),
+                    ...(opts.expectedServerPid === undefined
+                      ? {}
+                      : {
+                          expectedServer: {
+                            pid: Number(opts.expectedServerPid),
+                            startTime: opts.expectedServerStartTime!,
+                          },
+                        }),
                     ...(opts.frozenLockfile === undefined
                       ? {}
                       : { frozenLockfile: { sha256: opts.frozenLockfile } }),
@@ -2072,6 +2114,76 @@ export function registerPluginCommands(
           `${result.dryRun ? "Would free" : "Freed"} ${formatCacheBytes(result.bytes)} from ${result.removed.length} cached plugin version${result.removed.length === 1 ? "" : "s"}.`,
         );
       }),
+    );
+
+  plugin
+    .command("safeguards")
+    .description(
+      "Show enforced install safeguards and the server identity for conditional installation",
+    )
+    .option("--json", "Output JSON")
+    .action(
+      action(async (opts: JsonOutputOptions) => {
+        const result =
+          await createCliBbSdk(getUrl()).plugins.experimental_safeguards();
+        if (opts.json) {
+          outputJson(opts, result);
+          return;
+        }
+        console.log(
+          result.capabilities.join("\n") || "No install safeguards advertised.",
+        );
+        if (result.server !== undefined)
+          console.log(
+            `Server process ${result.server.pid}, start time ${result.server.startTime}`,
+          );
+      }),
+    );
+
+  plugin
+    .command("install-containment <requestKey>")
+    .description(
+      "Inspect whether a contained install can release its recovery barrier",
+    )
+    .option("--server-pid <pid>", "Original server process ID")
+    .option("--server-start-time <ticks>", "Original server process start time")
+    .option("--json", "Output JSON")
+    .action(
+      action(
+        async (
+          requestKey: string,
+          opts: JsonOutputOptions & {
+            serverPid?: string;
+            serverStartTime?: string;
+          },
+        ) => {
+          if (
+            (opts.serverPid === undefined) !==
+            (opts.serverStartTime === undefined)
+          )
+            throw new Error("Pass both --server-pid and --server-start-time");
+          const result = await createCliBbSdk(
+            getUrl(),
+          ).plugins.installJobs.experimental_inspectContainment({
+            requestKey,
+            ...(opts.serverPid === undefined
+              ? {}
+              : {
+                  server: {
+                    pid: Number(opts.serverPid),
+                    startTime: opts.serverStartTime!,
+                  },
+                }),
+          });
+          if (opts.json) {
+            outputJson(opts, result);
+            return;
+          }
+          console.log(
+            `${result.id}: ${result.state}; recovery ${result.canRelease ? "may proceed" : "blocked"}`,
+          );
+        },
+      ),
     );
 
   plugin

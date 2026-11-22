@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  CONTAINED_INSTALL_READY,
+  containedInstallCommand,
+} from "./install-containment.js";
 import { constants } from "node:fs";
 import {
   cp,
@@ -21,6 +25,7 @@ import {
   killProcessGroup,
   omitNpmScriptPolicyEnv,
   spawnPortableOutputProcess,
+  spawnPortablePipedProcess,
   supportsProcessGroups,
 } from "@bb/process-utils";
 import {
@@ -617,19 +622,31 @@ export async function runInstallCommand(
   options?: {
     notFoundHint?: string;
     maxStdoutBytes?: number;
+    /** Names the command in failure and timeout messages. */
+    label?: string;
   },
 ): Promise<string> {
   const timeoutMs = 5 * 60_000;
+  const label = options?.label ?? `${command} ${args[0]}`;
   const cancellation = installCancellationSignal();
   if (cancellation?.aborted) throw new PluginInstallCancelledError();
   const npmCliPath = command === "npm" ? hostToolchain.bundledNpmCli() : null;
-  const child = spawnPortableOutputProcess({
-    command: npmCliPath === null ? command : process.execPath,
-    args: npmCliPath === null ? args : [npmCliPath, ...args],
+  const contained = containedInstallCommand(
+    npmCliPath === null ? command : process.execPath,
+    npmCliPath === null ? args : [npmCliPath, ...args],
+  );
+  const spawnRequest = {
+    command: contained.command,
+    args: contained.args,
     detached: supportsProcessGroups(),
     env: omitNpmScriptPolicyEnv(process.env),
-  });
+  };
+  const child =
+    contained.payload === undefined
+      ? spawnPortableOutputProcess(spawnRequest)
+      : spawnPortablePipedProcess(spawnRequest);
   const killCommand = () => {
+    child.stdin?.destroy();
     if (supportsProcessGroups()) killProcessGroup({ child, signal: "SIGKILL" });
     else killPortableProcess(child, "SIGKILL");
   };
@@ -637,7 +654,38 @@ export async function runInstallCommand(
   let stdout = "";
   let stdoutBytes = 0;
   let overflowed = false;
+  let cancelled = false;
+  let waitingForReady = contained.payload !== undefined;
+  let readyBuffer = "";
+  let protocolError: Error | undefined;
+  child.stdin?.on("error", (error: Error) => {
+    protocolError = error;
+    killCommand();
+  });
   child.stdout.on("data", (chunk: Buffer) => {
+    if (waitingForReady) {
+      readyBuffer += chunk.toString("utf8");
+      const newline = readyBuffer.indexOf("\n");
+      if (newline === -1 && readyBuffer.length <= 1024) return;
+      if (
+        newline === -1 ||
+        readyBuffer.slice(0, newline) !== CONTAINED_INSTALL_READY
+      ) {
+        protocolError = new Error(
+          "install containment launcher did not become ready",
+        );
+        killCommand();
+        return;
+      }
+      waitingForReady = false;
+      if (cancelled || cancellation?.aborted) {
+        killCommand();
+        return;
+      }
+      child.stdin?.end(`${contained.payload}\n`);
+      chunk = Buffer.from(readyBuffer.slice(newline + 1), "utf8");
+      readyBuffer = "";
+    }
     stdout += chunk.toString("utf8");
     stdoutBytes += chunk.byteLength;
     const limit = options?.maxStdoutBytes;
@@ -652,7 +700,6 @@ export async function runInstallCommand(
     stderr += chunk.toString("utf8");
     if (stderr.length > 8192) stderr = stderr.slice(-8192);
   });
-  let cancelled = false;
   const cancel = () => {
     cancelled = true;
     killCommand();
@@ -661,7 +708,7 @@ export async function runInstallCommand(
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       killCommand();
-      reject(new Error(`${command} ${args[0]} timed out after ${timeoutMs}ms`));
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref?.();
     child.on("error", (error: NodeJS.ErrnoException) => {
@@ -684,10 +731,17 @@ export async function runInstallCommand(
         reject(new PluginInstallCancelledError());
         return;
       }
+      if (protocolError !== undefined || waitingForReady) {
+        reject(
+          protocolError ??
+            new Error("install containment launcher did not become ready"),
+        );
+        return;
+      }
       if (overflowed) {
         reject(
           new Error(
-            `${command} ${args[0]} produced more than ${options?.maxStdoutBytes} bytes of output`,
+            `${label} produced more than ${options?.maxStdoutBytes} bytes of output`,
           ),
         );
         return;
@@ -699,7 +753,7 @@ export async function runInstallCommand(
       const tail = stderr.trim().slice(-1000);
       reject(
         new Error(
-          `${command} ${args[0]} failed (exit ${code ?? "signal"})${tail ? `: ${tail}` : ""}`,
+          `${label} failed (exit ${code ?? "signal"})${tail ? `: ${tail}` : ""}`,
         ),
       );
     });
