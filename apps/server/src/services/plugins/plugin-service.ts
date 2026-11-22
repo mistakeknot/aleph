@@ -162,6 +162,7 @@ import {
   type PluginSettingsView,
 } from "./plugin-settings.js";
 import { createPluginActivation } from "./plugin-activation.js";
+import type { PluginFrozenLockfile } from "@bb/server-contract";
 import {
   createManagedPluginArtifacts,
   type InstallContext,
@@ -290,6 +291,7 @@ export interface PluginService {
   install(
     source: string,
     selection: PluginSourceSelection,
+    options?: { frozenLockfile?: PluginFrozenLockfile },
   ): Promise<InstalledPlugin>;
   installOfficialPlugin(name: string): Promise<InstalledPlugin>;
   installCatalogPlugin(args: {
@@ -392,6 +394,7 @@ export interface PluginService {
   updateSettings(
     id: string,
     values: Record<string, unknown>,
+    expectedDigest?: string,
   ): Promise<PluginSettingsView | undefined>;
   getHttpRoute(
     id: string,
@@ -1715,11 +1718,23 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       );
     },
 
-    async install(source, selection) {
+    async install(source, selection, options) {
       return withPluginOperationLock(REGISTRATION_MUTATION_KEY, async () => {
         const parsed = parsePluginSource(source);
+        const context: InstallContext = {
+          provenance: { kind: "direct" },
+          frozenLockfile: options?.frozenLockfile,
+        };
+        if (
+          context.frozenLockfile !== undefined &&
+          parsed.kind !== "git" &&
+          parsed.kind !== "npm"
+        )
+          throw new Error(
+            "frozen install requires a managed git or npm source",
+          );
         if (parsed.kind === "git") {
-          return installGitSource(parsed, source, selection);
+          return installGitSource(parsed, source, selection, context);
         }
         if (parsed.kind === "path") {
           return installPathSource(parsed.path, selection);
@@ -1731,7 +1746,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
         }
         if (parsed.kind === "builtin") return installBuiltinSource(parsed);
         refuseBuiltinShadow(derivePluginId(parsed.name));
-        return installNpmSource(parsed, source);
+        return installNpmSource(parsed, source, context);
       });
     },
 
@@ -2085,7 +2100,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       });
     },
 
-    async updateSettings(id, values) {
+    async updateSettings(id, values, expectedDigest) {
       const plugin = loaded.get(id);
       if (!plugin) return undefined;
       const storeArgs = {
@@ -2099,7 +2114,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
         throw new PluginSettingsValidationError(errors.join("; "));
       }
       const prev = await readPluginSettingsValues(storeArgs);
-      await writePluginSettingsUpdate({ ...storeArgs, values });
+      await writePluginSettingsUpdate({ ...storeArgs, values, expectedDigest });
       const next = await readPluginSettingsValues(storeArgs);
       if (JSON.stringify(next) !== JSON.stringify(prev)) {
         for (const listener of plugin.handle.settings.listeners) {

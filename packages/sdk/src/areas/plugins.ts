@@ -129,6 +129,7 @@ export interface PluginInstallArgs {
   source: string;
   requestKey?: string;
   expectedServer?: PluginInstallServerIdentity;
+  frozenLockfile?: { sha256: string };
   subdirectory?: string;
   plugin?: string;
 }
@@ -177,6 +178,7 @@ export interface PluginReloadArgs {
 
 export interface PluginSettingsUpdateArgs extends PluginIdArgs {
   values: Record<string, JsonValue>;
+  expectedDigest?: string;
 }
 
 export interface PluginTokenArgs extends PluginIdArgs {
@@ -522,10 +524,14 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
       input.requestKey === undefined
         ? sourceBody
         : { ...sourceBody, requestKey: input.requestKey };
-    const body =
+    const serverBody =
       input.expectedServer === undefined
         ? keyedBody
         : { ...keyedBody, expectedServer: input.expectedServer };
+    const body =
+      input.frozenLockfile === undefined
+        ? serverBody
+        : { ...serverBody, frozenLockfile: input.frozenLockfile };
     pluginInstallRequestSchema.parse(body);
     return body;
   }
@@ -792,6 +798,7 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     async updateSettings(input) {
       const body = pluginSettingsUpdateRequestSchema.parse({
         values: input.values,
+        expectedDigest: input.expectedDigest,
       });
       return requestParsed(
         pluginPath(input.pluginId, "/settings"),

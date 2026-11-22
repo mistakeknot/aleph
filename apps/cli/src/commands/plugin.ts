@@ -141,6 +141,7 @@ const negativeNumberValuePattern =
   /^-(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
 const pluginSettingsResultSchema = z.object({
   ok: z.boolean(),
+  digest: z.string().optional(),
   error: z.string().optional(),
   schema: z.record(z.string(), pluginSettingDescriptorSchema).optional(),
   values: z.record(z.string(), z.unknown()).optional(),
@@ -1209,6 +1210,10 @@ export function registerPluginCommands(
       "--expected-server-start-time <ticks>",
       "Require the recorded server start time",
     )
+    .option(
+      "--frozen-lockfile <sha256>",
+      "Require this source lockfile digest and install dependencies in frozen mode",
+    )
     .option("--yes", "Skip the confirmation prompt")
     .option(
       "--no-wait",
@@ -1227,6 +1232,7 @@ export function registerPluginCommands(
             requestKey?: string;
             expectedServerPid?: string;
             expectedServerStartTime?: string;
+            frozenLockfile?: string;
             wait: boolean;
           },
         ) => {
@@ -1255,6 +1261,10 @@ export function registerPluginCommands(
           if (opts.requestKey !== undefined && intent.kind !== "source")
             throw new Error(
               "--request-key requires an explicit managed source",
+            );
+          if (opts.frozenLockfile !== undefined && intent.kind !== "source")
+            throw new Error(
+              "--frozen-lockfile requires an explicit git: or npm: source",
             );
           if (intent.kind === "catalog" && opts.tagPrefix !== undefined) {
             throw new Error(
@@ -1332,6 +1342,9 @@ export function registerPluginCommands(
                             startTime: opts.expectedServerStartTime!,
                           },
                         }),
+                    ...(opts.frozenLockfile === undefined
+                      ? {}
+                      : { frozenLockfile: { sha256: opts.frozenLockfile } }),
                     ...(opts.subdirectory === undefined
                       ? {}
                       : { subdirectory: opts.subdirectory }),
@@ -2179,6 +2192,10 @@ export function registerPluginCommands(
       "Show a plugin's settings, or change them: config <id> set <key> <value> | config <id> unset <key>",
     )
     .option("--json", "Output JSON")
+    .option(
+      "--expected-digest <digest>",
+      "Reject the write if stored settings changed since this digest was read",
+    )
     .allowUnknownOption()
     .allowExcessArguments()
     .action(
@@ -2188,7 +2205,7 @@ export function registerPluginCommands(
           actionName: string | undefined,
           key: string | undefined,
           value: string | undefined,
-          opts: JsonOutputOptions,
+          opts: JsonOutputOptions & { expectedDigest?: string },
           command: Command,
         ) => {
           const rawArgs = (program as Command & { rawArgs: string[] }).rawArgs;
@@ -2264,6 +2281,9 @@ export function registerPluginCommands(
           const result = pluginSettingsResultSchema.parse(
             await callPlugins(getUrl(), settingsPath, "PUT", {
               values: { [key]: parsedValue },
+              ...(opts.expectedDigest === undefined
+                ? {}
+                : { expectedDigest: opts.expectedDigest }),
             }),
           );
           if (outputMutationJson(opts, result)) return;

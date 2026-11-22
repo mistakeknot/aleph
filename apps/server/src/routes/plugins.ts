@@ -27,7 +27,10 @@ import type {
   PluginMentionTrigger,
   PluginWebSocketRouteRecord,
 } from "../services/plugins/plugin-api.js";
-import { PluginSettingsValidationError } from "../services/plugins/plugin-settings.js";
+import {
+  PluginSettingsValidationError,
+  PluginSettingsConflictError,
+} from "../services/plugins/plugin-settings.js";
 import {
   installContainmentSupported,
   installServerIdentity,
@@ -485,10 +488,10 @@ export function registerPluginRoutes(
     context.json(
       (await installContainmentSupported())
         ? {
-            capabilities: ["install-containment-v1"],
+            capabilities: ["conditional-settings-v1", "frozen-lockfile-v1", "install-containment-v1"],
             server: installServerIdentity(),
           }
-        : { capabilities: [] },
+        : { capabilities: ["conditional-settings-v1", "frozen-lockfile-v1"] },
     ),
   );
   app.get("/plugins/install-containments/:requestKey", async (context) => {
@@ -804,7 +807,7 @@ export function registerPluginRoutes(
         422,
       );
     }
-    const { source, selection, requestKey, expectedServer } = parsed.data;
+    const { source, selection, requestKey, expectedServer, frozenLockfile } = parsed.data;
     if (
       requestKey !== undefined &&
       (!(await installContainmentSupported()) ||
@@ -835,9 +838,15 @@ export function registerPluginRoutes(
     }
     const job = installJobs.start({
       ...(requestKey === undefined ? {} : { requestKey }),
-      target: { kind: "source", source, selection },
+            target: {
+        kind: "source",
+        source,
+        selection,
+        ...(frozenLockfile === undefined ? {} : { frozenLockfile }),
+      },
+
       displayName: source,
-      run: () => plugins.install(source, selection),
+      run: () => plugins.install(source, selection, { frozenLockfile }),
     });
     return respondWithInstallJob(context, installJobs, job, (error) => ({
       ok: false,
@@ -915,10 +924,17 @@ export function registerPluginRoutes(
       const view = await plugins.updateSettings(
         context.req.param("id"),
         body.data.values,
+        body.data.expectedDigest,
       );
       if (!view) return context.json(NOT_RUNNING, 404);
       return context.json({ ok: true, ...view });
     } catch (error) {
+      if (error instanceof PluginSettingsConflictError) {
+        return context.json(
+          { ok: false, code: error.code, error: error.message },
+          409,
+        );
+      }
       if (error instanceof PluginSettingsValidationError) {
         return context.json({ ok: false, error: error.message }, 400);
       }

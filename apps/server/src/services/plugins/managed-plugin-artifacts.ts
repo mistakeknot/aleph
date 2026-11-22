@@ -31,6 +31,7 @@ import {
 import { installGitDependencies } from "./git-plugin-dependencies.js";
 import { currentInstallContainment } from "./install-containment.js";
 import { runContainedPluginBuild } from "./contained-plugin-build.js";
+import type { PluginFrozenLockfile } from "@bb/server-contract";
 import { getPluginBuildToolchain } from "./build-toolchain.js";
 import { validatePluginArtifactMeta } from "./app-bundle.js";
 import type {
@@ -85,6 +86,7 @@ export interface RegisterInstalledArgs extends InstallRegistrationIdentity {
 }
 
 export interface InstallContext {
+  frozenLockfile?: PluginFrozenLockfile;
   provenance: PluginProvenance;
   expectedPluginId?: string;
   expectedGitCommit?: string;
@@ -264,12 +266,13 @@ export function createManagedPluginArtifacts(
     rootDir: string;
     source: string;
     refuseEngineMismatch: boolean;
+    frozenLockfile?: PluginFrozenLockfile;
   }): Promise<PluginManifest> {
     const manifest = await validateManifestOnly(args);
     const kind = sourceKind(args.source);
     const managed = kind === "git" || kind === "npm";
-    if (kind === "git") {
-      await installGitDependencies(args.rootDir);
+    if (kind === "git" || args.frozenLockfile !== undefined) {
+      await installGitDependencies(args.rootDir, args.frozenLockfile);
     }
     const isolatedBuild = currentInstallContainment() !== undefined;
     if (isolatedBuild) {
@@ -804,7 +807,10 @@ export function createManagedPluginArtifacts(
               commit: resolvedCommit,
             });
       if (cachedRegistrationIdentity !== null) {
-        const reusable = await reusableArtifact(existingArtifact, targetRoot);
+        const reusable =
+          context.frozenLockfile === undefined
+            ? await reusableArtifact(existingArtifact, targetRoot)
+            : undefined;
         if (reusable !== undefined) {
           return registerInstalled({
             rootDir: targetRoot,
@@ -851,6 +857,7 @@ export function createManagedPluginArtifacts(
           rootDir: stagedRealRoot,
           source,
           refuseEngineMismatch: true,
+          frozenLockfile: context.frozenLockfile,
         });
         const contentHash = await hashInstallDir(stagedRealRoot);
         const artifact = ownedOrCreatedArtifact({
@@ -1024,7 +1031,10 @@ export function createManagedPluginArtifacts(
               version: candidate.version,
               integrity: candidate.integrity,
             });
-      const reusable = await reusableArtifact(existingArtifact, prefix);
+      const reusable =
+        context.frozenLockfile === undefined
+          ? await reusableArtifact(existingArtifact, prefix)
+          : undefined;
       if (reusable !== undefined) {
         return await registerInstalled({
           rootDir,
@@ -1054,6 +1064,7 @@ export function createManagedPluginArtifacts(
           rootDir: stagedRoot,
           source,
           refuseEngineMismatch: true,
+          frozenLockfile: context.frozenLockfile,
         });
         const installedIntegrity = await readNpmIntegrity(
           stagingPrefix,

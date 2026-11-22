@@ -38,6 +38,11 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  --expected-server-start-time bind the server
                                  recorded before a contained install; a changed
                                  server returns 409 without starting a job.
+                                 --frozen-lockfile <sha256> binds the source's
+                                 npm lockfile bytes and uses frozen dependency
+                                 installation with scripts suppressed. Missing,
+                                 changed or stale locks fail before loading.
+                                 Use an explicit git: or npm: source.
                                  --subdirectory <path> or --plugin <name>
                                  selects one plugin of a multi-plugin
                                  repository; --tag-prefix <prefix> scopes a
@@ -99,6 +104,10 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  previous instance is kept or degraded)
   bb plugin config <id> [set <key> <value> | unset <key>]
                                  Show or change a plugin's declared settings.
+                                 --json includes the server's stored-state
+                                 digest. Pass it to set/unset with
+                                 --expected-digest <digest> to reject stale
+                                 writes with HTTP 409 and keep current values.
                                  Running plugins receive changes live; a
                                  plugin waiting for configuration retries
   bb plugin logs <id> [-n N] [-f]  Print (or follow) a plugin's log

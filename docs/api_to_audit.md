@@ -26,6 +26,35 @@ unknown and block recovery. This read does not itself release a caller's host
 lock or barrier. Core install jobs and CLI use this shared path. Stabilization
 requires auditing supported service managers and lifecycle/restart behavior.
 The Plugin Guide documents these SDK surfaces.
+## Plugin safeguard detection
+
+`bb.sdk.plugins.experimental_safeguards()` reads the same enforced contract
+advertisement exposed at GET `/api/v1/plugins/safeguards`. The
+`conditional-settings-v1` capability binds `getSettings().digest` to the
+canonical stored map and secret-presence/keyed-content-version markers; clients pass it
+unchanged to `updateSettings({ expectedDigest })`. Stale writes return 409 with
+`plugin_settings_conflict` and perform no writes. Core configuration and SDK
+updates share the server settings store and its per-plugin write lock. The
+CLI carries the digest through `plugin config --json` and
+`--expected-digest`. Stabilization requires auditing persisted-state and secret
+version compatibility across server upgrades. Secret content versions use HMAC
+under a persistent server-held key, avoiding inode and timestamp reuse without
+exposing a dictionary-testable content hash. The Plugin Guide documents it in
+the SDK surface.
+
+## Frozen plugin installs
+
+`bb.sdk.plugins.experimental_safeguards()` reads enforced server contracts
+at GET `/api/v1/plugins/safeguards`. `frozen-lockfile-v1` advertises
+`plugins.install({ source, frozenLockfile: { sha256 } })` and `startInstall`
+support. The digest binds the exact source npm-shrinkwrap.json (preferred) or
+package-lock.json bytes. Missing, changed or stale lockfiles fail before
+registration or loading, lifecycle scripts are suppressed, and artifact-cache
+reuse cannot bypass validation. Path and builtin sources reject the option.
+Core installation and the SDK share this server path; the CLI exposes it with
+`bb plugin install <source> --frozen-lockfile <sha256>`. Stabilization needs
+auditing source formats and lockfile compatibility. The Plugin Guide's SDK
+surface documents the API.
 
 Every public plugin API member ships with an `experimental_` prefix and an
 entry here (see [AGENTS.md](../AGENTS.md), "CLI And Plugin API"). Each entry

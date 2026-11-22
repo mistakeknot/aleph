@@ -307,12 +307,17 @@ export const pluginInstallServerIdentitySchema = z.object({
 export type PluginInstallServerIdentity = z.infer<
   typeof pluginInstallServerIdentitySchema
 >;
+export const pluginFrozenLockfileSchema = z
+  .object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) })
+  .strict();
+export type PluginFrozenLockfile = z.infer<typeof pluginFrozenLockfileSchema>;
 
 export const pluginInstallRequestSchema = z
   .object({
     source: z.string().min(1),
     requestKey: z.string().min(1).max(256).optional(),
     expectedServer: pluginInstallServerIdentitySchema.optional(),
+    frozenLockfile: pluginFrozenLockfileSchema.optional(),
     selection: pluginSourceSelectionSchema.default(
       ROOT_PLUGIN_SOURCE_SELECTION,
     ),
@@ -355,6 +360,7 @@ export const pluginInstallJobTargetSchema = z.discriminatedUnion("kind", [
       kind: z.literal("source"),
       source: z.string().min(1),
       selection: pluginSourceSelectionSchema,
+      frozenLockfile: pluginFrozenLockfileSchema.optional(),
     })
     .strict(),
 ]);
@@ -496,6 +502,10 @@ export type PluginSettingDescriptor = z.infer<
 
 export const pluginSettingsResponseSchema = z.object({
   ok: z.literal(true),
+  digest: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   schema: z.record(z.string(), pluginSettingDescriptorSchema),
   values: z.record(z.string(), jsonValueSchema),
 });
@@ -504,8 +514,20 @@ export type PluginSettingsResponse = z.infer<
 >;
 
 export const pluginSettingsUpdateRequestSchema = z
-  .object({ values: z.record(z.string(), jsonValueSchema) })
+  .object({
+    values: z.record(z.string(), jsonValueSchema),
+    expectedDigest: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  })
   .strict();
+
+export const pluginSettingsConflictResponseSchema = z.object({
+  ok: z.literal(false),
+  code: z.literal("plugin_settings_conflict"),
+  error: z.string(),
+});
 
 export const pluginSafeModeRequestSchema = z
   .object({ enabled: z.boolean() })

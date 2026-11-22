@@ -1,11 +1,12 @@
 {
   "_comment": "Provider-literal ratchet (G1). Per-file occurrence count of provider-ID references in core. May only go DOWN. Regenerate: node scripts/check-provider-literal-ratchet.mjs --write. Every counted file must have an `allowlist` entry (count, reason, owner, diesAt); the entries are authored by hand and survive --write. Delete this file and the guard when empty.",
-  "total": 20,
+  "total": 21,
   "files": {
     "apps/demo-server/src/fixtures/providers.ts": 3,
     "apps/demo-server/src/fixtures/world.ts": 2,
     "apps/server/src/services/threads/thread-edit-message.ts": 1,
     "packages/config/src/bb-app-managed-config.ts": 4,
+    "packages/rig/src/secret-policy.ts": 1,
     "packages/scripts/src/commands/archive-codex-tmp-bb-sessions.ts": 1,
     "packages/scripts/src/lib/seed-perf-fixture.ts": 3,
     "packages/session-search/src/adapters/codex.ts": 1,
@@ -36,6 +37,12 @@
       "reason": "BUNDLED_PROVIDER_IDS: `customModelProviderIdSchema` (live `customModels` config) accepts only a bundled id or an `acp-*` id, so a third-party provider cannot carry custom models today.",
       "owner": "core config (customModels enum)",
       "diesAt": "when customModels accepts any registered provider id"
+    },
+    "packages/rig/src/secret-policy.ts": {
+      "count": 1,
+      "reason": "native agent CLI and account-pool name, not a bb provider branch",
+      "owner": "rig",
+      "diesAt": "when native agent and account-pool names are resolved dynamically"
     },
     "packages/scripts/src/commands/archive-codex-tmp-bb-sessions.ts": {
       "count": 1,

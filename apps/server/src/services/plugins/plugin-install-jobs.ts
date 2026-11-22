@@ -36,7 +36,7 @@ export interface PluginInstallJobs {
 function targetKey(target: PluginInstallJobTarget): string {
   return target.kind === "catalog"
     ? `catalog:${target.marketplace}/${target.entryId}`
-    : `source:${target.source}:${JSON.stringify(target.selection)}`;
+    : `source:${target.source}:${JSON.stringify(target.selection)}:${target.frozenLockfile?.sha256 ?? "ordinary"}`;
 }
 
 function jobBase({ id, target, displayName, containment }: PluginInstallJob) {

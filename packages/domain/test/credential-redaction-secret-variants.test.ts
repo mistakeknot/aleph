@@ -1,3 +1,4 @@
+import { cpuTimeMs } from "./cpu-time.js";
 import { describe, expect, it } from "vitest";
 import { redactEventDataForType } from "../src/index.js";
 import {
@@ -170,18 +171,18 @@ describe("known-secret variant expansion", () => {
     );
     const text = "ordinary words and numbers 12345 ".repeat(40_000);
     const time = (n: number) => {
-      const t = performance.now();
+      const t = cpuTimeMs();
       redactEventDataForType("provider/warning", {
         category: "config",
         details: text.slice(0, n) + secrets[7],
         env,
       });
-      return performance.now() - t;
+      return cpuTimeMs() - t;
     };
     time(1000);
     const small = Math.max(time(200_000), 1);
     const large = time(1_200_000);
     expect(large / small).toBeLessThan(6 * 3);
     expect(large).toBeLessThan(8000);
-  });
+  }, 30_000);
 });

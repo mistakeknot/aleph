@@ -38,6 +38,26 @@ function sourceTarget(source: string) {
 }
 
 describe("plugin install jobs", () => {
+  it("does not fold a frozen install into an ordinary active job", async () => {
+    const jobs = createPluginInstallJobs({ notifyChanged: () => {} });
+    const first = createDeferredPromise<InstalledPlugin>();
+    const ordinary = jobs.start({
+      target: sourceTarget("npm:a"),
+      displayName: "a",
+      run: () => first.promise,
+    });
+    const frozen = jobs.start({
+      target: {
+        ...sourceTarget("npm:a"),
+        frozenLockfile: { sha256: "a".repeat(64) },
+      },
+      displayName: "a",
+      run: async () => PLUGIN,
+    });
+    first.resolve(PLUGIN);
+    await jobs.settled(frozen.id);
+    expect(frozen.id).not.toBe(ordinary.id);
+  });
   it("runs installs one at a time and folds a repeat request into the active job", async () => {
     const jobs = createPluginInstallJobs({ notifyChanged: () => {} });
     const first = createDeferredPromise<InstalledPlugin>();
