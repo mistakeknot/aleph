@@ -458,6 +458,10 @@ export type PluginSettingDescriptor = z.infer<
 
 export const pluginSettingsResponseSchema = z.object({
   ok: z.literal(true),
+  digest: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   schema: z.record(z.string(), pluginSettingDescriptorSchema),
   values: z.record(z.string(), jsonValueSchema),
 });
@@ -466,8 +470,20 @@ export type PluginSettingsResponse = z.infer<
 >;
 
 export const pluginSettingsUpdateRequestSchema = z
-  .object({ values: z.record(z.string(), jsonValueSchema) })
+  .object({
+    values: z.record(z.string(), jsonValueSchema),
+    expectedDigest: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  })
   .strict();
+
+export const pluginSettingsConflictResponseSchema = z.object({
+  ok: z.literal(false),
+  code: z.literal("plugin_settings_conflict"),
+  error: z.string(),
+});
 
 export const pluginSafeModeRequestSchema = z
   .object({ enabled: z.boolean() })

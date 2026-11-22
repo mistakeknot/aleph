@@ -174,6 +174,7 @@ export interface PluginReloadArgs {
 
 export interface PluginSettingsUpdateArgs extends PluginIdArgs {
   values: Record<string, JsonValue>;
+  expectedDigest?: string;
 }
 
 export interface PluginTokenArgs extends PluginIdArgs {
@@ -766,6 +767,7 @@ export function createPluginsArea(args: CreateSdkAreaArgs): PluginsArea {
     async updateSettings(input) {
       const body = pluginSettingsUpdateRequestSchema.parse({
         values: input.values,
+        expectedDigest: input.expectedDigest,
       });
       return requestParsed(
         pluginPath(input.pluginId, "/settings"),

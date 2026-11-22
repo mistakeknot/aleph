@@ -394,6 +394,7 @@ export interface PluginService {
   updateSettings(
     id: string,
     values: Record<string, unknown>,
+    expectedDigest?: string,
   ): Promise<PluginSettingsView | undefined>;
   getHttpRoute(
     id: string,
@@ -2099,7 +2100,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       });
     },
 
-    async updateSettings(id, values) {
+    async updateSettings(id, values, expectedDigest) {
       const plugin = loaded.get(id);
       if (!plugin) return undefined;
       const storeArgs = {
@@ -2113,7 +2114,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
         throw new PluginSettingsValidationError(errors.join("; "));
       }
       const prev = await readPluginSettingsValues(storeArgs);
-      await writePluginSettingsUpdate({ ...storeArgs, values });
+      await writePluginSettingsUpdate({ ...storeArgs, values, expectedDigest });
       const next = await readPluginSettingsValues(storeArgs);
       if (JSON.stringify(next) !== JSON.stringify(prev)) {
         for (const listener of plugin.handle.settings.listeners) {

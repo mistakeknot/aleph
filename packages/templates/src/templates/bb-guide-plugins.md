@@ -85,6 +85,10 @@ under `<bb-data-dir>/plugins/<id>/` (SQLite database, secrets, logs).
                                  previous instance is kept or degraded)
   bb plugin config <id> [set <key> <value> | unset <key>]
                                  Show or change a plugin's declared settings.
+                                 --json includes the server's stored-state
+                                 digest. Pass it to set/unset with
+                                 --expected-digest <digest> to reject stale
+                                 writes with HTTP 409 and keep current values.
                                  Running plugins receive changes live; a
                                  plugin waiting for configuration retries
   bb plugin logs <id> [-n N] [-f]  Print (or follow) a plugin's log
