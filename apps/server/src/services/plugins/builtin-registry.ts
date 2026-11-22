@@ -146,6 +146,11 @@ export const BUILTIN_PLUGINS = [
     defaultEnabled: true,
   },
   {
+    name: "rig-manager",
+    pluginId: "rig-manager",
+    defaultEnabled: false,
+  },
+  {
     name: "keep-awake",
     pluginId: "keep-awake",
     defaultEnabled: true,
