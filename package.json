@@ -42,6 +42,7 @@
     "check:plugin-forks": "node scripts/check-plugin-forks.mjs",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:affected": "node scripts/affected-checks.mjs --run",
     "test:integration": "turbo run test:integration",
     "qa:standalone:start": "node tests/qa/scripts/run-root-command.mjs standalone:start",
     "qa:standalone:stop": "node tests/qa/scripts/run-root-command.mjs standalone:stop",
