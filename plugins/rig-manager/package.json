@@ -1,0 +1,50 @@
+{
+  "name": "bb-plugin-rig-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Inspect and transfer rigs on Aleph.",
+  "engines": {
+    "bb": ">=0.0",
+    "bbPluginSdk": ">=0.6.151"
+  },
+  "bb": {
+    "name": "Rig manager",
+    "description": "View and diff rigs; export and apply to fresh stopped targets. Aleph only.",
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": [
+      "./skills/rig-manager/SKILL.md"
+    ],
+    "branding": {
+      "icon": "Layers"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsrs --noEmit",
+    "lint:type-aware": "oxlint -c ../../.oxlintrc.type-aware.json",
+    "lint": "oxlint --ignore-pattern node_modules --ignore-pattern dist .",
+    "test": "vitest run --config vitest.config.ts --maxWorkers=2",
+    "prepare:bundled": "bb-plugin-build prepare-bundled"
+  },
+  "dependencies": {
+    "@bb/rig": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@bb/plugin-build": "workspace:*",
+    "@get-bb/plugin-sdk": "workspace:*",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^29.1.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^4.1.12",
+    "@bb/db": "workspace:*"
+  }
+}
