@@ -1900,7 +1900,7 @@ importers:
       bb-plugin-push-notifications:
         specifier: workspace:*
         version: link:../../plugins/push-notifications
-      bb-plugin-rig-manager:
+      bb-plugin-bb--rig-manager:
         specifier: workspace:*
         version: link:../../plugins/rig-manager
       bb-plugin-scheduled-send:

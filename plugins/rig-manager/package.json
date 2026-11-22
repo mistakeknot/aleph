@@ -1,5 +1,5 @@
 {
-  "name": "bb-plugin-rig-manager",
+  "name": "bb-plugin-bb--rig-manager",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "server": "./server.ts",
     "app": "./app.tsx",
     "skills": [
-      "./skills/rig-manager/SKILL.md"
+      "./skills"
     ],
     "branding": {
       "icon": "Layers"
@@ -24,7 +24,7 @@
     "typecheck": "tsrs --noEmit",
     "lint:type-aware": "oxlint -c ../../.oxlintrc.type-aware.json",
     "lint": "oxlint --ignore-pattern node_modules --ignore-pattern dist .",
-    "test": "vitest run --config vitest.config.ts --maxWorkers=2",
+    "test": "vitest run --config vitest.config.ts",
     "prepare:bundled": "bb-plugin-build prepare-bundled"
   },
   "dependencies": {

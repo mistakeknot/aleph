@@ -147,7 +147,7 @@ export const BUILTIN_PLUGINS = [
   },
   {
     name: "rig-manager",
-    pluginId: "rig-manager",
+    pluginId: "bb--rig-manager",
     defaultEnabled: false,
   },
   {

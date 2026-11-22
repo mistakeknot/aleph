@@ -56,6 +56,6 @@
     "bb-plugin-thread-list": "workspace:*",
     "bb-plugin-workflows": "workspace:*",
     "bb-plugin-bb--storage-retention": "workspace:*",
-    "bb-plugin-rig-manager": "workspace:*"
+    "bb-plugin-bb--rig-manager": "workspace:*"
   }
 }
