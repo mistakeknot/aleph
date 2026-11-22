@@ -1,5 +1,35 @@
 # APIs To Audit
 
+## Contained plugin installs
+
+`bb.sdk.plugins.experimental_safeguards()` advertises
+`install-containment-v1` where Linux cgroup v2 and a user service manager are
+available. `plugins.startInstall({ source, requestKey })` and `install` opt a
+managed Git/npm install into that contract. Calls without a request key keep
+their existing behavior. The job records request key, deterministic containment
+identity and the starting server PID/start time. Its installer commands and
+build worker run under a dedicated user-manager slice. Containment tracks
+cooperative installer descendants, including late and detached descendants that
+remain in the cgroup. It is not a sandbox or a security boundary. A process
+that leaves its cgroup is not tracked. After callback completion, the job stays
+running/draining while the tracked cgroup is nonempty; an empty or gone cgroup
+does not prove that a process that left it has exited. No timeout releases it.
+
+The safeguard probe includes the server's PID/start time for a durable pre-call
+intent. Pass it as `expectedServer` alongside `requestKey`; a server restart
+between probe and start returns typed 409 `install_server_changed`, starting no
+job. Recovery ignores terminal records from a different server identity and
+still blocks while the original recorded server is alive.
+
+`plugins.installJobs.experimental_inspectContainment({ requestKey, server? })`
+checks kernel containment independently of job history. It permits recovery
+only for empty/gone containment and either a known terminal job or an unknown
+job whose original server exited, matched by PID and start time. Errors stay
+unknown and block recovery. This read does not itself release a caller's host
+lock or barrier. Core install jobs and CLI use this shared path. Stabilization
+requires auditing supported service managers and lifecycle/restart behavior.
+The Plugin Guide documents these SDK surfaces.
+
 ## Plugin safeguard detection
 
 `bb.sdk.plugins.experimental_safeguards()` reads the same enforced contract

@@ -29,6 +29,8 @@ import {
   MARKETPLACE_PACKUMENT_MAX_BYTES,
 } from "../plugin-catalog/marketplace-http.js";
 import { installGitDependencies } from "./git-plugin-dependencies.js";
+import { currentInstallContainment } from "./install-containment.js";
+import { runContainedPluginBuild } from "./contained-plugin-build.js";
 import type { PluginFrozenLockfile } from "@bb/server-contract";
 import { getPluginBuildToolchain } from "./build-toolchain.js";
 import { validatePluginArtifactMeta } from "./app-bundle.js";
@@ -272,6 +274,31 @@ export function createManagedPluginArtifacts(
     if (kind === "git" || args.frozenLockfile !== undefined) {
       await installGitDependencies(args.rootDir, args.frozenLockfile);
     }
+    const isolatedBuild = currentInstallContainment() !== undefined;
+    if (isolatedBuild) {
+      const warnings = await runContainedPluginBuild({
+        rootDir: args.rootDir,
+        dataDir: deps.dataDir,
+        version: deps.appVersion,
+        app:
+          manifest.appEntry !== undefined &&
+          kind !== "npm" &&
+          !isPackagedBuiltinEntry({
+            kind,
+            manifest,
+            rootDir: args.rootDir,
+            artifact: "app",
+          }),
+        server: kind === "git",
+        host: kind === "git" && manifest.hostEntry !== undefined,
+      });
+      logPluginBuildWarnings({
+        dataDir: deps.dataDir,
+        logger: deps.logger,
+        pluginId: manifest.id,
+        warnings,
+      });
+    }
     if (manifest.appEntry !== undefined) {
       if (kind === "npm") {
         const jsPresent = await stat(join(args.rootDir, "dist", "app.js"))
@@ -283,6 +310,7 @@ export function createManagedPluginArtifacts(
           );
         }
       } else if (
+        !isolatedBuild &&
         !isPackagedBuiltinEntry({
           kind,
           manifest,
@@ -311,7 +339,7 @@ export function createManagedPluginArtifacts(
         });
       }
     }
-    if (kind === "git") {
+    if (kind === "git" && !isolatedBuild) {
       let server: Awaited<ReturnType<typeof buildPluginServer>>;
       try {
         server = await buildPluginServer(
