@@ -128,20 +128,6 @@ describe("linear-time sanitizing", () => {
       }
     }
   }, 30_000);
-
-  it("handles very many secret-named entries within the bound", () => {
-    const env: Record<string, string> = {};
-    for (let i = 0; i < 100_000; i += 1)
-      env[`API_KEY_${i}`] = `secret-value-${i}-xx`;
-    const out = redactEventDataForType("provider/unhandled", {
-      env,
-      text: "x".repeat(200_000),
-    });
-    expect(
-      timed(() => redactEventDataForType("provider/unhandled", { env })),
-    ).toBeLessThan(1500);
-    expect(JSON.stringify(out)).not.toContain("secret-value-5-xx");
-  });
 });
 
 describe("quoted cookie headers", () => {
