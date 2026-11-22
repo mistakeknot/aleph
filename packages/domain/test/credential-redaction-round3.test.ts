@@ -1,5 +1,4 @@
 import { cpuTimeMs } from "./cpu-time.js";
-import { threadCpuUsage } from "node:process";
 import { describe, expect, it } from "vitest";
 import {
   REDACTED_ENV_VALUE,
@@ -34,6 +33,12 @@ describe("linear-time sanitizing", () => {
   const BOUND_MS = 500;
 
   function timed(fn: () => unknown): number {
+    const start = performance.now();
+    fn();
+    return performance.now() - start;
+  }
+
+  function timedCpu(fn: () => unknown): number {
     const start = cpuTimeMs();
     fn();
     return cpuTimeMs() - start;
@@ -67,7 +72,7 @@ describe("linear-time sanitizing", () => {
     ]) {
       it(`${type}: ${label} stays under the time bound (insert/read JSON path)`, () => {
         const json = JSON.stringify({ delta: text, message: text });
-        const elapsed = timed(() => redactEventDataJsonForType(type, json));
+        const elapsed = timedCpu(() => redactEventDataJsonForType(type, json));
         expect(elapsed).toBeLessThan(BOUND_MS);
       }, 30_000);
     }
@@ -103,7 +108,7 @@ describe("linear-time sanitizing", () => {
       while (text.length < 200_000) {
         text += fragments[rand() % fragments.length];
       }
-      const elapsed = timed(() =>
+      const elapsed = timedCpu(() =>
         redactEventDataForType("provider/error", { message: text }),
       );
       expect(elapsed).toBeLessThan(BOUND_MS);
@@ -118,7 +123,7 @@ describe("linear-time sanitizing", () => {
     for (const json of [deepJson, wideJson]) {
       for (const type of ["provider/unhandled", "item/completed"]) {
         expect(
-          timed(() => redactEventDataJsonForType(type, json)),
+          timedCpu(() => redactEventDataJsonForType(type, json)),
         ).toBeLessThan(1500);
       }
     }
@@ -133,19 +138,10 @@ describe("linear-time sanitizing", () => {
       text: "x".repeat(200_000),
     });
     expect(
-      (() => {
-        let fastestMs = Number.POSITIVE_INFINITY;
-        for (let sample = 0; sample < 2; sample += 1) {
-          const start = threadCpuUsage();
-          redactEventDataForType("provider/unhandled", { env });
-          const cpu = threadCpuUsage(start);
-          fastestMs = Math.min(fastestMs, (cpu.user + cpu.system) / 1000);
-        }
-        return fastestMs;
-      })(),
+      timed(() => redactEventDataForType("provider/unhandled", { env })),
     ).toBeLessThan(1500);
     expect(JSON.stringify(out)).not.toContain("secret-value-5-xx");
-  }, 30_000);
+  });
 });
 
 describe("quoted cookie headers", () => {
