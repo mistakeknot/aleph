@@ -1,3 +1,4 @@
+import { threadCpuUsage } from "node:process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   redactEventDataForType,
@@ -177,9 +178,14 @@ describe("round 8: the URL scanner is linear", () => {
     it(`16 KB and 64 KB bounds, doubling: ${name}`, () => {
       const time = (n: number) => {
         const url = make(n);
-        const start = performance.now();
-        const out = writePath(url);
-        const ms = performance.now() - start;
+        let ms = Number.POSITIVE_INFINITY;
+        let out = "";
+        for (let sample = 0; sample < 3; sample += 1) {
+          const start = threadCpuUsage();
+          out = writePath(url);
+          const cpu = threadCpuUsage(start);
+          ms = Math.min(ms, (cpu.user + cpu.system) / 1000);
+        }
         expect(out).toBe(JSON.stringify(imageEvent(url)));
         return { ms, length: url.length };
       };

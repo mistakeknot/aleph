@@ -1,3 +1,4 @@
+import { threadCpuUsage } from "node:process";
 import { describe, expect, it } from "vitest";
 import {
   REDACTED_ENV_VALUE,
@@ -131,7 +132,12 @@ describe("linear-time sanitizing", () => {
       text: "x".repeat(200_000),
     });
     expect(
-      timed(() => redactEventDataForType("provider/unhandled", { env })),
+      (() => {
+        const start = threadCpuUsage();
+        redactEventDataForType("provider/unhandled", { env });
+        const cpu = threadCpuUsage(start);
+        return (cpu.user + cpu.system) / 1000;
+      })(),
     ).toBeLessThan(1500);
     expect(JSON.stringify(out)).not.toContain("secret-value-5-xx");
   });
