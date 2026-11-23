@@ -32,12 +32,6 @@ function toolEvent(item: Record<string, unknown>) {
 describe("linear-time sanitizing", () => {
   const BOUND_MS = 500;
 
-  function timed(fn: () => unknown): number {
-    const start = performance.now();
-    fn();
-    return performance.now() - start;
-  }
-
   function timedCpu(fn: () => unknown): number {
     const start = cpuTimeMs();
     fn();
