@@ -998,6 +998,39 @@ function offsetHighlightRanges(
   }));
 }
 
+function isIgnoredBySearchNormalization(codePoint: number): boolean {
+  if (codePoint < 0x0300) {
+    return false;
+  }
+  return normalizeThreadSearchText(String.fromCodePoint(codePoint)) === "";
+}
+
+function nextHighlightWindowStart(args: {
+  text: string;
+  windowStart: number;
+  windowEnd: number;
+  overlap: number;
+}): number {
+  const { text, windowStart, windowEnd, overlap } = args;
+  const lowestStart = Math.max(
+    windowStart + 1,
+    windowEnd - THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS / 2,
+  );
+  let index = windowEnd;
+  let kept = 0;
+  while (index > lowestStart && kept < overlap) {
+    const previous =
+      index >= 2 && isLowSurrogate(text, index - 1) && isHighSurrogate(text, index - 2)
+        ? index - 2
+        : index - 1;
+    if (!isIgnoredBySearchNormalization(text.codePointAt(previous) ?? 0)) {
+      kept += 1;
+    }
+    index = previous;
+  }
+  return Math.max(lowestStart, index);
+}
+
 function findSnippetHighlightRanges(args: {
   text: string;
   tokens: readonly string[];
@@ -1013,13 +1046,10 @@ function findSnippetHighlightRanges(args: {
     longestToken * 4 + THREAD_SEARCH_HIGHLIGHT_WINDOW_OVERLAP_SLACK_CHARS,
   );
   const scanEnd = Math.min(text.length, THREAD_SEARCH_HIGHLIGHT_SCAN_MAX_CHARS);
-  for (
-    let windowStart = 0;
-    windowStart < scanEnd;
-    windowStart += THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS - overlap
-  ) {
+  let windowStart = 0;
+  while (windowStart < scanEnd) {
     const windowEnd = Math.min(
-      text.length,
+      scanEnd,
       windowStart + THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS,
     );
     const windowRanges = findHighlightRanges({
@@ -1028,9 +1058,15 @@ function findSnippetHighlightRanges(args: {
     });
     const firstRange = windowRanges[0];
     if (firstRange === undefined) {
-      if (windowEnd >= text.length) {
+      if (windowEnd >= scanEnd) {
         break;
       }
+      windowStart = nextHighlightWindowStart({
+        text,
+        windowStart,
+        windowEnd,
+        overlap,
+      });
       continue;
     }
 
@@ -1041,7 +1077,10 @@ function findSnippetHighlightRanges(args: {
     );
     const spanEnd = Math.min(
       text.length,
-      anchorStart + THREAD_SEARCH_SNIPPET_MAX_CHARS + overlap,
+      Math.max(
+        anchorStart + THREAD_SEARCH_SNIPPET_MAX_CHARS + overlap,
+        windowStart + firstRange.end,
+      ),
     );
     return offsetHighlightRanges(
       findHighlightRanges({ text: text.slice(spanStart, spanEnd), tokens }),
