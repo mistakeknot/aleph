@@ -67,6 +67,9 @@ const THREAD_SEARCH_HIGHLIGHT_RANGE_LIMIT = 8;
 const THREAD_SEARCH_SNIPPET_MAX_CHARS = 160;
 const THREAD_SEARCH_SNIPPET_LEAD_CHARS = 40;
 const THREAD_SEARCH_SNIPPET_ELLIPSIS = "…";
+const THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS = 4096;
+const THREAD_SEARCH_HIGHLIGHT_WINDOW_OVERLAP_SLACK_CHARS = 64;
+const THREAD_SEARCH_HIGHLIGHT_SCAN_MAX_CHARS = 262_144;
 
 type ThreadWhere = SQL | undefined;
 
@@ -985,11 +988,74 @@ function isHighSurrogate(text: string, index: number): boolean {
   return code >= 0xd800 && code <= 0xdbff;
 }
 
+function offsetHighlightRanges(
+  ranges: readonly ThreadSearchHighlightRange[],
+  offset: number,
+): ThreadSearchHighlightRange[] {
+  return ranges.map((range) => ({
+    start: range.start + offset,
+    end: range.end + offset,
+  }));
+}
+
+function findSnippetHighlightRanges(args: {
+  text: string;
+  tokens: readonly string[];
+}): ThreadSearchHighlightRange[] {
+  const { text, tokens } = args;
+  if (text.length <= THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS) {
+    return findHighlightRanges(args);
+  }
+
+  const longestToken = Math.max(0, ...tokens.map((token) => token.length));
+  const overlap = Math.min(
+    THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS / 2,
+    longestToken * 4 + THREAD_SEARCH_HIGHLIGHT_WINDOW_OVERLAP_SLACK_CHARS,
+  );
+  const scanEnd = Math.min(text.length, THREAD_SEARCH_HIGHLIGHT_SCAN_MAX_CHARS);
+  for (
+    let windowStart = 0;
+    windowStart < scanEnd;
+    windowStart += THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS - overlap
+  ) {
+    const windowEnd = Math.min(
+      text.length,
+      windowStart + THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS,
+    );
+    const windowRanges = findHighlightRanges({
+      text: text.slice(windowStart, windowEnd),
+      tokens,
+    });
+    const firstRange = windowRanges[0];
+    if (firstRange === undefined) {
+      if (windowEnd >= text.length) {
+        break;
+      }
+      continue;
+    }
+
+    const anchorStart = windowStart + firstRange.start;
+    const spanStart = Math.max(
+      0,
+      anchorStart - THREAD_SEARCH_SNIPPET_LEAD_CHARS - overlap,
+    );
+    const spanEnd = Math.min(
+      text.length,
+      anchorStart + THREAD_SEARCH_SNIPPET_MAX_CHARS + overlap,
+    );
+    return offsetHighlightRanges(
+      findHighlightRanges({ text: text.slice(spanStart, spanEnd), tokens }),
+      spanStart,
+    );
+  }
+  return [];
+}
+
 function buildThreadSearchSnippet(args: {
   text: string;
   tokens: readonly string[];
 }): ThreadSearchSnippet {
-  const highlightRanges = findHighlightRanges(args);
+  const highlightRanges = findSnippetHighlightRanges(args);
   const text = args.text;
   if (text.length <= THREAD_SEARCH_SNIPPET_MAX_CHARS) {
     return { highlightRanges, text };
