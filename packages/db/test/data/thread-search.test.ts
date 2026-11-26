@@ -1297,15 +1297,23 @@ describe("thread search data", () => {
             sourceKind: "user_message",
             sourceKey: "event:1",
             sourceSeq: 1,
-            text: `${"word ".repeat(100_000)}farneedle tail`,
+            text: `${"word ".repeat(400_000)}farneedle tail`,
           },
         ],
       });
 
-      const results = searchThreadsWithPendingInteractionState(db, {
-        query: "farneedle",
-        limitPerGroup: 20,
-      });
+      const normalizeSpy = vi.spyOn(String.prototype, "normalize");
+      let normalizeCalls = 0;
+      let results: ReturnType<typeof searchThreadsWithPendingInteractionState>;
+      try {
+        results = searchThreadsWithPendingInteractionState(db, {
+          query: "farneedle",
+          limitPerGroup: 20,
+        });
+        normalizeCalls = normalizeSpy.mock.calls.length;
+      } finally {
+        normalizeSpy.mockRestore();
+      }
 
       const match = results.active.results[0]?.matches.find(
         (candidate) => candidate.sourceKind === "user_message",
@@ -1314,46 +1322,65 @@ describe("thread search data", () => {
       expect(match?.text.startsWith("word word ")).toBe(true);
       expect(match?.text.endsWith("…")).toBe(true);
       expect(match?.highlightRanges).toEqual([]);
+      expect(normalizeCalls).toBeLessThan(HIGHLIGHT_SCAN_MAX_CHARS * 2);
     } finally {
       closeConnection(db);
     }
   });
 
-  it("highlights a match whose combining marks cross a scan window boundary", () => {
+  it("highlights matches whose combining marks cross scan window boundaries", () => {
     const { db, project } = setup();
     try {
-      const thread = createThread(db, noopNotifier, {
-        projectId: project.id,
-        providerId: "codex",
-        title: "Combining marks thread",
-      });
-      const word = `a${"\u0301".repeat(100)}b`;
-      upsertThreadSearchSegments(db, {
-        segments: [
-          {
-            threadId: thread.id,
-            sourceKind: "assistant_message",
-            sourceKey: "event:1",
-            sourceSeq: 1,
-            text: `${"x".repeat(4009)} ${word} ${"y".repeat(5000)}`,
-          },
-        ],
-      });
+      const cases = [
+        { matchStart: 4010, marks: 100 },
+        { matchStart: 2000, marks: 2100 },
+        { matchStart: 4095, marks: 2100 },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        const thread = createThread(db, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+          title: `Combining marks thread ${index}`,
+        });
+        upsertThreadSearchSegments(db, {
+          segments: [
+            {
+              threadId: thread.id,
+              sourceKind: "assistant_message",
+              sourceKey: "event:1",
+              sourceSeq: 1,
+              text: `${"x".repeat(testCase.matchStart - 1)} a${"\u0301".repeat(testCase.marks)}b ${"y".repeat(5000)}`,
+            },
+          ],
+        });
+      }
 
       const results = searchThreadsWithPendingInteractionState(db, {
         query: "ab",
         limitPerGroup: 20,
       });
 
-      const match = results.active.results[0]?.matches.find(
-        (candidate) => candidate.sourceKind === "assistant_message",
+      const matchesByTitle = new Map(
+        results.active.results.map((result) => [
+          result.thread.title,
+          result.matches.find(
+            (candidate) => candidate.sourceKind === "assistant_message",
+          ),
+        ]),
       );
-      expect(match).toBeDefined();
-      expect(match?.highlightRanges).toHaveLength(1);
-      const range = match?.highlightRanges[0];
-      expect(
-        range === undefined ? null : match?.text.slice(range.start, range.end),
-      ).toBe(word);
+      for (const [index, testCase] of cases.entries()) {
+        const match = matchesByTitle.get(`Combining marks thread ${index}`);
+        expect(match).toBeDefined();
+        expect(match?.highlightRanges).toHaveLength(1);
+        const range = match?.highlightRanges[0];
+        const highlighted =
+          range === undefined
+            ? ""
+            : (match?.text.slice(range.start, range.end) ?? "");
+        const word = `a${"\u0301".repeat(testCase.marks)}b`;
+        expect(highlighted.startsWith("a\u0301")).toBe(true);
+        expect(word.startsWith(highlighted)).toBe(true);
+      }
     } finally {
       closeConnection(db);
     }

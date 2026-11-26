@@ -1005,6 +1005,25 @@ function isIgnoredBySearchNormalization(codePoint: number): boolean {
   return normalizeThreadSearchText(String.fromCodePoint(codePoint)) === "";
 }
 
+function advanceSearchCharacters(args: {
+  text: string;
+  start: number;
+  limit: number;
+  count: number;
+}): number {
+  const { text, start, limit, count } = args;
+  let index = start;
+  let kept = 0;
+  while (index < limit && kept < count) {
+    const codePoint = text.codePointAt(index) ?? 0;
+    if (!isIgnoredBySearchNormalization(codePoint)) {
+      kept += 1;
+    }
+    index += codePoint > 0xffff ? 2 : 1;
+  }
+  return Math.min(index, limit);
+}
+
 function nextHighlightWindowStart(args: {
   text: string;
   windowStart: number;
@@ -1012,15 +1031,14 @@ function nextHighlightWindowStart(args: {
   overlap: number;
 }): number {
   const { text, windowStart, windowEnd, overlap } = args;
-  const lowestStart = Math.max(
-    windowStart + 1,
-    windowEnd - THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS / 2,
-  );
+  const lowestStart = windowStart + 1;
   let index = windowEnd;
   let kept = 0;
   while (index > lowestStart && kept < overlap) {
     const previous =
-      index >= 2 && isLowSurrogate(text, index - 1) && isHighSurrogate(text, index - 2)
+      index >= 2 &&
+      isLowSurrogate(text, index - 1) &&
+      isHighSurrogate(text, index - 2)
         ? index - 2
         : index - 1;
     if (!isIgnoredBySearchNormalization(text.codePointAt(previous) ?? 0)) {
@@ -1048,10 +1066,12 @@ function findSnippetHighlightRanges(args: {
   const scanEnd = Math.min(text.length, THREAD_SEARCH_HIGHLIGHT_SCAN_MAX_CHARS);
   let windowStart = 0;
   while (windowStart < scanEnd) {
-    const windowEnd = Math.min(
-      scanEnd,
-      windowStart + THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS,
-    );
+    const windowEnd = advanceSearchCharacters({
+      text,
+      start: windowStart,
+      limit: scanEnd,
+      count: THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS,
+    });
     const windowRanges = findHighlightRanges({
       text: text.slice(windowStart, windowEnd),
       tokens,
