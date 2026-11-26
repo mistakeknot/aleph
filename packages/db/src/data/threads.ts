@@ -67,6 +67,9 @@ const THREAD_SEARCH_HIGHLIGHT_RANGE_LIMIT = 8;
 const THREAD_SEARCH_SNIPPET_MAX_CHARS = 160;
 const THREAD_SEARCH_SNIPPET_LEAD_CHARS = 40;
 const THREAD_SEARCH_SNIPPET_ELLIPSIS = "…";
+const THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS = 4096;
+const THREAD_SEARCH_HIGHLIGHT_WINDOW_OVERLAP_SLACK_CHARS = 64;
+const THREAD_SEARCH_HIGHLIGHT_SCAN_MAX_CHARS = 262_144;
 
 type ThreadWhere = SQL | undefined;
 
@@ -985,11 +988,133 @@ function isHighSurrogate(text: string, index: number): boolean {
   return code >= 0xd800 && code <= 0xdbff;
 }
 
+function offsetHighlightRanges(
+  ranges: readonly ThreadSearchHighlightRange[],
+  offset: number,
+): ThreadSearchHighlightRange[] {
+  return ranges.map((range) => ({
+    start: range.start + offset,
+    end: range.end + offset,
+  }));
+}
+
+function isIgnoredBySearchNormalization(codePoint: number): boolean {
+  if (codePoint < 0x0300) {
+    return false;
+  }
+  return normalizeThreadSearchText(String.fromCodePoint(codePoint)) === "";
+}
+
+function advanceSearchCharacters(args: {
+  text: string;
+  start: number;
+  limit: number;
+  count: number;
+}): number {
+  const { text, start, limit, count } = args;
+  let index = start;
+  let kept = 0;
+  while (index < limit && kept < count) {
+    const codePoint = text.codePointAt(index) ?? 0;
+    if (!isIgnoredBySearchNormalization(codePoint)) {
+      kept += 1;
+    }
+    index += codePoint > 0xffff ? 2 : 1;
+  }
+  return Math.min(index, limit);
+}
+
+function nextHighlightWindowStart(args: {
+  text: string;
+  windowStart: number;
+  windowEnd: number;
+  overlap: number;
+}): number {
+  const { text, windowStart, windowEnd, overlap } = args;
+  const lowestStart = windowStart + 1;
+  let index = windowEnd;
+  let kept = 0;
+  while (index > lowestStart && kept < overlap) {
+    const previous =
+      index >= 2 &&
+      isLowSurrogate(text, index - 1) &&
+      isHighSurrogate(text, index - 2)
+        ? index - 2
+        : index - 1;
+    if (!isIgnoredBySearchNormalization(text.codePointAt(previous) ?? 0)) {
+      kept += 1;
+    }
+    index = previous;
+  }
+  return Math.max(lowestStart, index);
+}
+
+function findSnippetHighlightRanges(args: {
+  text: string;
+  tokens: readonly string[];
+}): ThreadSearchHighlightRange[] {
+  const { text, tokens } = args;
+  if (text.length <= THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS) {
+    return findHighlightRanges(args);
+  }
+
+  const longestToken = Math.max(0, ...tokens.map((token) => token.length));
+  const overlap = Math.min(
+    THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS / 2,
+    longestToken * 4 + THREAD_SEARCH_HIGHLIGHT_WINDOW_OVERLAP_SLACK_CHARS,
+  );
+  const scanEnd = Math.min(text.length, THREAD_SEARCH_HIGHLIGHT_SCAN_MAX_CHARS);
+  let windowStart = 0;
+  while (windowStart < scanEnd) {
+    const windowEnd = advanceSearchCharacters({
+      text,
+      start: windowStart,
+      limit: scanEnd,
+      count: THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS,
+    });
+    const windowRanges = findHighlightRanges({
+      text: text.slice(windowStart, windowEnd),
+      tokens,
+    });
+    const firstRange = windowRanges[0];
+    if (firstRange === undefined) {
+      if (windowEnd >= scanEnd) {
+        break;
+      }
+      windowStart = nextHighlightWindowStart({
+        text,
+        windowStart,
+        windowEnd,
+        overlap,
+      });
+      continue;
+    }
+
+    const anchorStart = windowStart + firstRange.start;
+    const spanStart = Math.max(
+      0,
+      anchorStart - THREAD_SEARCH_SNIPPET_LEAD_CHARS - overlap,
+    );
+    const spanEnd = Math.min(
+      text.length,
+      Math.max(
+        anchorStart + THREAD_SEARCH_SNIPPET_MAX_CHARS + overlap,
+        windowStart + firstRange.end,
+      ),
+    );
+    return offsetHighlightRanges(
+      findHighlightRanges({ text: text.slice(spanStart, spanEnd), tokens }),
+      spanStart,
+    );
+  }
+  return [];
+}
+
 function buildThreadSearchSnippet(args: {
   text: string;
   tokens: readonly string[];
 }): ThreadSearchSnippet {
-  const highlightRanges = findHighlightRanges(args);
+  const highlightRanges = findSnippetHighlightRanges(args);
   const text = args.text;
   if (text.length <= THREAD_SEARCH_SNIPPET_MAX_CHARS) {
     return { highlightRanges, text };

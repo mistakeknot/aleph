@@ -26,6 +26,10 @@ import {
 } from "../../src/data/threads.js";
 import { createMigratedConnection } from "../../src/testing.js";
 
+const LARGE_SEGMENT_CHARS = 8_000_000;
+const LARGE_SEGMENT_NORMALIZE_CALL_LIMIT = 50_000;
+const HIGHLIGHT_SCAN_MAX_CHARS = 262_144;
+
 interface SetupResult {
   db: ReturnType<typeof createConnection>;
   project: ReturnType<typeof createProject>["project"];
@@ -1169,6 +1173,302 @@ describe("thread search data", () => {
       expect(
         range === undefined ? null : match.text.slice(range.start, range.end),
       ).toBe("surrogateneedle");
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("bounds highlight work on very large segments", () => {
+    const { db, project } = setup();
+    try {
+      const thread = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Huge pasted log thread",
+      });
+      const filler = "lorem ipsum dolor sit amet ";
+      const head = filler.repeat(40);
+      const text = `${head}hugeneedle ${filler.repeat(
+        Math.ceil(LARGE_SEGMENT_CHARS / filler.length),
+      )}`;
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: thread.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text,
+          },
+        ],
+      });
+
+      const normalizeSpy = vi.spyOn(String.prototype, "normalize");
+      let normalizeCalls = 0;
+      let results: ReturnType<typeof searchThreadsWithPendingInteractionState>;
+      try {
+        results = searchThreadsWithPendingInteractionState(db, {
+          query: "hugeneedle",
+          limitPerGroup: 20,
+        });
+        normalizeCalls = normalizeSpy.mock.calls.length;
+      } finally {
+        normalizeSpy.mockRestore();
+      }
+
+      const match = results.active.results[0]?.matches.find(
+        (candidate) => candidate.sourceKind === "user_message",
+      );
+      expect(match).toBeDefined();
+      if (match === undefined) {
+        return;
+      }
+      expect(match.text.length).toBeLessThanOrEqual(162);
+      expect(match.highlightRanges).toHaveLength(1);
+      const range = match.highlightRanges[0];
+      expect(
+        range === undefined ? null : match.text.slice(range.start, range.end),
+      ).toBe("hugeneedle");
+      expect(normalizeCalls).toBeLessThan(LARGE_SEGMENT_NORMALIZE_CALL_LIMIT);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("highlights a match far into a long segment and across scan windows", () => {
+    const { db, project } = setup();
+    try {
+      const offsets = [4085, 4090, 4093, 4096, 4100, 100_000];
+      for (const offset of offsets) {
+        const thread = createThread(db, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+          title: `Deep match thread ${offset}`,
+        });
+        upsertThreadSearchSegments(db, {
+          segments: [
+            {
+              threadId: thread.id,
+              sourceKind: "assistant_message",
+              sourceKey: "event:1",
+              sourceSeq: 1,
+              text: `${"x".repeat(offset)} deepneedle ${"y".repeat(5000)}`,
+            },
+          ],
+        });
+      }
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "deepneedle",
+        limitPerGroup: 20,
+      });
+
+      const matches = results.active.results.flatMap((result) =>
+        result.matches.filter(
+          (candidate) => candidate.sourceKind === "assistant_message",
+        ),
+      );
+      expect(matches).toHaveLength(offsets.length);
+      for (const match of matches) {
+        expect(match.text.startsWith("…")).toBe(true);
+        expect(match.highlightRanges).toHaveLength(1);
+        const range = match.highlightRanges[0];
+        expect(
+          range === undefined ? null : match.text.slice(range.start, range.end),
+        ).toBe("deepneedle");
+      }
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("shows a match past the highlight scan limit from the start of the text", () => {
+    const { db, project } = setup();
+    try {
+      const thread = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Far match thread",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: thread.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text: `${"word ".repeat(400_000)}farneedle tail`,
+          },
+        ],
+      });
+
+      const normalizeSpy = vi.spyOn(String.prototype, "normalize");
+      let normalizeCalls = 0;
+      let results: ReturnType<typeof searchThreadsWithPendingInteractionState>;
+      try {
+        results = searchThreadsWithPendingInteractionState(db, {
+          query: "farneedle",
+          limitPerGroup: 20,
+        });
+        normalizeCalls = normalizeSpy.mock.calls.length;
+      } finally {
+        normalizeSpy.mockRestore();
+      }
+
+      const match = results.active.results[0]?.matches.find(
+        (candidate) => candidate.sourceKind === "user_message",
+      );
+      expect(match).toBeDefined();
+      expect(match?.text.startsWith("word word ")).toBe(true);
+      expect(match?.text.endsWith("…")).toBe(true);
+      expect(match?.highlightRanges).toEqual([]);
+      expect(normalizeCalls).toBeLessThan(HIGHLIGHT_SCAN_MAX_CHARS * 2);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("highlights matches whose combining marks cross scan window boundaries", () => {
+    const { db, project } = setup();
+    try {
+      const cases = [
+        { matchStart: 4010, marks: 100 },
+        { matchStart: 2000, marks: 2100 },
+        { matchStart: 4095, marks: 2100 },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        const thread = createThread(db, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+          title: `Combining marks thread ${index}`,
+        });
+        upsertThreadSearchSegments(db, {
+          segments: [
+            {
+              threadId: thread.id,
+              sourceKind: "assistant_message",
+              sourceKey: "event:1",
+              sourceSeq: 1,
+              text: `${"x".repeat(testCase.matchStart - 1)} a${"\u0301".repeat(testCase.marks)}b ${"y".repeat(5000)}`,
+            },
+          ],
+        });
+      }
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "ab",
+        limitPerGroup: 20,
+      });
+
+      const matchesByTitle = new Map(
+        results.active.results.map((result) => [
+          result.thread.title,
+          result.matches.find(
+            (candidate) => candidate.sourceKind === "assistant_message",
+          ),
+        ]),
+      );
+      for (const [index, testCase] of cases.entries()) {
+        const match = matchesByTitle.get(`Combining marks thread ${index}`);
+        expect(match).toBeDefined();
+        expect(match?.highlightRanges).toHaveLength(1);
+        const range = match?.highlightRanges[0];
+        const highlighted =
+          range === undefined
+            ? ""
+            : (match?.text.slice(range.start, range.end) ?? "");
+        const word = `a${"\u0301".repeat(testCase.marks)}b`;
+        expect(highlighted.startsWith("a\u0301")).toBe(true);
+        expect(word.startsWith(highlighted)).toBe(true);
+      }
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("highlights a matched token longer than the snippet rescan span", () => {
+    const { db, project } = setup();
+    try {
+      const thread = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Long token thread",
+      });
+      const longToken = "a".repeat(2300);
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: thread.id,
+            sourceKind: "assistant_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text: `${"x".repeat(999)} ${longToken} ${"y".repeat(5000)}`,
+          },
+        ],
+      });
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: longToken,
+        limitPerGroup: 20,
+      });
+
+      const match = results.active.results[0]?.matches.find(
+        (candidate) => candidate.sourceKind === "assistant_message",
+      );
+      expect(match).toBeDefined();
+      expect(match?.text.startsWith("…")).toBe(true);
+      expect(match?.highlightRanges.length).toBeGreaterThan(0);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("stops highlighting at the scan limit", () => {
+    const { db, project } = setup();
+    try {
+      const cases = [
+        { needleStart: HIGHLIGHT_SCAN_MAX_CHARS - 9, highlighted: true },
+        { needleStart: HIGHLIGHT_SCAN_MAX_CHARS - 4, highlighted: false },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        const thread = createThread(db, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+          title: `Scan limit thread ${index}`,
+        });
+        upsertThreadSearchSegments(db, {
+          segments: [
+            {
+              threadId: thread.id,
+              sourceKind: "assistant_message",
+              sourceKey: "event:1",
+              sourceSeq: 1,
+              text: `${"x".repeat(testCase.needleStart - 1)} capneedle ${"y".repeat(100)}`,
+            },
+          ],
+        });
+      }
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "capneedle",
+        limitPerGroup: 20,
+      });
+
+      const matchesByTitle = new Map(
+        results.active.results.map((result) => [
+          result.thread.title,
+          result.matches.find(
+            (candidate) => candidate.sourceKind === "assistant_message",
+          ),
+        ]),
+      );
+      for (const [index, testCase] of cases.entries()) {
+        const match = matchesByTitle.get(`Scan limit thread ${index}`);
+        expect(match).toBeDefined();
+        expect((match?.highlightRanges.length ?? 0) > 0).toBe(
+          testCase.highlighted,
+        );
+      }
     } finally {
       closeConnection(db);
     }
