@@ -70,6 +70,8 @@ const THREAD_SEARCH_SNIPPET_ELLIPSIS = "…";
 const THREAD_SEARCH_HIGHLIGHT_WINDOW_CHARS = 4096;
 const THREAD_SEARCH_HIGHLIGHT_WINDOW_OVERLAP_SLACK_CHARS = 64;
 const THREAD_SEARCH_HIGHLIGHT_SCAN_MAX_CHARS = 262_144;
+const THREAD_SEARCH_SEGMENT_READ_MAX_CHARS =
+  THREAD_SEARCH_HIGHLIGHT_SCAN_MAX_CHARS + 8192;
 
 type ThreadWhere = SQL | undefined;
 
@@ -1296,7 +1298,14 @@ function listThreadSearchMatchRows(
       segmentOrder,
       sourceKind,
       sourceSeq,
-      (SELECT text FROM thread_search_segments
+      (SELECT CASE
+          WHEN ranked_segments.isTitle = 1 THEN text
+          WHEN length(substr(text, 1, ${THREAD_SEARCH_SEGMENT_READ_MAX_CHARS}))
+            = ${THREAD_SEARCH_SEGMENT_READ_MAX_CHARS}
+            THEN substr(text, 1, ${THREAD_SEARCH_SEGMENT_READ_MAX_CHARS})
+          ELSE text
+        END
+       FROM thread_search_segments
        WHERE rowid = ranked_segments.segmentRowid) AS text,
       threadId
     FROM ranked_segments

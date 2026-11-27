@@ -29,6 +29,7 @@ import { createMigratedConnection } from "../../src/testing.js";
 const LARGE_SEGMENT_CHARS = 8_000_000;
 const LARGE_SEGMENT_NORMALIZE_CALL_LIMIT = 50_000;
 const HIGHLIGHT_SCAN_MAX_CHARS = 262_144;
+const SEARCH_SEGMENT_READ_MAX_CHARS = HIGHLIGHT_SCAN_MAX_CHARS + 8192;
 
 interface SetupResult {
   db: ReturnType<typeof createConnection>;
@@ -1230,6 +1231,146 @@ describe("thread search data", () => {
         range === undefined ? null : match.text.slice(range.start, range.end),
       ).toBe("hugeneedle");
       expect(normalizeCalls).toBeLessThan(LARGE_SEGMENT_NORMALIZE_CALL_LIMIT);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("reads a bounded prefix of very large segments from the database", () => {
+    const { db, project } = setup();
+    try {
+      const thread = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Huge segment read thread",
+      });
+      const filler = "lorem ipsum dolor sit amet ";
+      const text = `readneedle ${filler.repeat(
+        Math.ceil(LARGE_SEGMENT_CHARS / filler.length),
+      )}`;
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: thread.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text,
+          },
+        ],
+      });
+
+      const allSpy = vi.spyOn(db, "all");
+      let longestRowText = 0;
+      let results: ReturnType<typeof searchThreadsWithPendingInteractionState>;
+      try {
+        results = searchThreadsWithPendingInteractionState(db, {
+          query: "readneedle",
+          limitPerGroup: 20,
+        });
+        for (const call of allSpy.mock.results) {
+          const rows: unknown = call.value;
+          if (!Array.isArray(rows)) {
+            continue;
+          }
+          for (const row of rows) {
+            const rowText: unknown =
+              typeof row === "object" && row !== null && "text" in row
+                ? row.text
+                : undefined;
+            if (typeof rowText === "string") {
+              longestRowText = Math.max(longestRowText, rowText.length);
+            }
+          }
+        }
+      } finally {
+        allSpy.mockRestore();
+      }
+
+      expect(longestRowText).toBeGreaterThan(HIGHLIGHT_SCAN_MAX_CHARS);
+      expect(longestRowText).toBeLessThanOrEqual(SEARCH_SEGMENT_READ_MAX_CHARS);
+      const match = results.active.results[0]?.matches.find(
+        (candidate) => candidate.sourceKind === "user_message",
+      );
+      expect(match?.text.startsWith("readneedle")).toBe(true);
+      expect(match?.text.endsWith("…")).toBe(true);
+      expect(match?.highlightRanges).toEqual([{ start: 0, end: 10 }]);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("keeps the full text of segments with an embedded NUL before the read bound", () => {
+    const { db, project } = setup();
+    try {
+      const cases = [
+        { name: "short", text: "prefix\u0000 nulneedle tail" },
+        {
+          name: "long",
+          text: `prefix\u0000 nulneedle ${"z".repeat(SEARCH_SEGMENT_READ_MAX_CHARS)}`,
+        },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        const thread = createThread(db, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+          title: `Embedded NUL thread ${testCase.name}`,
+        });
+        upsertThreadSearchSegments(db, {
+          segments: [
+            {
+              threadId: thread.id,
+              sourceKind: "user_message",
+              sourceKey: `event:${index + 1}`,
+              sourceSeq: 1,
+              text: testCase.text,
+            },
+          ],
+        });
+      }
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "nulneedle",
+        limitPerGroup: 20,
+      });
+
+      expect(results.active.results).toHaveLength(cases.length);
+      for (const result of results.active.results) {
+        const match = result.matches.find(
+          (candidate) => candidate.sourceKind === "user_message",
+        );
+        const range = match?.highlightRanges[0];
+        expect(
+          range === undefined ? "" : match?.text.slice(range.start, range.end),
+        ).toBe("nulneedle");
+      }
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("keeps the full text of a title longer than the read bound", () => {
+    const { db, project } = setup();
+    try {
+      const title = `${"t".repeat(SEARCH_SEGMENT_READ_MAX_CHARS)} titleneedle`;
+      createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title,
+      });
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "titleneedle",
+        limitPerGroup: 20,
+      });
+
+      const match = results.active.results[0]?.matches.find(
+        (candidate) => candidate.sourceKind === "title",
+      );
+      expect(match?.text).toBe(title);
+      expect(match?.highlightRanges).toEqual([
+        { start: title.length - 11, end: title.length },
+      ]);
     } finally {
       closeConnection(db);
     }
