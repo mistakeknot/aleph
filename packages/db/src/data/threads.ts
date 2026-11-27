@@ -1298,7 +1298,13 @@ function listThreadSearchMatchRows(
       segmentOrder,
       sourceKind,
       sourceSeq,
-      (SELECT substr(text, 1, ${THREAD_SEARCH_SEGMENT_READ_MAX_CHARS})
+      (SELECT CASE
+          WHEN ranked_segments.isTitle = 1 THEN text
+          WHEN length(substr(text, 1, ${THREAD_SEARCH_SEGMENT_READ_MAX_CHARS}))
+            = ${THREAD_SEARCH_SEGMENT_READ_MAX_CHARS}
+            THEN substr(text, 1, ${THREAD_SEARCH_SEGMENT_READ_MAX_CHARS})
+          ELSE text
+        END
        FROM thread_search_segments
        WHERE rowid = ranked_segments.segmentRowid) AS text,
       threadId
