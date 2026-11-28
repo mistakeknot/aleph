@@ -61,6 +61,7 @@ function normalizedTint(
 
 function normalizedUsage(
   usage: Resource["usage"] | undefined,
+  observedAt: number | null,
 ): ProviderUsage | null {
   if (usage === undefined) return null;
   switch (usage.status) {
@@ -69,13 +70,20 @@ function normalizedUsage(
         status: "ok",
         accountEmail: usage.accountEmail || null,
         planLabel: usage.planLabel || null,
-        windows: usage.windows.map((window) => ({
-          kind: window.kind ?? "custom",
-          label: window.label,
-          usedPercent: window.usedPercent,
-          resetsAt: window.resetsAt || null,
-          cost: window.cost ?? null,
-        })),
+        windows: usage.windows.map((window) => {
+          const measuredAt = window.observedAt ?? observedAt;
+          return {
+            kind: window.kind ?? "custom",
+            label: window.label,
+            usedPercent: window.usedPercent,
+            ...(measuredAt === null ? {} : { observedAt: measuredAt }),
+            ...(window.limitReached === undefined
+              ? {}
+              : { limitReached: window.limitReached }),
+            resetsAt: window.resetsAt || null,
+            cost: window.cost ?? null,
+          };
+        }),
       };
     case "not_installed":
       return { status: "not_installed" };
@@ -100,7 +108,8 @@ function normalizedProvider(
     Provider,
     "id" | "displayName" | "logoUrl" | "icon" | "strings"
   >,
-  usage: Resource["usage"] | undefined,
+  measurement: UsageMeasurement | undefined,
+  scope: "shared" | "host",
 ): UsageProvider {
   return {
     id: provider.id,
@@ -118,7 +127,10 @@ function normalizedProvider(
       "Your " +
         provider.displayName +
         " session expired. Sign in again, then reload usage.",
-    usage: normalizedUsage(usage),
+    usage: normalizedUsage(
+      measurement?.usage,
+      scope === "host" ? (measurement?.observedAt ?? null) : null,
+    ),
   };
 }
 
@@ -138,7 +150,8 @@ function resourceProvider(
         displayName: resource.providerId,
         logoUrl: null,
       },
-      measurement?.usage,
+      measurement,
+      resource.scope.kind,
     ),
     ...(resource.scope.kind === "shared"
       ? {

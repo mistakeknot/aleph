@@ -28,6 +28,8 @@ const usageWindowSchema = z.object({
     .string()
     .nullable()
     .describe("ISO timestamp, or null when no reset is known."),
+  observedAt: z.number().int().nonnegative().optional(),
+  limitReached: z.boolean().optional(),
   model: z
     .string()
     .nullable()

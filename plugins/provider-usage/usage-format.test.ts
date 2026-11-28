@@ -18,7 +18,12 @@ describe("usageBurnRate", () => {
   it("averages usage over the elapsed part of a known window", () => {
     expect(
       usageBurnRate(
-        { kind: "five-hour", usedPercent: 30, resetsAt: resetIn(3 * HOUR) },
+        {
+          kind: "five-hour",
+          observedAt: NOW,
+          usedPercent: 30,
+          resetsAt: resetIn(3 * HOUR),
+        },
         NOW,
       ),
     ).toEqual({ percentPerHour: 15, runsOutInMs: null });
@@ -27,20 +32,81 @@ describe("usageBurnRate", () => {
   it("projects when a fast burn runs out before the reset", () => {
     expect(
       usageBurnRate(
-        { kind: "weekly", usedPercent: 50, resetsAt: resetIn(6 * 24 * HOUR) },
+        {
+          kind: "weekly",
+          observedAt: NOW,
+          usedPercent: 50,
+          resetsAt: resetIn(6 * 24 * HOUR),
+        },
         NOW,
       ),
     ).toEqual({ percentPerHour: 50 / 24, runsOutInMs: 24 * HOUR });
   });
 
-  it("reports an exhausted window as already out", () => {
+  it("withholds the rate for an exhausted window", () => {
     expect(
       usageBurnRate(
-        { kind: "five-hour", usedPercent: 104, resetsAt: resetIn(HOUR) },
+        {
+          kind: "five-hour",
+          observedAt: NOW,
+          usedPercent: 104,
+          resetsAt: resetIn(HOUR),
+        },
         NOW,
       ),
-    ).toEqual({ percentPerHour: 26, runsOutInMs: 0 });
+    ).toBeNull();
   });
+
+  it("withholds the rate when the provider refused usage below 100%", () => {
+    expect(
+      usageBurnRate(
+        {
+          kind: "five-hour",
+          observedAt: NOW,
+          usedPercent: 91,
+          resetsAt: resetIn(HOUR),
+          limitReached: true,
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("anchors the average and run-out to the observation instead of the clock tick", () => {
+    const reading = {
+      kind: "five-hour" as const,
+      usedPercent: 50,
+      resetsAt: resetIn(4 * HOUR),
+      observedAt: NOW,
+    };
+    expect(usageBurnRate(reading, NOW + HOUR / 2)).toEqual({
+      percentPerHour: 50,
+      runsOutInMs: HOUR / 2,
+    });
+  });
+
+  it.each([
+    ["stale observation", NOW - HOUR - 1, resetIn(2 * HOUR), 30],
+    ["expired reset", NOW - HOUR / 2, resetIn(0), 30],
+    [
+      "observation from before the cycle",
+      NOW - HOUR / 2,
+      resetIn(4.75 * HOUR),
+      30,
+    ],
+    ["missing timestamp", undefined, resetIn(2 * HOUR), 30],
+    ["one point of usage", NOW, resetIn(2 * HOUR), 1],
+  ] as const)(
+    "withholds an estimate for %s",
+    (_reason, observedAt, resetsAt, usedPercent) => {
+      expect(
+        usageBurnRate(
+          { kind: "five-hour", observedAt, resetsAt, usedPercent },
+          NOW,
+        ),
+      ).toBeNull();
+    },
+  );
 
   it("needs a known window length, a reset time and some elapsed time", () => {
     expect(
@@ -59,6 +125,7 @@ describe("usageBurnRate", () => {
       usageBurnRate(
         {
           kind: "five-hour",
+          observedAt: NOW,
           usedPercent: 3,
           resetsAt: resetIn(5 * HOUR - 5 * 60_000),
         },
@@ -77,22 +144,24 @@ describe("usageBurnRate", () => {
 describe("describeUsageBurn", () => {
   it("says how fast the window burns and whether it lasts to the reset", () => {
     expect(describeUsageBurn({ percentPerHour: 15, runsOutInMs: null })).toBe(
-      "Burning 15%/hr · lasts until reset",
+      "Cycle average 15%/hr from one reading · projected to last until reset",
     );
     expect(
       describeUsageBurn({
         percentPerHour: 50 / 24,
         runsOutInMs: 25 * HOUR + 10 * 60_000,
       }),
-    ).toBe("Burning 2.1%/hr · runs out in 1d 1h");
+    ).toBe(
+      "Cycle average 2.1%/hr from one reading · projected to run out in 1d 1h",
+    );
     expect(describeUsageBurn({ percentPerHour: 0, runsOutInMs: null })).toBe(
-      "No usage yet this window",
+      "No usage reported in the last reading",
     );
     expect(describeUsageBurn({ percentPerHour: 0.04, runsOutInMs: null })).toBe(
-      "Burning <0.1%/hr · lasts until reset",
+      "Cycle average <0.1%/hr from one reading · projected to last until reset",
     );
     expect(describeUsageBurn({ percentPerHour: 26, runsOutInMs: 0 })).toBe(
-      "Burning 26%/hr · limit reached",
+      "Cycle average 26%/hr from one reading · projected limit time has passed",
     );
   });
 });
@@ -151,7 +220,7 @@ describe("sortAccountsByExhaustion", () => {
       name,
       usage: {
         status: "ok",
-        windows: [{ kind, usedPercent, resetsAt }],
+        windows: [{ kind, usedPercent, resetsAt, observedAt: NOW }],
       },
     };
   }

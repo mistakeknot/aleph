@@ -59,35 +59,74 @@ const WINDOW_DURATION_MS = {
   weekly: 7 * 24 * HOUR_MS,
 } as const;
 const MIN_ELAPSED_FOR_BURN_MS = 10 * 60_000;
+const MAX_OBSERVATION_AGE_MS = HOUR_MS;
 
 export interface UsageBurn {
   percentPerHour: number;
   runsOutInMs: number | null;
 }
 
+interface ForecastWindow {
+  kind?: "five-hour" | "daily" | "weekly" | "custom";
+  usedPercent: number;
+  resetsAt: string | null;
+  observedAt?: number;
+  limitReached?: boolean;
+}
+
+function hasReset(window: ForecastWindow, now: number): boolean {
+  return window.resetsAt !== null && Date.parse(window.resetsAt) <= now;
+}
+
+function usageLimitReached(window: ForecastWindow, now: number): boolean {
+  return (
+    !hasReset(window, now) &&
+    (window.limitReached === true || window.usedPercent >= 100)
+  );
+}
+
 export function usageBurnRate(
-  window: {
-    kind?: "five-hour" | "daily" | "weekly" | "custom";
-    usedPercent: number;
-    resetsAt: string | null;
-  },
+  window: ForecastWindow,
   now: number,
 ): UsageBurn | null {
-  if (window.kind === undefined || window.kind === "custom") return null;
-  if (window.resetsAt === null) return null;
-  const durationMs = WINDOW_DURATION_MS[window.kind];
-  const remainingMs = new Date(window.resetsAt).getTime() - now;
-  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
-  const elapsedMs = durationMs - remainingMs;
-  if (elapsedMs < MIN_ELAPSED_FOR_BURN_MS) return null;
-  const percentPerHour = window.usedPercent / (elapsedMs / HOUR_MS);
-  if (window.usedPercent >= 100) return { percentPerHour, runsOutInMs: 0 };
+  const { kind, observedAt, resetsAt, usedPercent } = window;
+  if (kind === undefined || kind === "custom" || resetsAt === null) return null;
+  if (usageLimitReached(window, now) || hasReset(window, now)) return null;
+  if (observedAt === undefined || now - observedAt > MAX_OBSERVATION_AGE_MS)
+    return null;
+  const resetAt = Date.parse(resetsAt);
+  const elapsedMs = WINDOW_DURATION_MS[kind] - (resetAt - observedAt);
+  if (!Number.isFinite(elapsedMs) || elapsedMs < MIN_ELAPSED_FOR_BURN_MS)
+    return null;
+  if (usedPercent > 0 && usedPercent < 2) return null;
+  const percentPerHour = usedPercent / (elapsedMs / HOUR_MS);
   if (percentPerHour <= 0) return { percentPerHour, runsOutInMs: null };
-  const runsOutInMs = ((100 - window.usedPercent) / percentPerHour) * HOUR_MS;
+  const runOutAt =
+    observedAt + ((100 - usedPercent) / percentPerHour) * HOUR_MS;
   return {
     percentPerHour,
-    runsOutInMs: runsOutInMs < remainingMs ? runsOutInMs : null,
+    runsOutInMs: runOutAt < resetAt ? runOutAt - now : null,
   };
+}
+
+export function describeUnavailableUsageBurn(
+  window: ForecastWindow,
+  now: number,
+): string | null {
+  if (hasReset(window, now)) return "Awaiting a reading after reset";
+  if (usageLimitReached(window, now)) return "Last reading reached the limit";
+  if (
+    window.kind === undefined ||
+    window.kind === "custom" ||
+    window.resetsAt === null
+  )
+    return null;
+  if (
+    window.observedAt !== undefined &&
+    now - window.observedAt > MAX_OBSERVATION_AGE_MS
+  )
+    return "Reading is too old to estimate";
+  return "Insufficient quota data to estimate";
 }
 
 export function formatUsageBurnRate(percentPerHour: number): string {
@@ -98,12 +137,12 @@ export function formatUsageBurnRate(percentPerHour: number): string {
 }
 
 export function usageProjectedPercent(
-  window: { usedPercent: number; resetsAt: string | null },
+  window: ForecastWindow,
   burn: UsageBurn,
   now: number,
 ): number | null {
   if (window.resetsAt === null) return null;
-  const remainingMs = new Date(window.resetsAt).getTime() - now;
+  const remainingMs = Date.parse(window.resetsAt) - (window.observedAt ?? now);
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
   return Math.min(
     100,
@@ -112,25 +151,22 @@ export function usageProjectedPercent(
 }
 
 export function describeUsageBurn(burn: UsageBurn): string {
-  if (burn.percentPerHour <= 0) return "No usage yet this window";
+  if (burn.percentPerHour <= 0) return "No usage reported in the last reading";
   const rate = formatUsageBurnRate(burn.percentPerHour);
   const outlook =
     burn.runsOutInMs === null
-      ? "lasts until reset"
+      ? "projected to last until reset"
       : burn.runsOutInMs <= 0
-        ? "limit reached"
-        : `runs out in ${formatUsageDuration(burn.runsOutInMs)}`;
-  return `Burning ${rate}%/hr · ${outlook}`;
+        ? "projected limit time has passed"
+        : `projected to run out in ${formatUsageDuration(burn.runsOutInMs)}`;
+  return `Cycle average ${rate}%/hr from one reading · ${outlook}`;
 }
 
 interface ExhaustionSortable {
+  refreshFailure?: string;
   usage: {
     status: string;
-    windows?: readonly {
-      kind?: "five-hour" | "daily" | "weekly" | "custom";
-      usedPercent: number;
-      resetsAt: string | null;
-    }[];
+    windows?: readonly ForecastWindow[];
   } | null;
 }
 
@@ -141,12 +177,15 @@ function exhaustionKey(
   let runsOutInMs = Number.POSITIVE_INFINITY;
   let remainingPercent = 100;
   const windows =
-    account.usage?.status === "ok" ? (account.usage.windows ?? []) : [];
+    account.refreshFailure === undefined && account.usage?.status === "ok"
+      ? (account.usage.windows ?? [])
+      : [];
   for (const window of windows) {
     const burn = usageBurnRate(window, now);
-    if (window.usedPercent >= 100) runsOutInMs = 0;
+    if (hasReset(window, now)) continue;
+    if (usageLimitReached(window, now)) runsOutInMs = 0;
     else if (burn?.runsOutInMs != null)
-      runsOutInMs = Math.min(runsOutInMs, burn.runsOutInMs);
+      runsOutInMs = Math.min(runsOutInMs, Math.max(0, burn.runsOutInMs));
     remainingPercent = Math.min(remainingPercent, 100 - window.usedPercent);
   }
   return { runsOutInMs, remainingPercent };

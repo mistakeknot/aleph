@@ -116,6 +116,8 @@ export function registerUsageSource(bb: BbPluginApi, hub: AccountPoolHub) {
             utilization: number | null,
             reset: number | null,
             model: string | null,
+            observedAt: number,
+            status: string | null,
           ) => {
             if (utilization === null) return;
             windows.push({
@@ -132,6 +134,8 @@ export function registerUsageSource(bb: BbPluginApi, hub: AccountPoolHub) {
               usedPercent: Math.round(utilization * 100),
               resetsAt: reset === null ? null : new Date(reset).toISOString(),
               model,
+              observedAt,
+              limitReached: status?.toLowerCase() === "rejected",
               cost: null,
             });
           };
@@ -142,6 +146,8 @@ export function registerUsageSource(bb: BbPluginApi, hub: AccountPoolHub) {
               window.utilization,
               window.resetAt,
               null,
+              window.observedAt,
+              window.status,
             );
           }
           for (const [family, window] of Object.entries(account.familyWeekly)) {
@@ -152,6 +158,8 @@ export function registerUsageSource(bb: BbPluginApi, hub: AccountPoolHub) {
                 window.utilization,
                 window.resetAt,
                 family,
+                window.observedAt,
+                window.status,
               );
           }
           const plan = usagePlan(account);
