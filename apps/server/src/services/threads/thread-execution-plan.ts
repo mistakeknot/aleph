@@ -1,4 +1,9 @@
-import { getAppSettings, getQueuedThreadStartMessage, getThread } from "@bb/db";
+import {
+  getAppSettings,
+  getQueuedThreadStartMessage,
+  getThread,
+  getThreadPromptCacheTtl,
+} from "@bb/db";
 import {
   DEFAULT_SERVICE_TIER,
   isStandardReasoningLevel,
@@ -36,6 +41,7 @@ interface ExecutionPlanFieldInput<TValue> {
 }
 
 interface ExistingThreadExecutionInput {
+  promptCacheTtl?: "5m" | "1h";
   model?: ExecutionPlanFieldInput<string>;
   permissionMode?: ExecutionPlanFieldInput<PermissionMode>;
   reasoningLevel?: ExecutionPlanFieldInput<ReasoningLevel>;
@@ -43,6 +49,7 @@ interface ExistingThreadExecutionInput {
 }
 
 export interface ExistingThreadExecutionInputRequest {
+  execution?: { promptCacheTtl?: "5m" | "1h" };
   model?: string;
   permissionMode?: PermissionMode;
   reasoningLevel?: ReasoningLevel;
@@ -178,6 +185,7 @@ function isProviderCapabilityValidationError(
 
 function hasExecutionInput(input: ExistingThreadExecutionInput): boolean {
   return (
+    input.promptCacheTtl !== undefined ||
     input.model !== undefined ||
     input.permissionMode !== undefined ||
     input.reasoningLevel !== undefined ||
@@ -227,6 +235,9 @@ export function buildExistingThreadExecutionInput(
   );
   return {
     ...(model ? { model } : {}),
+    ...(request.execution?.promptCacheTtl === undefined
+      ? {}
+      : { promptCacheTtl: request.execution.promptCacheTtl }),
     ...(serviceTier ? { serviceTier } : {}),
     ...(reasoningLevel ? { reasoningLevel } : {}),
     ...(permissionMode ? { permissionMode } : {}),
@@ -358,6 +369,8 @@ export async function resolveExistingThreadExecutionPlan(
     : DEFAULT_SERVICE_TIER;
 
   const resolvedExecution = {
+    promptCacheTtl:
+      args.input.promptCacheTtl ?? getThreadPromptCacheTtl(deps.db, thread.id),
     model,
     permissionMode,
     reasoningLevel,

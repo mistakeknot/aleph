@@ -333,6 +333,7 @@ function upsertThreadTitleSearchSegments(
 }
 
 export interface CreateThreadInput {
+  promptCacheTtl?: "5m" | "1h";
   projectId: string;
   environmentId?: string | null;
   providerId: string;
@@ -394,6 +395,7 @@ export function createThread(
           projectId: input.projectId,
           environmentId: input.environmentId ?? null,
           providerId: input.providerId,
+          promptCacheTtl: input.promptCacheTtl ?? null,
           title: input.title ?? null,
           titleFallback: input.titleFallback ?? null,
           sectionId: input.sectionId ?? null,
@@ -698,7 +700,8 @@ function resolvePinnedThreadNeighbor(
   );
 }
 
-export interface ThreadWithPendingInteractionState extends ThreadRow {
+export interface ThreadWithPendingInteractionState
+  extends Omit<ThreadRow, "promptCacheTtl"> {
   environmentBranchName: string | null;
   environmentHostId: string | null;
   environmentIsWorktree: boolean | null;
@@ -828,6 +831,7 @@ function toThreadWithPendingInteractionState(
   row: ThreadWithPendingInteractionStateRow,
 ): ThreadWithPendingInteractionState {
   const {
+    promptCacheTtl: _promptCacheTtl,
     environmentBranchName,
     environmentHostId,
     environmentIsWorktree,

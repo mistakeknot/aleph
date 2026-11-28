@@ -4,6 +4,7 @@ import {
   hasStoredSpawnAgentToolCall,
   liveThread,
   threads,
+  setThreadPromptCacheTtl,
 } from "@bb/db";
 import { and, eq } from "drizzle-orm";
 import {
@@ -222,6 +223,9 @@ function toRuntimeExecutionOptions(
       projectId: args.projectId,
       model: args.execution.model,
       permissionMode,
+      ...(args.execution.promptCacheTtl === undefined
+        ? {}
+        : { promptCacheTtl: args.execution.promptCacheTtl }),
       ...(promptMode !== undefined ? { promptMode } : {}),
     }) ?? {};
   const sessionOptions = resolvePendingThreadSessionOptions(
@@ -302,6 +306,13 @@ export async function buildExecutionOptions(
     input: buildExistingThreadExecutionInput(request),
     threadId: args.threadId,
   });
+  if (request.execution?.promptCacheTtl !== undefined) {
+    setThreadPromptCacheTtl(
+      deps.db,
+      args.threadId,
+      request.execution.promptCacheTtl,
+    );
+  }
   return plan.resolvedExecution;
 }
 
@@ -458,12 +469,7 @@ function threadHasLiveChildren(
   const row = deps.db
     .select({ id: threads.id })
     .from(threads)
-    .where(
-      and(
-        eq(threads.parentThreadId, threadId),
-        liveThread,
-      ),
-    )
+    .where(and(eq(threads.parentThreadId, threadId), liveThread))
     .limit(1)
     .get();
   return row !== undefined;

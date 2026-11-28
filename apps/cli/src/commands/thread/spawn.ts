@@ -4,6 +4,7 @@ import {
   jsonValueSchema,
   PERSONAL_PROJECT_ID,
   threadVisibilitySchema,
+  promptCacheTtlSchema,
   type EnvironmentMachineSelection,
   type Thread,
   type ThreadParentNotifications,
@@ -66,6 +67,7 @@ interface ThreadSpawnCommandOptions {
   title?: string;
   lifecycleOwnerThread?: string;
   serviceTier?: string;
+  promptCacheTtl?: string;
   option?: string[];
   permissionMode?: string;
   plan?: boolean;
@@ -387,6 +389,10 @@ export function registerSpawnCommand(
     .option("--title <title>", "Thread title")
     .option("--service-tier <tier>", SERVICE_TIER_HELP)
     .option(
+      "--prompt-cache-ttl <ttl>",
+      "Claude Code prompt cache TTL: 5m or 1h (other providers ignore it)",
+    )
+    .option(
       "--option <option=value>",
       "Choose a value for an option the provider's model lists (see bb provider models); use true or false for an on/off option (repeatable)",
       (value: string, previous: string[] = []) => [...previous, value],
@@ -564,6 +570,10 @@ export function registerSpawnCommand(
             });
         const reasoningLevel = parseReasoningLevel(opts.reasoningLevel);
         const serviceTier = parseServiceTier(opts.serviceTier);
+        const promptCacheTtl =
+          opts.promptCacheTtl === undefined
+            ? undefined
+            : promptCacheTtlSchema.parse(opts.promptCacheTtl);
         const sessionOptions = parseSpawnSessionOptions(opts.option ?? []);
         const permissionMode = parsePermissionMode(opts.permissionMode);
         const visibility =
@@ -617,6 +627,9 @@ export function registerSpawnCommand(
             ...(reasoningLevel ? { reasoningLevel } : {}),
             ...(opts.title ? { title: opts.title } : {}),
             ...(serviceTier ? { serviceTier } : {}),
+            ...(promptCacheTtl === undefined
+              ? {}
+              : { execution: { promptCacheTtl } }),
             ...(Object.keys(sessionOptions).length > 0
               ? { sessionOptions }
               : {}),

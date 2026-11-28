@@ -1,4 +1,4 @@
-import { getEnvironment, getThread } from "@bb/db";
+import { getEnvironment, getThread, getThreadPromptCacheTtl } from "@bb/db";
 import type { EnvironmentRow } from "@bb/db";
 import type { PromptInput, Thread } from "@bb/domain";
 import type { ForkThreadRequest } from "@bb/server-contract";
@@ -84,6 +84,11 @@ export async function createThreadForkFromRequest(
       wakeCause: request.wakeCause,
       wakeRef: request.wakeRef,
       origin: request.origin,
+      execution: {
+        promptCacheTtl:
+          request.execution?.promptCacheTtl ??
+          getThreadPromptCacheTtl(deps.db, sourceThread.id),
+      },
       ...(request.originPluginId === undefined
         ? {}
         : { originPluginId: request.originPluginId }),

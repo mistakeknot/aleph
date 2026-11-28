@@ -1488,6 +1488,14 @@ skills.
 
 ### Claude Code provider
 
+Prompt cache duration is a per-thread execution option. Pass
+`--prompt-cache-ttl 5m` or `--prompt-cache-ttl 1h` to `bb thread spawn`.
+API and SDK callers use `execution: { promptCacheTtl: "1h" }` on thread
+creation, start/send, or fork. Invalid values are rejected. The option persists
+across resume and fork; a fork can explicitly override it. Omitting it on a new
+thread leaves Claude Code's default in effect. Other providers ignore this
+option. It does not change plugin settings or host defaults.
+
 | Setting                      | Default | Effect                                                                                                                                                                                                                                                                |
 | ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `subagentsDisabled`          | `false` | Removes native Agent, Task, and ListAgents tools from the model context. Changes restart Claude before the next turn, preserving the conversation.                                                                                                                    |

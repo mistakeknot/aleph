@@ -15,6 +15,7 @@ import {
   type ThreadQueuedMessage,
   type ThreadStatus,
   validatePluginMetadata,
+  threadCacheExecutionSchema,
 } from "@bb/domain";
 import {
   DEFAULT_TURN_RETRY_REASON,
@@ -906,6 +907,9 @@ function updateJson(args: ThreadUpdateArgs): UpdateThreadRequest {
 
 function sendJson(args: ThreadSendArgs): SendMessageRequest {
   return {
+    ...(args.execution === undefined
+      ? {}
+      : { execution: threadCacheExecutionSchema.parse(args.execution) }),
     input: args.input,
     mode: args.mode,
     model: args.model,
@@ -963,6 +967,9 @@ function spawnJson(args: ThreadSpawnArgs): CreateThreadRequest {
   } = args;
   return {
     ...request,
+    ...(args.execution === undefined
+      ? {}
+      : { execution: threadCacheExecutionSchema.parse(args.execution) }),
     ...(args.pluginMetadata === undefined
       ? {}
       : { pluginMetadata: validatePluginMetadata(args.pluginMetadata) }),
@@ -976,6 +983,9 @@ function spawnJson(args: ThreadSpawnArgs): CreateThreadRequest {
 function forkJson(args: ThreadForkArgs): ForkThreadRequest {
   return {
     ...args,
+    ...(args.execution === undefined
+      ? {}
+      : { execution: threadCacheExecutionSchema.parse(args.execution) }),
     ...(args.pluginMetadata === undefined
       ? {}
       : { pluginMetadata: validatePluginMetadata(args.pluginMetadata) }),

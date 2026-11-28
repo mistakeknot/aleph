@@ -36,9 +36,7 @@ describe("queue wake attribution", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
       steps: { id: string }[];
     };
-    manifest.steps = manifest.steps.filter(
-      (step) => step.id !== "A0015" && step.id !== "A0016",
-    );
+    manifest.steps = manifest.steps.filter((step) => step.id < "A0015");
     writeFileSync(manifestPath, JSON.stringify(manifest));
     const db = createConnection(":memory:");
     try {
@@ -47,11 +45,12 @@ describe("queue wake attribution", () => {
       db.$client.exec(
         "DELETE FROM __bb_migration_ledger WHERE namespace = 'upstream' AND tag = '0157_thread_run_state'; DELETE FROM __drizzle_migrations WHERE created_at = 1794642257433;",
       );
-      const thread = createThread(db, noopNotifier, {
-        projectId: PERSONAL_PROJECT_ID,
-        providerId: "test",
-        status: "idle",
-      });
+      const thread = { id: "wake-before-upgrade" };
+      db.$client
+        .prepare(
+          "INSERT INTO threads (id, project_id, provider_id, status, latest_attention_at, created_at, updated_at) VALUES (?, ?, 'test', 'idle', 1, 1, 1)",
+        )
+        .run(thread.id, PERSONAL_PROJECT_ID);
       for (const [id, state, payload, coalesce] of [
         ["inline", "queued", "inline", null],
         ["scheduled-retry", "scheduled", "retry", null],
