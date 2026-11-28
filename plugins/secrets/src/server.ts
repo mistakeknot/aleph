@@ -3,6 +3,7 @@ import {
   PluginCliError,
   cliCommand,
   defineCli,
+  defineRpcContract,
   type BbPluginApi,
   type PluginCliContext,
   type PluginCliResult,
@@ -58,6 +59,15 @@ const commitResultSchema = z.discriminatedUnion("outcome", [
   refusedSchema,
 ]);
 
+type FormChecks = Map<string, () => Promise<string | null>>;
+
+export const secretDestinationRpc = defineRpcContract({
+  validateDestination: {
+    input: z.object({ requestId: z.string().uuid() }).strict(),
+    output: z.object({ error: z.string().nullable() }).strict(),
+  },
+});
+
 function clampToLength(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
@@ -99,6 +109,7 @@ export async function runRequest(
   parsed: ParsedRequest,
   ctx: PluginCliContext,
   now: () => number = Date.now,
+  formChecks?: FormChecks,
 ): Promise<PluginCliResult> {
   if (!ctx.threadId)
     cliError("bb secret request must run from a bb thread.", "missing_thread");
@@ -166,6 +177,20 @@ export async function runRequest(
   };
 
   let result: Awaited<ReturnType<typeof bb.ui.requestInput>>;
+  formChecks?.set(requestId, async () => {
+    const checked = await bb.sdk.files
+      .secretProbe({
+        ...binding,
+        expectedDestination: {
+          parent: probe.parent,
+          allowlistEntrySha256: probe.allowlistEntrySha256,
+        },
+      })
+      .catch(() => null);
+    if (checked?.outcome === "validated") return null;
+    if (checked?.outcome === "refused") return checked.message;
+    return "The destination could not be verified.";
+  });
   try {
     result = await bb.ui.requestInput(
       {
@@ -210,6 +235,8 @@ export async function runRequest(
     );
   } catch (error) {
     throw sanitizeError(error, "waiting for the secure form");
+  } finally {
+    formChecks?.delete(requestId);
   }
   if (result.outcome === "cancelled") {
     cliError(
@@ -272,6 +299,15 @@ export async function runRequest(
 }
 
 export default function plugin(bb: BbPluginApi) {
+  const formChecks: FormChecks = new Map();
+  bb.rpc.register(secretDestinationRpc, {
+    async validateDestination({ requestId }) {
+      const check = formChecks.get(requestId);
+      if (!check) return { error: "The secret request is no longer active." };
+      return { error: await check() };
+    },
+  });
+
   const cli = defineCli({
     name: "secret",
     summary: "Securely request credentials and write them to a dotenv file.",
@@ -336,7 +372,7 @@ export default function plugin(bb: BbPluginApi) {
             writeEnv: input.options["write-env"],
           });
           try {
-            return await runRequest(bb, parsed, ctx);
+            return await runRequest(bb, parsed, ctx, Date.now, formChecks);
           } catch (error) {
             throw sanitizeError(error, "running the request");
           }

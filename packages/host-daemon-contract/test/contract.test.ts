@@ -621,6 +621,8 @@ function terminalDataBase64(byteLength: number): string {
 }
 
 const INTENTIONAL_OPTIONAL_HOST_DAEMON_FIELDS: Record<string, string> = {
+  "hostDaemonOnlineRpcCommandSchema.expectedDestination":
+    "The creation probe has no approved folder yet. A form-open probe supplies the recorded folder identity and allowlist hash for validation.",
   "hostDaemonCommandSchema.resolution.description":
     "the interaction.resolve command's resolution is the persisted union, so it also admits the plugin_submitted arm and the description a plugin's describeSubmission returned. It never reaches the wire: a plugin interaction is settled in the server against its waiting requestInput promise and never queues a daemon command, so an older daemon never sees the field.",
   "hostDaemonCommandSchema.resolution.description.detail":
@@ -1079,7 +1081,7 @@ describe("host-daemon command schemas", () => {
   });
 
   it("uses the current host-daemon protocol version", () => {
-    expect(HOST_DAEMON_PROTOCOL_VERSION).toBe(270);
+    expect(HOST_DAEMON_PROTOCOL_VERSION).toBe(271);
     expect(HOST_ARTIFACT_MAX_BYTES).toBe(256 * 1024 * 1024);
   });
 
@@ -1109,7 +1111,8 @@ describe("host-daemon command schemas", () => {
     expect(contract.isCompatibleHostDaemonProtocolVersion(267)).toBe(false);
     expect(contract.isCompatibleHostDaemonProtocolVersion(268)).toBe(false);
     expect(contract.isCompatibleHostDaemonProtocolVersion(269)).toBe(false);
-    expect(contract.isCompatibleHostDaemonProtocolVersion(270)).toBe(true);
+    expect(contract.isCompatibleHostDaemonProtocolVersion(270)).toBe(false);
+    expect(contract.isCompatibleHostDaemonProtocolVersion(271)).toBe(true);
     expect(contract.hostDaemonSupportsConnectNext(246)).toBe(false);
     expect(contract.hostDaemonSupportsConnectNext(247)).toBe(true);
     expect(contract.hostDaemonSupportsDesktopBrokerProof(247)).toBe(false);

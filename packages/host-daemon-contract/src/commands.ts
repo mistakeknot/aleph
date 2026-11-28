@@ -548,6 +548,13 @@ const hostSecretProbeCommandSchema = z
   .object({
     type: z.literal("host.secret_probe"),
     ...secretRequestBindingShape,
+    expectedDestination: z
+      .object({
+        parent: secretFileIdentitySchema,
+        allowlistEntrySha256: z.string().regex(SHA256_HEX_PATTERN),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -582,6 +589,8 @@ const SECRET_REFUSAL_REASONS = [
   "symlink-in-path",
   "parent-missing",
   "parent-ownership",
+  "parent-mount-point",
+  "parent-git-repository",
   "file-ownership",
   "unreconcilable-file",
   "digest-mismatch",
@@ -612,6 +621,7 @@ const secretProbeResultSchema = z.discriminatedUnion("outcome", [
       requestDigest: z.string().regex(SHA256_HEX_PATTERN),
     })
     .strict(),
+  z.object({ outcome: z.literal("validated") }).strict(),
   secretRefusedResultSchema,
 ]);
 

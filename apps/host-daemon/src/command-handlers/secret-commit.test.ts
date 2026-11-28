@@ -111,7 +111,7 @@ async function probeReady(overrides: Partial<Probe> = {}) {
   const command = probeCommand(overrides);
   const result = await probeSecretDestination(command, fixture.config);
   if (result.outcome !== "ready") {
-    throw new Error(`probe refused: ${result.reason}`);
+    throw new Error(`Unexpected probe result: ${result.outcome}`);
   }
   return { command, probe: result };
 }
@@ -459,7 +459,7 @@ describe("probe (T1.2 request-time refusals)", () => {
         }),
         fixture.config,
       );
-      if (result.outcome !== "ready") throw new Error(result.reason);
+      if (result.outcome !== "ready") throw new Error(result.outcome);
       return result.requestDigest;
     };
     expect(await digestFor("first")).not.toBe(await digestFor("second"));
@@ -984,7 +984,7 @@ describe("commit-time substitutions (T1.2)", () => {
 
   it("reports committed-elsewhere when the parent is renamed after the fd was held", async () => {
     const result = await runWithHook({
-      "parent-open": async () => {
+      "tmp-written": async () => {
         await fs.rename(fixture.project, `${fixture.project}.moved`);
         await fs.mkdir(fixture.project, { mode: 0o700 });
         await fs.chmod(fixture.project, 0o700);
@@ -999,7 +999,7 @@ describe("commit-time substitutions (T1.2)", () => {
 
   it("reports committed-elsewhere when the parent path becomes a symlink", async () => {
     const result = await runWithHook({
-      "parent-open": async () => {
+      "tmp-written": async () => {
         await fs.rename(fixture.project, `${fixture.project}.moved`);
         await fs.symlink(`${fixture.project}.moved`, fixture.project);
       },

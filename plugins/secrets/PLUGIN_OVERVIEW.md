@@ -16,7 +16,7 @@ The agent runs one command from inside a thread:
 bb secret request OPENAI_API_KEY --project demo --purpose "Configure the server" --describe OPENAI_API_KEY "OpenAI key" --write-env .env.local
 ```
 
-The request is checked on the host before the form opens: the project, the resolved path, and every variable name must match one entry of the host's allowlist at `/etc/home-secrets/allowlist.json`. That file must be owned by root and not writable by group or others. Agents cannot add entries; you edit it from a root shell. A request that does not match is refused with a fixed message and no form is shown.
+At request creation, the host records the destination folder's device and inode. It checks the folder again before showing secret fields and immediately before writing. The project, path, and variable names must match one entry of the host's root-owned, write-protected allowlist at `/etc/home-secrets/allowlist.json`. The folder must have the recorded identity, be owned by the writing user with mode 0700, have a symlink-free path, and be neither a mount point nor inside a Git repository. If a check fails, bb refuses the request before writing any secret values.
 
 The form shows the purpose, the destination path, and one field per name. Submit to write the file, or cancel to stop the command. Each value must be a single non-empty line of at most 16 KiB. The values go to the host in one commit step that re-checks the request, the allowlist entry, and the destination directory and file identity before and after the write. If the destination moved or was replaced while writing, the command exits 1 and says so; nothing is rolled back.
 
