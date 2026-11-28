@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import {
   definePluginApp,
+  useRpc,
   type PluginPendingInteractionProps,
 } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import {
   secretRequestResponseSchema,
 } from "./src/secret-request.js";
 import { reconcileDotenv } from "./src/dotenv.js";
+import type { secretDestinationRpc } from "./src/server.js";
 
 function SecretRequestInteraction({
   interaction,
@@ -33,12 +35,36 @@ function SecretRequestInteraction({
   >(null);
   const busy = pendingAction !== null;
   const [formError, setFormError] = useState<string | null>(null);
+  const rpc = useRpc<typeof secretDestinationRpc>();
+  const requestId = parsed.success ? parsed.data.requestId : null;
+  const [destinationError, setDestinationError] = useState<string | null>();
 
-  if (!parsed.success) {
+  useLayoutEffect(() => {
+    if (!requestId) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- Hide the fields before paint when the form reopens.
+    setDestinationError(undefined);
+    let active = true;
+    void rpc.call("validateDestination", { requestId }).then(
+      ({ error }) => {
+        if (active) setDestinationError(error);
+      },
+      () => {
+        if (active)
+          setDestinationError("The destination could not be verified.");
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [requestId, rpc]);
+
+  if (!parsed.success || destinationError !== null) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          This secret request is invalid.
+        <p className="text-sm text-muted-foreground" role="status">
+          {parsed.success
+            ? (destinationError ?? "Checking the destination…")
+            : "This secret request is invalid."}
         </p>
         <Button
           variant="outline"

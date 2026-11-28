@@ -24,7 +24,7 @@ function readyProbe(overrides: Record<string, unknown> = {}) {
 
 function makeHost(
   options: {
-    probe?: () => unknown;
+    probe?: (args: Record<string, unknown>) => unknown;
     commit?: (args: Record<string, unknown>) => unknown;
   } = {},
 ) {
@@ -37,8 +37,8 @@ function makeHost(
         },
       },
       files: {
-        async secretProbe() {
-          return (options.probe ?? (() => readyProbe()))();
+        async secretProbe(args: Record<string, unknown>) {
+          return (options.probe ?? (() => readyProbe()))(args);
         },
         async secretCommit(args: Record<string, unknown>) {
           return (
@@ -74,6 +74,41 @@ const BASE = [
 const CTX = { threadId: "thr-test", cwd: "/home/u/proj" };
 
 describe("secrets plugin server", () => {
+  it("rechecks the original binding on form open and returns the host refusal", async () => {
+    const message = "The destination changed since it was checked.";
+    const host = makeHost({
+      probe: (args) =>
+        "expectedDestination" in args
+          ? { outcome: "refused", reason: "identity-changed", message }
+          : readyProbe(),
+    });
+    register(host);
+    const command = host.harness.runCli(BASE, CTX);
+    await vi.waitFor(() =>
+      expect(host.harness.pendingInteractions).toHaveLength(1),
+    );
+    const pending = host.harness.pendingInteractions[0]!;
+    try {
+      const requestId = (pending.payload as { requestId: string }).requestId;
+      expect(
+        await host.harness.callRpc("validateDestination", { requestId }),
+      ).toEqual({ error: message });
+      const probes = host.harness.sdk.callsTo("files.secretProbe");
+      expect(probes).toHaveLength(2);
+      expect(probes[1]?.[0]).toEqual({
+        ...(probes[0]?.[0] as object),
+        expectedDestination: {
+          parent: { dev: "1", ino: "2" },
+          allowlistEntrySha256: ENTRY_SHA,
+        },
+      });
+      expect(host.harness.sdk.callsTo("files.secretCommit")).toEqual([]);
+    } finally {
+      host.harness.cancelInteraction(pending.id);
+      await command;
+    }
+  });
+
   it("probes, asks, then commits on the host and never reads or writes the file", async () => {
     const host = makeHost();
     register(host);

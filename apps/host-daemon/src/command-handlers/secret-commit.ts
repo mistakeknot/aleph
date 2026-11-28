@@ -56,6 +56,9 @@ export const SECRET_REFUSAL_MESSAGES = {
   "parent-missing": "The destination directory does not exist.",
   "parent-ownership":
     "The destination directory must be owned by the writing user with mode 0700.",
+  "parent-mount-point": "The destination directory cannot be a mount point.",
+  "parent-git-repository":
+    "The destination directory cannot be in a Git repository.",
   "file-ownership":
     "The destination file must be a regular file owned by the writing user with mode 0600.",
   "unreconcilable-file":
@@ -330,12 +333,64 @@ function sameIdentity(a: Identity | null, b: Identity | null): boolean {
 }
 
 async function assertParentTrusted(
-  parent: FileHandle,
+  chain: Awaited<ReturnType<typeof openDirectoryChain>>,
   config: SecretWriterConfig,
 ): Promise<void> {
-  const stat = await parent.stat();
-  if (stat.uid !== config.trustedUid || (stat.mode & 0o777) !== 0o700) {
+  const stat = await chain.parent.stat();
+  if (stat.uid !== config.trustedUid || (stat.mode & 0o7777) !== 0o700) {
     throw new SecretRefusal("parent-ownership");
+  }
+  const containingDirectory = chain.all.at(-2)!;
+  const [mount, containingMount] = await Promise.all([
+    mountId(chain.parent),
+    mountId(containingDirectory),
+  ]);
+  if (mount !== containingMount) throw new SecretRefusal("parent-mount-point");
+
+  for (const directory of chain.all) {
+    if (
+      (await hasWorktreeMarker(directory)) ||
+      (await hasGitLayout(directory))
+    ) {
+      throw new SecretRefusal("parent-git-repository");
+    }
+  }
+}
+
+async function mountId(directory: FileHandle): Promise<string> {
+  const info = await fs.readFile(`/proc/self/fdinfo/${directory.fd}`, "utf8");
+  const mount = /^mnt_id:[ \t]+(\d+)$/mu.exec(info)?.[1];
+  if (mount === undefined)
+    throw new Error("Directory mount ID is unavailable.");
+  return mount;
+}
+
+async function inspectEntry(directory: FileHandle, name: string) {
+  try {
+    return await fs.lstat(fdPath(directory, name));
+  } catch (error) {
+    if (isFsErrorWithCode(error, "ENOENT")) return null;
+    throw error;
+  }
+}
+
+async function hasGitLayout(directory: FileHandle): Promise<boolean> {
+  return Boolean(
+    (await inspectEntry(directory, "HEAD")) &&
+    (await inspectEntry(directory, "objects")) &&
+    (await inspectEntry(directory, "refs")),
+  );
+}
+
+async function hasWorktreeMarker(directory: FileHandle): Promise<boolean> {
+  const marker = await inspectEntry(directory, ".git");
+  if (!marker) return false;
+  if (!marker.isDirectory()) return true;
+  const metadata = await fs.open(fdPath(directory, ".git"), DIR_FLAGS);
+  try {
+    return await hasGitLayout(metadata);
+  } finally {
+    await metadata.close();
   }
 }
 
@@ -427,19 +482,31 @@ export async function probeSecretDestination(
   try {
     const { parts, names } = checkDestination(command, config);
     const entry = matchAllowlist(await loadAllowlist(config), command, names);
+    const entrySha = allowlistEntrySha256(entry);
+    const expected = command.expectedDestination;
+    if (expected && expected.allowlistEntrySha256 !== entrySha) {
+      throw new SecretRefusal("allowlist-changed");
+    }
     const dirParts = parts.slice(0, -1);
     const fileName = parts[parts.length - 1]!;
     const chain = await openDirectoryChain(dirParts);
     opened.push(...chain.all);
-    await assertParentTrusted(chain.parent, config);
-    await sweepOrphans(chain.parent, config);
+    await assertParentTrusted(chain, config);
     const parentIdentity = await identityOf(chain.parent);
+    if (expected && !sameIdentity(parentIdentity, expected.parent)) {
+      throw new SecretRefusal("identity-changed");
+    }
+    if (!expected) await sweepOrphans(chain.parent, config);
     const target = await openTarget(chain.parent, fileName);
-    let fileIdentity: Identity | null = null;
-    let existing: string[] = [];
     if (target) {
       opened.push(target);
       await assertFileTrusted(target, config);
+    }
+    if (expected) return { outcome: "validated" };
+
+    let fileIdentity: Identity | null = null;
+    let existing: string[] = [];
+    if (target) {
       fileIdentity = await identityOf(target);
       let content: string;
       try {
@@ -452,7 +519,6 @@ export async function probeSecretDestination(
       }
       existing = presentNames(content, names);
     }
-    const entrySha = allowlistEntrySha256(entry);
     return {
       outcome: "ready",
       destRealpath: command.path,
@@ -570,7 +636,7 @@ async function commitUnserialized(
     if (!sameIdentity(await identityOf(parentHandle), command.parent)) {
       throw new SecretRefusal("identity-changed");
     }
-    await assertParentTrusted(parentHandle, config);
+    await assertParentTrusted(chain, config);
     await sweepOrphans(parentHandle, config);
     await step("parent-open");
 
@@ -601,7 +667,21 @@ async function commitUnserialized(
 
     const mergedBytes = Buffer.from(merged.content, "utf8");
     const mergedSha = sha256Hex(mergedBytes);
-    await sweepOrphans(parentHandle, config);
+    const currentEntry = matchAllowlist(
+      await loadAllowlist(config),
+      command,
+      names,
+    );
+    if (allowlistEntrySha256(currentEntry) !== entrySha) {
+      throw new SecretRefusal("allowlist-changed");
+    }
+    const writeChain = await openDirectoryChain(dirParts);
+    opened.push(...writeChain.all);
+    if (!sameIdentity(await identityOf(writeChain.parent), command.parent)) {
+      throw new SecretRefusal("identity-changed");
+    }
+    await assertParentTrusted(writeChain, config);
+    parentHandle = writeChain.parent;
     tmpName = `.bb-secret-${randomUUID()}.tmp`;
     activeName = tmpName;
     activeTempNames.add(tmpName);

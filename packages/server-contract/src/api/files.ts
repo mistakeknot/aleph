@@ -58,19 +58,28 @@ const secretRequestBindingRequestShape = {
   expiresAtMs: z.number().int().nonnegative(),
 };
 
-export const hostSecretProbeRequestSchema = z
-  .object(secretRequestBindingRequestShape)
-  .strict();
-export type HostSecretProbeRequest = z.infer<
-  typeof hostSecretProbeRequestSchema
->;
-
 const secretIdentityRequestSchema = z
   .object({
     dev: z.string().regex(/^[0-9]+$/),
     ino: z.string().regex(/^[0-9]+$/),
   })
   .strict();
+
+export const hostSecretProbeRequestSchema = z
+  .object({
+    ...secretRequestBindingRequestShape,
+    expectedDestination: z
+      .object({
+        parent: secretIdentityRequestSchema,
+        allowlistEntrySha256: z.string().regex(/^[0-9a-f]{64}$/),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type HostSecretProbeRequest = z.infer<
+  typeof hostSecretProbeRequestSchema
+>;
 
 export const hostSecretCommitRequestSchema = z
   .object({
