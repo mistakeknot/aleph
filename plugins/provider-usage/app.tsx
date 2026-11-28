@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   describeUsageBurn,
+  describeUnavailableUsageBurn,
   formatUsageBurnRate,
   formatUsageDuration,
   formatUsageReset,
@@ -307,7 +308,10 @@ function UsageWindow({
   const reset = formatUsageReset(window.resetsAt);
   const countdown = formatResetCountdown(window.resetsAt);
   const burn = usageBurnRate(window, now);
-  const burnSummary = burn === null ? null : describeUsageBurn(burn);
+  const burnSummary =
+    burn === null
+      ? describeUnavailableUsageBurn(window, now)
+      : describeUsageBurn(burn);
   const projected =
     burn === null ? null : usageProjectedPercent(window, burn, now);
   const usedWidth = Math.max(2, Math.min(100, window.usedPercent));
@@ -385,7 +389,7 @@ function UsageWindow({
           >
             {burn === null || burn.percentPerHour <= 0
               ? "—"
-              : formatUsageBurnRate(burn.percentPerHour) + "%/h"}
+              : "≈" + formatUsageBurnRate(burn.percentPerHour) + "%/h"}
           </span>
           <span
             aria-hidden="true"

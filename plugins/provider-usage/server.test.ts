@@ -112,7 +112,28 @@ it("preserves cached rows on source-list failure and marks all requested fetch f
               status: "ok",
               accountEmail: null,
               planLabel: null,
-              windows: [],
+              windows: [
+                {
+                  id: "weekly",
+                  label: "Weekly",
+                  kind: "weekly",
+                  usedPercent: 90,
+                  resetsAt: null,
+                  model: null,
+                  cost: null,
+                  observedAt: 67,
+                  limitReached: true,
+                },
+                {
+                  id: "daily",
+                  label: "Daily",
+                  kind: "daily",
+                  usedPercent: 15,
+                  resetsAt: null,
+                  model: null,
+                  cost: null,
+                },
+              ],
             },
           };
         },
@@ -129,6 +150,14 @@ it("preserves cached rows on source-list failure and marks all requested fetch f
   try {
     const initial = usageSnapshotSchema.parse(
       await host.harness.behavior.callRpc("getUsage", request),
+    );
+    const windows = initial.machines[0]?.providers[0]?.usage;
+    expect(windows).toMatchObject({
+      status: "ok",
+      windows: [{ observedAt: 67, limitReached: true }, { usedPercent: 15 }],
+    });
+    expect(windows?.status === "ok" && windows.windows[1]).not.toHaveProperty(
+      "observedAt",
     );
     listFails = true;
     const stale = usageSnapshotSchema.parse(

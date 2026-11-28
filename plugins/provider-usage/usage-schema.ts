@@ -10,6 +10,8 @@ export const usageWindowSchema = z.strictObject({
   kind: z.optional(z.enum(["five-hour", "daily", "weekly", "custom"])),
   label: nonemptyStringSchema,
   usedPercent: z.number(),
+  observedAt: z.optional(z.number().check(z.int(), z.nonnegative())),
+  limitReached: z.optional(z.boolean()),
   resetsAt: z.nullable(nonemptyStringSchema),
   cost: z.nullable(costSchema),
 });

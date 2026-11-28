@@ -4,9 +4,12 @@ Shows usage from enabled usage-source plugins in the sidebar. When a location ha
 more than one provider, the card opens on an **All** tab that stacks every provider
 tab's accounts, each marked with its provider icon. Provider tabs use provider icons,
 with each provider's accounts stacked under it. Each account shows its plan and,
-per usage window, a bar, the percent left, the burn rate and the time until reset
-(or "out" with the time until the window runs dry at the current pace). Hover,
-focus or tap a window for the full reset time and burn detail. A sort button orders
+per usage window, a bar, the percent left, an estimated average quota use per
+hour since the cycle began, and the time until reset. An “out” countdown appears
+when that average projects exhaustion before reset. The estimate uses one
+quota reading and its measurement time. Exhausted windows, readings older than
+one hour, elapsed resets, and insufficient data have no rate. Focus, hover or tap
+a window for the reset and estimate details. A sort button orders
 accounts by soonest to run out (the default) or groups them by provider; the choice
 is remembered.
 The card lists account metadata cheaply, then fetches the accounts on the selected

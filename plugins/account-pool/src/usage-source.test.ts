@@ -8,7 +8,7 @@ import {
   usageWindowLabel,
 } from "./usage-source.js";
 
-it("omits the failure reason from a healthy usage RPC result", async () => {
+it("returns each quota window’s own measurement time and refusal state", async () => {
   const account = {
     id: "fixture",
     provider: "claude",
@@ -18,8 +18,24 @@ it("omits the failure reason from a healthy usage RPC result", async () => {
     label: "Primary",
     subscriptionType: null,
     rateLimitTier: null,
-    limitWindows: [],
-    familyWeekly: {},
+    limitWindows: [
+      {
+        slot: "secondary",
+        windowMinutes: 10_080,
+        utilization: 0.91,
+        resetAt: 1_000,
+        observedAt: 20,
+        status: "rejected",
+      },
+    ],
+    familyWeekly: {
+      sonnet: {
+        utilization: 0.12,
+        resetAt: 2_000,
+        observedAt: 50,
+        status: null,
+      },
+    },
     observedAt: 123,
     error: null,
   };
@@ -34,7 +50,26 @@ it("omits the failure reason from a healthy usage RPC result", async () => {
       "provider-usage.v1.getResource",
       { resourceId: "fixture", refresh: false },
     );
-    expect(result).toMatchObject({ usage: { status: "ok" } });
+    expect(result).toMatchObject({
+      observedAt: 123,
+      usage: {
+        status: "ok",
+        windows: [
+          {
+            id: "secondary",
+            usedPercent: 91,
+            observedAt: 20,
+            limitReached: true,
+          },
+          {
+            id: "weekly:sonnet",
+            usedPercent: 12,
+            observedAt: 50,
+            limitReached: false,
+          },
+        ],
+      },
+    });
     expect(result).not.toHaveProperty("failureReason");
   } finally {
     await host.harness.lifecycle.dispose();

@@ -188,6 +188,7 @@ describe("provider usage footer disclosure", () => {
             kind: "weekly",
             label: "Weekly limit",
             usedPercent: usedPercent,
+            observedAt: Date.now(),
             resetsAt:
               email === "personal@example.com"
                 ? new Date(Date.now() + 51 * 60 * 60_000).toISOString()
@@ -588,9 +589,9 @@ describe("provider usage footer disclosure", () => {
       }),
     ).toBeTruthy();
     const pacedWindow = slot.getByRole("group", {
-      name: /^Weekly limit: 82% used\. Resets .*\. Burning 0\.7%\/hr · runs out in 1d 1h$/u,
+      name: /^Weekly limit: 82% used\. Resets .*\. Cycle average 0\.7%\/hr from one reading · projected to run out in 1d 1h$/u,
     });
-    expect(within(pacedWindow).getByText("0.7%/h")).toBeTruthy();
+    expect(within(pacedWindow).getByText("≈0.7%/h")).toBeTruthy();
     expect(within(pacedWindow).getByText("out 1d 1h")).toBeTruthy();
     expect(within(pacedWindow).queryByText("2d 3h")).toBeNull();
     expect(
@@ -599,7 +600,9 @@ describe("provider usage footer disclosure", () => {
     fireEvent.pointerMove(pacedWindow, { pointerType: "mouse" });
     await waitFor(() =>
       expect(
-        slot.getAllByText("Burning 0.7%/hr · runs out in 1d 1h").length,
+        slot.getAllByText(
+          "Cycle average 0.7%/hr from one reading · projected to run out in 1d 1h",
+        ).length,
       ).toBeGreaterThan(0),
     );
     fireEvent.pointerLeave(pacedWindow, { pointerType: "mouse" });
@@ -1082,6 +1085,7 @@ describe("provider usage panel layout", () => {
               kind,
               label: "Weekly limit",
               usedPercent,
+              observedAt: Date.now(),
               resetsAt:
                 resetsInMs === null
                   ? null
@@ -1144,6 +1148,32 @@ describe("provider usage panel layout", () => {
       ]);
       expect(view.getByRole("tab", { name: "All accounts" })).toBeTruthy();
     });
+
+    it.each([
+      [100, 2 * HOUR, 0, "Last reading reached the limit"],
+      [20, 2 * HOUR, 61 * 60_000, "Reading is too old to estimate"],
+      [20, 0, 5 * 60_000, "Awaiting a reading after reset"],
+      [1, 2 * HOUR, 0, "Insufficient quota data to estimate"],
+    ] as const)(
+      "shows quota without a forecast for %i%% used (%s, %s)",
+      (used, reset, age, detail) => {
+        const entry = account(
+          "claude-code",
+          "Claude Code",
+          "fixture@example.com",
+          used,
+          reset,
+        );
+        if (entry.usage?.status !== "ok")
+          throw new Error("Expected an observed quota window");
+        entry.usage.windows[0]!.observedAt = Date.now() - age;
+        const view = renderAccounts([entry]);
+        const row = view.getByRole("group", { name: new RegExp(detail, "u") });
+        expect(within(row).getByText(`${100 - used}% left`)).toBeTruthy();
+        expect(within(row).queryByText(/%\/h|^out /u)).toBeNull();
+        expect(within(row).queryByTestId("usage-projection")).toBeNull();
+      },
+    );
 
     it("persists the chosen grouping and restores it on the next mount", () => {
       const grouped = [
